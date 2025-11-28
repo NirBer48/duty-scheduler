@@ -29,7 +29,7 @@ A web application for scheduling people across duty shifts with support for mult
 - Manual editing of individual cells
 - Visual validation with color-coded cells
 
-### ES Groups (כ"כ - קצין כוננות)
+### ES Groups (כ"כ - כיתת כוננות)
 - Two special duty groups that span the entire schedule period
 - Configurable total people per group (default: 5 and 4)
 - Rule: Only 1 person from each group can be active per shift
@@ -256,14 +256,6 @@ To import people, create an Excel file with these columns:
 Supported values:
 - **gender**: M, F, X (or Hebrew: ז, נ)
 - **sameGenderPref**: TRUE/FALSE, YES/NO, 1/0, כן/לא
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
 
 ## License
 
