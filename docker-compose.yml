@@ -1,0 +1,29 @@
+services:
+  server:
+    build: ./server
+    container_name: duty-scheduler-server
+    ports:
+      - '4000:4000'
+    volumes:
+      - server-data:/app/data
+      - ./server/duty.db:/app/duty.db
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4000/api/people"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  client:
+    build: ./client
+    container_name: duty-scheduler-client
+    ports:
+      - '80:80'
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  server-data:
