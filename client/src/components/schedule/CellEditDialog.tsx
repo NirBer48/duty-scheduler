@@ -208,8 +208,8 @@ export const CellEditDialog: React.FC<Props> = ({
                         .map(person => {
                         const isSelected = selected.includes(person.id);
                         const restViolation = hasRestViolation(person.id);
-                        const esViolation = !isSelected ? hasESViolation(person.id) : null;
-                        const genderIssue = !isSelected ? checkGenderCompatibility(person.id) : null;
+                        const esViolation = hasESViolation(person.id);
+                        const genderIssue = checkGenderCompatibility(person.id);
                         const shiftConflict = hasSameShiftConflict(person.id);
                         const isDisabled = !isSelected && selected.length >= maxAllowed;
                         const esGroup = personToESGroup.get(person.id);
@@ -233,12 +233,12 @@ export const CellEditDialog: React.FC<Props> = ({
                                     }
                                     sx={{ opacity: isDisabled ? 0.5 : 1 }}
                                 />
-                                {isSelected && restViolation && (
+                                {restViolation && (
                                     <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
                                         ⚠️ {restViolation}
                                     </Typography>
                                 )}
-                                {!isSelected && esViolation && (
+                                {esViolation && (
                                     <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
                                         ⚠️ {esViolation}
                                     </Typography>
@@ -248,7 +248,7 @@ export const CellEditDialog: React.FC<Props> = ({
                                         ⚠️ {shiftConflict}
                                     </Typography>
                                 )}
-                                {!isSelected && genderIssue && (
+                                {genderIssue && (
                                     <Typography variant="caption" color="warning.main" sx={{ ml: 4, display: 'block' }}>
                                         ⚠️ {genderIssue}
                                     </Typography>

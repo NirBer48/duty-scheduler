@@ -10,6 +10,8 @@ import Container from '@mui/material/Container';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
+import TextField from '@mui/material/TextField';
+import Stack from '@mui/material/Stack';
 import { useI18n } from './util/i18n';
 import type { Post, Person, Assignment, ShiftOverride, ESGroupAssignment, ESGroup } from './types';
 
@@ -116,7 +118,7 @@ const App: React.FC = () => {
   const handleSchedule = async () => {
     const startISO = new Date(start).toISOString();
     const endISO = new Date(end).toISOString();
-    const res = await generateSchedule(startISO, endISO, shiftOverrides, esAssignments, assignments);
+    const res = await generateSchedule(startISO, endISO, shiftOverrides, esAssignments);
     setAssignments(res.assignments || []);
     setError(res.error || '');
     await Promise.all([refreshPeople(), refreshPosts()]);
@@ -164,14 +166,28 @@ const App: React.FC = () => {
           <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
             <Paper sx={{ p: 2, mb: 2 }}>
               <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
-              <Box display="flex" gap={2} alignItems="center" flexWrap="wrap">
-                <Typography>{t('Start')}:</Typography>
-                <input type="datetime-local" value={start} step={14400} onChange={e => setStart(e.target.value)} />
-                <Typography>{t('End')}:</Typography>
-                <input type="datetime-local" value={end} step={14400} onChange={e => setEnd(e.target.value)} />
+              <Stack direction="row" spacing={3} flexWrap="wrap" alignItems="center">
+                <TextField
+                  type="datetime-local"
+                  label={t('Start')}
+                  value={start}
+                  onChange={e => setStart(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  inputProps={{ step: 14400 }}
+                  size="small"
+                />
+                <TextField
+                  type="datetime-local"
+                  label={t('End')}
+                  value={end}
+                  onChange={e => setEnd(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  inputProps={{ step: 14400 }}
+                  size="small"
+                />
                 <Button onClick={handleSchedule} variant="contained">{t('Generate')}</Button>
                 <Button onClick={handleClearSchedule} variant="outlined" color="error">{t('Clear')}</Button>
-              </Box>
+              </Stack>
               {error && (
                 <Typography color="error" sx={{ mt: 2 }}>{t(error)}</Typography>
               )}

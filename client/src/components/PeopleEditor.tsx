@@ -17,7 +17,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
   const [gender, setGender] = useState<'F' | 'M' | 'X'>('M');
   const [sameGenderPref, setSameGenderPref] = useState(false);
   const [validationError, setValidationError] = useState('');
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
 
   const refreshPeople = async () => {
     const updated = await fetchPeople();
@@ -134,7 +134,8 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
           component="label" 
           variant="outlined"
           size="small"
-          endIcon={<UploadFileIcon />}
+          sx={{ gap: 1 }}
+          endIcon={<UploadFileIcon sx={{ transform: lang === 'he' ? 'scaleX(-1)' : 'none' }} />}
         >
           {t('Import')}
           <input type="file" hidden accept=".xlsx,.csv" onChange={handleImport} />
