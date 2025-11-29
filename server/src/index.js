@@ -7,21 +7,39 @@ import postsRoute from './routes/posts.js';
 import scheduleRoute from './routes/schedule.js';
 
 const app = express();
+const PORT = process.env.PORT || 4000;
+
 app.use(cors());
 app.use(express.json());
 
-(async () => {
-  // Open the SQLite database, create if not exists
-  const db = await open({
+const initDb = async () =>
+  open({
     filename: './duty.db',
-    driver: sqlite3.Database
+    driver: sqlite3.Database,
   });
-  app.locals.db = db;
 
-  app.use('/api/people', peopleRoute);
-  app.use('/api/posts', postsRoute);
-  app.use('/api/schedule', scheduleRoute);
-  app.get('/api/health', (req, res) => res.json({ ok: true }));
-  const port = process.env.PORT || 4000;
-  app.listen(port, () => console.log(`Server running on port ${port}`));
-})();
+const startServer = async () => {
+  try {
+    const db = await initDb();
+    app.locals.db = db;
+
+    app.use('/api/people', peopleRoute);
+    app.use('/api/posts', postsRoute);
+    app.use('/api/schedule', scheduleRoute);
+    app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+    app.use((err, _req, res, _next) => {
+      console.error(err);
+      res.status(500).json({ error: 'internal error' });
+    });
+
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server', error);
+    process.exit(1);
+  }
+};
+
+startServer();

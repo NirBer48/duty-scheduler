@@ -3,16 +3,15 @@ import utc from 'dayjs/plugin/utc.js';
 
 dayjs.extend(utc);
 
-/**
- * @param {Array} people - List of people
- * @param {Array} posts - List of posts
- * @param {string} startISO - Start date/time
- * @param {string} endISO - End date/time
- * @param {Array} shiftOverrides - Override requirements for specific shifts
- * @param {Array} esAssignments - ES group assignments [{ groupId: 'es1'|'es2', personIds: number[] }]
- * @param {Array} existingAssignments - Pre-existing assignments to keep [{ postId, personId, day, shiftLabel }]
- */
-export function scheduleGenerator(people, posts, startISO, endISO, shiftOverrides = [], esAssignments = [], existingAssignments = []) {
+export const scheduleGenerator = (
+  people,
+  posts,
+  startISO,
+  endISO,
+  shiftOverrides = [],
+  esAssignments = [],
+  existingAssignments = []
+) => {
   // Build all 4-hour shift time slots between start and end
   const shiftDefinitions = [
     { label: '00:00-04:00', startOffset: 0, endOffset: 4 },
@@ -23,13 +22,12 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
     { label: '20:00-00:00', startOffset: 20, endOffset: 24 },
   ];
 
-  // Helper to get required count for a specific post/day/shift (with overrides)
-  function getRequiredCount(postId, day, shiftLabel, defaultRequired) {
+  const getRequiredCount = (postId, day, shiftLabel, defaultRequired) => {
     const override = shiftOverrides.find(o => 
       o.postId === postId && o.day === day && o.shiftLabel === shiftLabel
     );
     return override ? override.requiredPerShift : defaultRequired;
-  }
+  };
 
   // Build ES group membership map: personId -> groupId
   const personToESGroup = new Map();
@@ -204,12 +202,9 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
     slotAssignments.get(key).add(Number(ea.personId));
   }
 
-  // Helper functions
-  function getShiftKey(day, shiftLabel) {
-    return `${day}|${shiftLabel}`;
-  }
+  const getShiftKey = (day, shiftLabel) => `${day}|${shiftLabel}`;
 
-  function canESMemberWorkAtShift(personId, day, shiftLabel) {
+  const canESMemberWorkAtShift = (personId, day, shiftLabel) => {
     const groupId = personToESGroup.get(personId);
     if (!groupId) return true;
     
@@ -222,30 +217,27 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
       }
     }
     return true;
-  }
+  };
 
-  function hasRestViolation(personId, slotIndex) {
+  const hasRestViolation = (personId, slotIndex) => {
     const shifts = personShifts.get(personId) || [];
     for (const shift of shifts) {
       const diff = Math.abs(slotIndex - shift.index);
-      // Each shift is 4 hours. Need 8 hours rest AFTER the 4h shift ends,
-      // so the next shift they can start is 12 hours later (diff >= 3).
       if (diff > 0 && diff < 3) {
         return true;
       }
     }
     return false;
-  }
+  };
 
-  function isExempt(person, slot) {
+  const isExempt = (person, slot) => {
     if (!person.exemptions) return false;
     if (person.exemptions.includes(String(slot.postId))) return true;
     if (person.exemptions.includes(`${slot.postId}|${slot.day}`)) return true;
     return false;
-  }
+  };
 
-  function canWork(person, slot) {
-    // Prevent double-booking on same shift
+  const canWork = (person, slot) => {
     const shiftKey = getShiftKey(slot.day, slot.shiftLabel);
     const assignedPeople = slotAssignments.get(shiftKey);
     if (assignedPeople?.has(person.id)) return false;
@@ -254,17 +246,16 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
     if (isExempt(person, slot)) return false;
     if (!canESMemberWorkAtShift(person.id, slot.day, slot.shiftLabel)) return false;
     return true;
-  }
+  };
 
-  function canPair(p1, p2) {
+  const canPair = (p1, p2) => {
     if (p1.sameGenderPref || p2.sameGenderPref) {
       return p1.gender === p2.gender;
     }
     return true;
-  }
+  };
 
-  // Helper to assign a candidate to a slot
-  function tryAssignToSlot(candidate, slot) {
+  const tryAssignToSlot = (candidate, slot) => {
     if (slot.stillNeeded <= 0) return false;
     if (!canWork(candidate, slot)) return false;
     
@@ -310,7 +301,7 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
     slotAssignments.get(shiftKey).add(candidate.id);
     
     return true;
-  }
+  };
 
   // Separate people into non-ES members and ES members
   const nonESMembers = people.filter(p => !personToESGroup.has(p.id));
@@ -376,4 +367,4 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
   }
 
   return { assignments };
-}
+};
