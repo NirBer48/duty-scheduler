@@ -9,7 +9,8 @@ import {
     FormControlLabel,
     Box,
     Typography,
-    Chip
+    Chip,
+    TextField
 } from "@mui/material";
 import { useI18n } from "../../util/i18n";
 import { Person, Post, Assignment, ESGroup, ESGroupAssignment } from "../../types";
@@ -47,6 +48,7 @@ export function CellEditDialog({
     esGroups 
 }: Props) {
     const [selected, setSelected] = useState<number[]>(currentPersonIds);
+    const [search, setSearch] = useState('');
     const { t } = useI18n();
     const maxAllowed = requiredCount;
 
@@ -61,6 +63,7 @@ export function CellEditDialog({
 
     useEffect(() => {
         setSelected(currentPersonIds);
+        setSearch('');
     }, [currentPersonIds, open]);
 
     const hasRestViolation = (personId: number): string | null => {
@@ -175,8 +178,23 @@ export function CellEditDialog({
                 <Typography variant="body2" color={selected.length === maxAllowed ? "success.main" : "warning.main"} sx={{ mb: 2 }}>
                     {t('Selected')}: {selected.length} / {maxAllowed}
                 </Typography>
+                <TextField
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder={t('Search people')}
+                    fullWidth
+                    size="small"
+                    sx={{ mb: 2 }}
+                />
+                <Box sx={{ maxHeight: 300, overflowY: 'auto', pr: 1 }}>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {people.map(person => {
+                    {people
+                        .filter(person => {
+                            if (!search.trim()) return true;
+                            const query = search.toLowerCase();
+                            return person.name.toLowerCase().includes(query) || person.gender.toLowerCase().includes(query);
+                        })
+                        .map(person => {
                         const isSelected = selected.includes(person.id);
                         const restViolation = hasRestViolation(person.id);
                         const esViolation = !isSelected ? hasESViolation(person.id) : null;
@@ -221,6 +239,7 @@ export function CellEditDialog({
                             </Box>
                         );
                     })}
+                </Box>
                 </Box>
             </DialogContent>
             <DialogActions>

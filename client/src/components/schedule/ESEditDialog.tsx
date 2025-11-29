@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
     Dialog,
     DialogTitle,
@@ -36,10 +36,12 @@ export function ESEditDialog({
     const [selected, setSelected] = useState<number[]>(currentPersonIds);
     const [totalPeople, setTotalPeople] = useState(group.totalPeople);
     const { t } = useI18n();
+    const [search, setSearch] = useState('');
 
     useEffect(() => {
         setSelected(currentPersonIds);
         setTotalPeople(group.totalPeople);
+        setSearch('');
     }, [currentPersonIds, group.totalPeople, open]);
 
     const handleToggle = (personId: number) => {
@@ -61,7 +63,19 @@ export function ESEditDialog({
     };
 
     // Filter out people already in the other ES group
-    const availablePeople = people.filter(p => !otherESPersonIds.includes(p.id));
+    const availablePeople = useMemo(
+        () => people.filter(p => !otherESPersonIds.includes(p.id)),
+        [people, otherESPersonIds]
+    );
+
+    const filteredPeople = availablePeople.filter(person => {
+        if (!search.trim()) return true;
+        const query = search.toLowerCase();
+        return (
+            person.name.toLowerCase().includes(query) ||
+            person.gender.toLowerCase().includes(query)
+        );
+    });
 
     return (
         <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
@@ -92,8 +106,16 @@ export function ESEditDialog({
                 <Typography variant="body2" color={selected.length === totalPeople ? "success.main" : "warning.main"} sx={{ mb: 2 }}>
                     {t('Selected')}: {selected.length} / {totalPeople}
                 </Typography>
+                <TextField
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder={t('Search people')}
+                    fullWidth
+                    size="small"
+                    sx={{ mb: 2 }}
+                />
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 300, overflow: 'auto' }}>
-                    {availablePeople.map(person => {
+                    {filteredPeople.map(person => {
                         const isSelected = selected.includes(person.id);
                         const isDisabled = !isSelected && selected.length >= totalPeople;
 
