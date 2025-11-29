@@ -65,11 +65,13 @@ export function CellEditDialog({
 
     const hasRestViolation = (personId: number): string | null => {
         const currentShiftIdx = getShiftIndex(day, shiftLabel, allShifts);
-        
+
         // Check shifts within 2 positions (8 hours) before and after
         const offsets = [-2, -1, 1, 2];
+
         for (const offset of offsets) {
             const idx = currentShiftIdx + offset;
+
             if (idx >= 0 && idx < allShifts.length) {
                 const nearbyShift = allShifts[idx];
                 const hasAssignment = allAssignments.some(a =>
@@ -78,6 +80,7 @@ export function CellEditDialog({
                     a.shiftLabel === nearbyShift.label &&
                     !(a.day === day && a.shiftLabel === shiftLabel && a.postId === post.id)
                 );
+
                 if (hasAssignment) {
                     return `${t('Rest violation')}: ${nearbyShift.day} ${nearbyShift.label}`;
                 }
@@ -89,6 +92,7 @@ export function CellEditDialog({
 
     const hasESViolation = (personId: number): string | null => {
         const personGroup = personToESGroup.get(personId);
+
         if (!personGroup) return null;
 
         const esGroupMembers = esAssignments.find(es => es.groupId === personGroup.id)?.personIds || [];
@@ -115,6 +119,7 @@ export function CellEditDialog({
 
     const checkGenderCompatibility = (personId: number): string | null => {
         const person = people.find(p => p.id === personId);
+
         if (!person) return null;
 
         if (person.sameGenderPreference) {
@@ -129,7 +134,9 @@ export function CellEditDialog({
 
         for (const selectedId of selected) {
             if (selectedId === personId) continue;
+
             const selectedPerson = people.find(p => p.id === selectedId);
+            
             if (selectedPerson?.sameGenderPreference && selectedPerson.gender !== person?.gender) {
                 return `${selectedPerson.name} ${t('requires same gender')}`;
             }
