@@ -20,11 +20,18 @@ const STORAGE_KEY_ES_ASSIGNMENTS = 'duty_scheduler_es_assignments';
 const STORAGE_KEY_ES_GROUPS = 'duty_scheduler_es_groups';
 const STORAGE_KEY_SHIFT_OVERRIDES = 'duty_scheduler_shift_overrides';
 
-// Get the closest 20:00 (either today if before 20:00, or yesterday if after)
-function getDefaultStart() {
-  const saved = localStorage.getItem(STORAGE_KEY_START);
-  if (saved) return saved;
-  
+// Format date as local datetime-local string (YYYY-MM-DDTHH:MM)
+function formatLocalDateTime(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+// Calculate the most recent 20:00 (start of current duty cycle)
+function calculateDefaultStart(): string {
   const now = new Date();
   const d = new Date(now);
   
@@ -36,14 +43,11 @@ function getDefaultStart() {
     d.setDate(d.getDate() - 1);
   }
   
-  return d.toISOString().slice(0, 16);
+  return formatLocalDateTime(d);
 }
 
-// Get 20:00 the next day from start
-function getDefaultEnd() {
-  const saved = localStorage.getItem(STORAGE_KEY_END);
-  if (saved) return saved;
-  
+// Calculate 20:00 the next day (end of current duty cycle - 24 hours = 6 shifts)
+function calculateDefaultEnd(): string {
   const now = new Date();
   const d = new Date(now);
   
@@ -56,7 +60,27 @@ function getDefaultEnd() {
     d.setDate(d.getDate() + 1);
   }
   
-  return d.toISOString().slice(0, 16);
+  return formatLocalDateTime(d);
+}
+
+// Get saved start or calculate default
+function getDefaultStart() {
+  const saved = localStorage.getItem(STORAGE_KEY_START);
+  // Only use saved value if it's at 20:00, otherwise recalculate
+  if (saved && saved.endsWith('T20:00')) return saved;
+  const newDefault = calculateDefaultStart();
+  localStorage.setItem(STORAGE_KEY_START, newDefault);
+  return newDefault;
+}
+
+// Get saved end or calculate default
+function getDefaultEnd() {
+  const saved = localStorage.getItem(STORAGE_KEY_END);
+  // Only use saved value if it's at 20:00, otherwise recalculate
+  if (saved && saved.endsWith('T20:00')) return saved;
+  const newDefault = calculateDefaultEnd();
+  localStorage.setItem(STORAGE_KEY_END, newDefault);
+  return newDefault;
 }
 
 function loadFromStorage<T>(key: string, defaultValue: T): T {
@@ -120,8 +144,15 @@ export default function App() {
   const handleClearSchedule = async () => {
     if (window.confirm(t('Are you sure you want to clear the schedule?'))) {
       setAssignments([]);
-      setShiftOverrides([]);
-      // Don't clear ES assignments - they persist across schedules
+      // Keep shiftOverrides - they should persist across clears
+      // Clear ES assignments as well
+      setESAssignments([
+        { groupId: 'es1', personIds: [] },
+        { groupId: 'es2', personIds: [] },
+      ]);
+      // Reset dates to default (20:00 to 20:00)
+      setStart(calculateDefaultStart());
+      setEnd(calculateDefaultEnd());
       setError('');
       await clearSchedule();
     }

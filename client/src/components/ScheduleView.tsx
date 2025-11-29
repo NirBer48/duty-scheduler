@@ -28,6 +28,8 @@ interface Props {
     onShiftOverridesChange?: (overrides: ShiftOverride[]) => void;
     esAssignments?: ESGroupAssignment[];
     onESAssignmentsChange?: (esAssignments: ESGroupAssignment[]) => void;
+    esGroups?: ESGroup[];
+    onESGroupsChange?: (esGroups: ESGroup[]) => void;
 }
 
 const ScheduleCalendar: React.FC<Props> = ({ 
@@ -40,24 +42,35 @@ const ScheduleCalendar: React.FC<Props> = ({
     shiftOverrides: externalOverrides = [],
     onShiftOverridesChange,
     esAssignments: externalESAssignments,
-    onESAssignmentsChange
+    onESAssignmentsChange,
+    esGroups: externalESGroups,
+    onESGroupsChange
 }) => {
     const shifts = getShiftsForPeriod(start, end);
     const { t, lang } = useI18n();
 
-    // ES Groups state
-    const [esGroups, setESGroups] = useState<ESGroup[]>([
+    // ES Groups state - use external if provided
+    const [localESGroups, setLocalESGroups] = useState<ESGroup[]>([
         { id: 'es1', name: lang === 'he' ? "כ\"כ א'" : "ES 1", totalPeople: 5, activePerShift: 1 },
         { id: 'es2', name: lang === 'he' ? "כ\"כ ב'" : "ES 2", totalPeople: 4, activePerShift: 1 },
     ]);
+    
+    const esGroups = onESGroupsChange && externalESGroups ? externalESGroups : localESGroups;
+    const setESGroups = onESGroupsChange || setLocalESGroups;
 
     useEffect(() => {
-        setESGroups(prev => prev.map(g => ({
+        const updateNames = (groups: ESGroup[]) => groups.map(g => ({
             ...g,
             name: g.id === 'es1'
                 ? (lang === 'he' ? "כ\"כ א'" : "ES 1")
                 : (lang === 'he' ? "כ\"כ ב'" : "ES 2")
-        })));
+        }));
+        
+        if (onESGroupsChange && externalESGroups) {
+            onESGroupsChange(updateNames(externalESGroups));
+        } else {
+            setLocalESGroups(prev => updateNames(prev));
+        }
     }, [lang]);
 
     // Local state
@@ -225,9 +238,15 @@ const ScheduleCalendar: React.FC<Props> = ({
             setLocalESAssignments(newESAssignments);
         }
 
-        setESGroups(prev => prev.map(g =>
+        const updatedGroups = esGroups.map(g =>
             g.id === esEditDialog.group!.id ? { ...g, totalPeople } : g
-        ));
+        );
+        
+        if (onESGroupsChange) {
+            onESGroupsChange(updatedGroups);
+        } else {
+            setLocalESGroups(updatedGroups);
+        }
 
         setHasChanges(true);
         setValidationErrors([]);

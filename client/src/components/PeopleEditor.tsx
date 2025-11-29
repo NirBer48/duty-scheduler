@@ -135,7 +135,7 @@ export default function PeopleEditor({ onUpdate }: Props) {
           component="label" 
           variant="outlined"
           size="small"
-          endIconIcon={<UploadFileIcon />}
+          endIcon={<UploadFileIcon />}
         >
           {t('Import')}
           <input type="file" hidden accept=".xlsx,.csv" onChange={handleImport} />

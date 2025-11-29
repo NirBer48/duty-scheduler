@@ -60,6 +60,8 @@ const translations = {
     'Imported': 'Imported',
     'Skipped': 'Skipped',
     'Import failed': 'Import failed',
+    'Clear': 'Clear',
+    'Are you sure you want to clear the schedule?': 'Are you sure you want to clear the schedule?',
   },
   he: {
     'Duty Scheduler': 'סידור תורנויות',
@@ -119,6 +121,8 @@ const translations = {
     'Imported': 'יובאו',
     'Skipped': 'דולגו',
     'Import failed': 'הייבוא נכשל',
+    'Clear': 'נקה',
+    'Are you sure you want to clear the schedule?': 'האם אתה בטוח שברצונך לנקות את הסידור?',
   }
 };
 
@@ -138,7 +142,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLang] = useState<'en' | 'he'>('he');
   const rtl = lang === 'he';
   const theme = useMemo(() => createTheme({ direction: rtl ? 'rtl' : 'ltr' }), [rtl]);
-  const t = (k: string) => translations[lang][k] || k;
+  const t = (k: string) => (translations[lang] as Record<string, string>)[k] || k;
 
   return (
     <I18nContext.Provider value={{ lang, rtl, setLang, t }}>

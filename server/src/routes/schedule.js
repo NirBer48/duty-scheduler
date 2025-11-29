@@ -5,14 +5,15 @@ const router = express.Router();
 router.post('/generate', async (req, res) => {
   try {
     const db = req.app.locals.db;
-    const { startISO, endISO, shiftOverrides = [], esAssignments = [] } = req.body;
+    const { startISO, endISO, shiftOverrides = [], esAssignments = [], existingAssignments = [] } = req.body;
     
     // Debug: Log ES assignments received
     console.log('ES Assignments received:', JSON.stringify(esAssignments, null, 2));
+    console.log('Existing assignments received:', existingAssignments.length);
     
     const people = (await db.all('SELECT * FROM people')).map(r => ({...r, sameGenderPref: Boolean(r.sameGenderPref), exemptions: JSON.parse(r.exemptions || '[]') }));
     const posts = (await db.all('SELECT * FROM posts')).map(r => ({...r, optional: Boolean(r.optional)}));
-    const result = scheduleGenerator(people, posts, startISO, endISO, shiftOverrides, esAssignments);
+    const result = scheduleGenerator(people, posts, startISO, endISO, shiftOverrides, esAssignments, existingAssignments);
 
     if (result.error) {
       return res.json({ assignments: [], error: result.error });
@@ -93,6 +94,18 @@ router.get('/last', async (req, res) => {
   const db = req.app.locals.db;
   const rows = await db.all('SELECT * FROM assignments');
   res.json(rows);
+});
+
+// Clear all assignments
+router.delete('/clear', async (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    await db.run('DELETE FROM assignments');
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.json({ ok: false, error: err.message });
+  }
 });
 
 export default router;

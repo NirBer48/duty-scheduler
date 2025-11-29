@@ -38,11 +38,20 @@ export async function generateSchedule(
   startISO: string, 
   endISO: string, 
   shiftOverrides: { postId: number; day: string; shiftLabel: string; requiredPerShift: number }[] = [],
-  esAssignments: { groupId: string; personIds: number[] }[] = []
+  esAssignments: { groupId: string; personIds: number[] }[] = [],
+  existingAssignments: { postId: number; personId: number; day: string; shiftLabel: string }[] = []
 ) { 
   return fetch(BASE + '/schedule/generate', { 
     method: 'POST', 
     headers: { 'Content-Type': 'application/json' }, 
-    body: JSON.stringify({ startISO, endISO, shiftOverrides, esAssignments }) 
+    body: JSON.stringify({ startISO, endISO, shiftOverrides, esAssignments, existingAssignments }) 
   }).then(r => r.json()); 
+}
+
+export async function fetchLastSchedule() {
+  return fetch(BASE + '/schedule/last').then(r => r.json());
+}
+
+export async function clearSchedule() {
+  return fetch(BASE + '/schedule/clear', { method: 'DELETE' }).then(r => r.json());
 }
