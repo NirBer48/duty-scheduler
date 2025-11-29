@@ -120,6 +120,17 @@ export const CellEditDialog: React.FC<Props> = ({
         return null;
     };
 
+    const hasSameShiftConflict = (personId: number): string | null => {
+        const conflict = allAssignments.some(
+            a =>
+                a.personId === personId &&
+                a.day === day &&
+                a.shiftLabel === shiftLabel &&
+                a.postId !== post.id
+        );
+        return conflict ? t('already in shift') : null;
+    };
+
     const checkGenderCompatibility = (personId: number): string | null => {
         const person = people.find(p => p.id === personId);
 
@@ -199,6 +210,7 @@ export const CellEditDialog: React.FC<Props> = ({
                         const restViolation = hasRestViolation(person.id);
                         const esViolation = !isSelected ? hasESViolation(person.id) : null;
                         const genderIssue = !isSelected ? checkGenderCompatibility(person.id) : null;
+                        const shiftConflict = hasSameShiftConflict(person.id);
                         const isDisabled = !isSelected && selected.length >= maxAllowed;
                         const esGroup = personToESGroup.get(person.id);
 
@@ -229,6 +241,11 @@ export const CellEditDialog: React.FC<Props> = ({
                                 {!isSelected && esViolation && (
                                     <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
                                         ⚠️ {esViolation}
+                                    </Typography>
+                                )}
+                                {shiftConflict && (
+                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                        ⚠️ {shiftConflict}
                                     </Typography>
                                 )}
                                 {!isSelected && genderIssue && (
