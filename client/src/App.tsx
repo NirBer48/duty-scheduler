@@ -111,7 +111,7 @@ export default function App() {
   const [esGroups, setESGroups] = useState<ESGroup[]>(() =>
     loadFromStorage(STORAGE_KEY_ES_GROUPS, [
       { id: 'es1', name: "כ\"כ א'", totalPeople: 5, activePerShift: 1 },
-      { id: 'es2', name: "כ\"כ ב'", totalPeople: 4, activePerShift: 1 },
+      { id: 'es2', name: "כ\"כ ב'", totalPeople: 5, activePerShift: 1 },
     ])
   );
   const [start, setStart] = useState(getDefaultStart);

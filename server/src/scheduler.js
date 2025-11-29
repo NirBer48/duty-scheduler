@@ -32,7 +32,6 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
   }
 
   // Build ES group membership map: personId -> groupId
-  // Ensure personIds are numbers for consistent lookup
   const personToESGroup = new Map();
   for (const es of esAssignments) {
     for (const personId of es.personIds) {
@@ -41,54 +40,18 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
     }
   }
 
-  // Track ES group members working at each shift: `${day}|${shiftLabel}` -> Set of groupIds that have someone working
-  const esGroupWorkingAtShift = new Map();
-
-  // Helper to get the shift key
-  function getShiftKey(day, shiftLabel) {
-    return `${day}|${shiftLabel}`;
-  }
-
-  // Helper to check if an ES group member can work at a shift
-  function canESMemberWork(personId, day, shiftLabel) {
-    const groupId = personToESGroup.get(personId);
-    if (!groupId) return true; // Not in an ES group, no restriction
-    
-    const shiftKey = getShiftKey(day, shiftLabel);
-    const workingGroups = esGroupWorkingAtShift.get(shiftKey);
-    
-    if (!workingGroups) return true; // No one from any ES group working yet
-    
-    // Check if someone from this person's ES group is already working
-    return !workingGroups.has(groupId);
-  }
-
-  // Helper to mark an ES group member as working at a shift
-  function markESMemberWorking(personId, day, shiftLabel) {
-    const groupId = personToESGroup.get(personId);
-    if (!groupId) return; // Not in an ES group
-    
-    const shiftKey = getShiftKey(day, shiftLabel);
-    if (!esGroupWorkingAtShift.has(shiftKey)) {
-      esGroupWorkingAtShift.set(shiftKey, new Set());
-    }
-    esGroupWorkingAtShift.get(shiftKey).add(groupId);
-  }
-
-  // Track per-person: last shift end time and total shift count
-  const lastEndByPerson = {};
+  // Track per-person: assigned shifts (for rest tracking) and total shift count
+  const personShifts = new Map(); // personId -> array of { start, end, day, shiftLabel }
   const shiftCountByPerson = {};
   people.forEach(p => {
-    lastEndByPerson[p.id] = null;
+    personShifts.set(p.id, []);
     shiftCountByPerson[p.id] = 0;
   });
 
   // Build list of all shift time slots in the date range
   const timeSlots = [];
   
-  // Parse start and end, work in local time
   let curr = dayjs(startISO);
-  // Round down to nearest 4-hour boundary
   const startHour = curr.hour();
   const roundedHour = Math.floor(startHour / 4) * 4;
   curr = curr.hour(roundedHour).minute(0).second(0).millisecond(0);
@@ -99,7 +62,6 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
     const h = curr.hour();
     const sh = shiftDefinitions.find(s => s.startOffset === h);
     if (sh) {
-      // Get the date part directly from the current datetime (local time)
       const year = curr.year();
       const month = String(curr.month() + 1).padStart(2, '0');
       const date = String(curr.date()).padStart(2, '0');
@@ -114,9 +76,16 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
         shiftLabel: sh.label,
         start: shiftStart,
         end: shiftEnd,
+        index: timeSlots.length,
       });
     }
     curr = curr.add(4, 'hour');
+  }
+
+  // Create a lookup for time slot index by day+shiftLabel
+  const timeSlotIndex = new Map();
+  for (const ts of timeSlots) {
+    timeSlotIndex.set(`${ts.day}|${ts.shiftLabel}`, ts.index);
   }
 
   // Create a map of existing assignments by slot key
@@ -129,60 +98,145 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
     existingBySlot.get(key).push(Number(ea.personId));
   }
 
-  // Pre-process existing assignments to update tracking
-  // Sort existing assignments by time to maintain proper rest tracking
-  const sortedExisting = [...existingAssignments].sort((a, b) => {
-    const aTs = timeSlots.find(ts => ts.day === a.day && ts.shiftLabel === a.shiftLabel);
-    const bTs = timeSlots.find(ts => ts.day === b.day && ts.shiftLabel === b.shiftLabel);
-    if (!aTs || !bTs) return 0;
-    return aTs.start.localeCompare(bTs.start);
-  });
-
-  for (const ea of sortedExisting) {
+  // Pre-process existing assignments - track ALL existing assignments for rest checking
+  for (const ea of existingAssignments) {
     const personId = Number(ea.personId);
-    const ts = timeSlots.find(t => t.day === ea.day && t.shiftLabel === ea.shiftLabel);
-    if (ts) {
-      // Update last end time for rest tracking
-      if (!lastEndByPerson[personId] || ts.end > lastEndByPerson[personId]) {
-        lastEndByPerson[personId] = ts.end;
-      }
-      shiftCountByPerson[personId] = (shiftCountByPerson[personId] || 0) + 1;
-      
-      // Mark ES member as working
-      markESMemberWorking(personId, ea.day, ea.shiftLabel);
+    const tsKey = `${ea.day}|${ea.shiftLabel}`;
+    const tsIdx = timeSlotIndex.get(tsKey);
+    
+    // Initialize person if not in people list (shouldn't happen but be safe)
+    if (!personShifts.has(personId)) {
+      personShifts.set(personId, []);
     }
+    if (shiftCountByPerson[personId] === undefined) {
+      shiftCountByPerson[personId] = 0;
+    }
+    
+    // Find or calculate the time slot info
+    const ts = timeSlots.find(t => t.day === ea.day && t.shiftLabel === ea.shiftLabel);
+    
+    if (ts) {
+      // Slot is within our time range
+      personShifts.get(personId).push({
+        start: ts.start,
+        end: ts.end,
+        day: ea.day,
+        shiftLabel: ea.shiftLabel,
+        index: ts.index,
+      });
+    } else {
+      // Slot is outside our time range - still need to track for rest violations
+      // Calculate a virtual index based on the shift time
+      const shiftDef = shiftDefinitions.find(s => s.label === ea.shiftLabel);
+      if (shiftDef) {
+        // Parse the day and calculate relative position
+        const slotDate = dayjs(ea.day).hour(shiftDef.startOffset);
+        const firstSlotDate = dayjs(timeSlots[0]?.start || startISO);
+        const hoursDiff = slotDate.diff(firstSlotDate, 'hour');
+        const virtualIndex = Math.floor(hoursDiff / 4);
+        
+        personShifts.get(personId).push({
+          start: slotDate.toISOString(),
+          end: slotDate.add(4, 'hour').toISOString(),
+          day: ea.day,
+          shiftLabel: ea.shiftLabel,
+          index: virtualIndex,
+        });
+      }
+    }
+    
+    shiftCountByPerson[personId]++;
   }
 
-  // For each time slot, for each post, create ONE entry to fill
+  // Build all slots that need to be filled
   const slotsToFill = [];
   for (const ts of timeSlots) {
     for (const post of posts) {
-      // Get required count, checking for overrides
       const required = getRequiredCount(post.id, ts.day, ts.shiftLabel, post.requiredPerShift);
-      slotsToFill.push({
-        day: ts.day,
-        shiftLabel: ts.shiftLabel,
+      const slotKey = `${post.id}|${ts.day}|${ts.shiftLabel}`;
+      const existingCount = (existingBySlot.get(slotKey) || []).length;
+      const stillNeeded = required - existingCount;
+      
+      if (stillNeeded > 0) {
+        slotsToFill.push({
+          day: ts.day,
+          shiftLabel: ts.shiftLabel,
+          start: ts.start,
+          end: ts.end,
+          index: ts.index,
+          postId: post.id,
+          postName: post.name,
+          required: required,
+          stillNeeded: stillNeeded,
+          optional: !!post.optional || required === 0,
+        });
+      }
+    }
+  }
+
+  // Sort slots by time
+  slotsToFill.sort((a, b) => a.start.localeCompare(b.start));
+
+  const assignments = [];
+  
+  // Copy existing assignments to final list
+  for (const ea of existingAssignments) {
+    const ts = timeSlots.find(t => t.day === ea.day && t.shiftLabel === ea.shiftLabel);
+    if (ts) {
+      assignments.push({
+        postId: Number(ea.postId),
+        personId: Number(ea.personId),
+        shiftLabel: ea.shiftLabel,
         start: ts.start,
         end: ts.end,
-        postId: post.id,
-        postName: post.name,
-        required: required,
-        optional: !!post.optional || required === 0,
+        day: ea.day,
       });
     }
   }
 
-  // Sort: process by time first, then mandatory posts before optional
-  slotsToFill.sort((a, b) => {
-    const timeCompare = a.start.localeCompare(b.start);
-    if (timeCompare !== 0) return timeCompare;
-    return a.optional - b.optional;
-  });
+  // Track assignments per slot for ES group checking
+  const slotAssignments = new Map(); // `${day}|${shiftLabel}` -> Set of personIds
+  for (const ea of existingAssignments) {
+    const key = `${ea.day}|${ea.shiftLabel}`;
+    if (!slotAssignments.has(key)) {
+      slotAssignments.set(key, new Set());
+    }
+    slotAssignments.get(key).add(Number(ea.personId));
+  }
 
-  const assignments = [];
-  let unfilledMandatory = false;
+  // Helper functions
+  function getShiftKey(day, shiftLabel) {
+    return `${day}|${shiftLabel}`;
+  }
 
-  // Constraint helpers
+  function canESMemberWorkAtShift(personId, day, shiftLabel) {
+    const groupId = personToESGroup.get(personId);
+    if (!groupId) return true;
+    
+    const key = getShiftKey(day, shiftLabel);
+    const assignedPeople = slotAssignments.get(key) || new Set();
+    
+    for (const assignedId of assignedPeople) {
+      if (assignedId !== personId && personToESGroup.get(assignedId) === groupId) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function hasRestViolation(personId, slotIndex) {
+    const shifts = personShifts.get(personId) || [];
+    for (const shift of shifts) {
+      const diff = Math.abs(slotIndex - shift.index);
+      // Each shift is 4 hours. Need 8 hours rest AFTER the 4h shift ends,
+      // so the next shift they can start is 12 hours later (diff >= 3).
+      if (diff > 0 && diff < 3) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function isExempt(person, slot) {
     if (!person.exemptions) return false;
     if (person.exemptions.includes(String(slot.postId))) return true;
@@ -191,144 +245,132 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
   }
 
   function canWork(person, slot) {
-    // Check 8-hour rest rule
-    if (lastEndByPerson[person.id]) {
-      const lastEnd = dayjs(lastEndByPerson[person.id]);
-      const currStart = dayjs(slot.start);
-      const hoursDiff = currStart.diff(lastEnd, 'hour', true);
-      if (hoursDiff < 8) {
-        return false;
-      }
-    }
-    // Check exemptions
+    // Prevent double-booking on same shift
+    const shiftKey = getShiftKey(slot.day, slot.shiftLabel);
+    const assignedPeople = slotAssignments.get(shiftKey);
+    if (assignedPeople?.has(person.id)) return false;
+
+    if (hasRestViolation(person.id, slot.index)) return false;
     if (isExempt(person, slot)) return false;
-    
-    // Check ES group constraint - only 1 person from each ES group per shift
-    if (!canESMemberWork(person.id, slot.day, slot.shiftLabel)) {
-      return false;
-    }
-    
+    if (!canESMemberWorkAtShift(person.id, slot.day, slot.shiftLabel)) return false;
     return true;
   }
 
   function canPair(p1, p2) {
-    // Same gender preference check for pairing
     if (p1.sameGenderPref || p2.sameGenderPref) {
       return p1.gender === p2.gender;
     }
     return true;
   }
 
-  // For each slot, assign exactly `required` people
-  for (const slot of slotsToFill) {
-    const needed = slot.required;
-    const assigned = [];
+  // Helper to assign a candidate to a slot
+  function tryAssignToSlot(candidate, slot) {
+    if (slot.stillNeeded <= 0) return false;
+    if (!canWork(candidate, slot)) return false;
     
-    // Track ES groups already assigned in THIS slot (for same-slot multi-person assignments)
-    const esGroupsInThisSlot = new Set();
-    
-    // Check for existing assignments for this slot
     const slotKey = `${slot.postId}|${slot.day}|${slot.shiftLabel}`;
-    const existingPersonIds = existingBySlot.get(slotKey) || [];
+    const existingInSlot = existingBySlot.get(slotKey) || [];
+    if (existingInSlot.includes(candidate.id)) return false;
     
-    // Add existing assignments first
-    for (const personId of existingPersonIds) {
-      const person = people.find(p => p.id === personId);
-      if (person) {
-        assigned.push(person);
-        const groupId = personToESGroup.get(personId);
-        if (groupId) {
-          esGroupsInThisSlot.add(groupId);
-        }
-        
-        // Add to final assignments
-        assignments.push({
-          postId: slot.postId,
-          personId: person.id,
-          shiftLabel: slot.shiftLabel,
-          start: slot.start,
-          end: slot.end,
-          day: slot.day,
-        });
-      }
+    // Check same-gender pairing if needed
+    const assignedToThisPost = assignments.filter(a => 
+      a.postId === slot.postId && a.day === slot.day && a.shiftLabel === slot.shiftLabel
+    );
+    
+    if (assignedToThisPost.length > 0) {
+      const firstPerson = people.find(p => p.id === assignedToThisPost[0].personId);
+      if (firstPerson && !canPair(firstPerson, candidate)) return false;
     }
     
-    // Helper to check if person can be assigned to this specific slot
-    function canAssignToThisSlot(personId) {
-      const groupId = personToESGroup.get(personId);
-      if (!groupId) return true;
-      
-      if (esGroupsInThisSlot.has(groupId)) return false;
-      
-      return canESMemberWork(personId, slot.day, slot.shiftLabel);
-    }
+    // Assign this candidate to this slot
+    assignments.push({
+      postId: slot.postId,
+      personId: candidate.id,
+      shiftLabel: slot.shiftLabel,
+      start: slot.start,
+      end: slot.end,
+      day: slot.day,
+    });
     
-    // Helper to mark person as assigned to this slot
-    function markAssignedToSlot(personId) {
-      const groupId = personToESGroup.get(personId);
-      if (groupId) {
-        esGroupsInThisSlot.add(groupId);
-      }
+    // Update tracking
+    personShifts.get(candidate.id).push({
+      start: slot.start,
+      end: slot.end,
+      day: slot.day,
+      shiftLabel: slot.shiftLabel,
+      index: slot.index,
+    });
+    shiftCountByPerson[candidate.id]++;
+    slot.stillNeeded--;
+    
+    const shiftKey = getShiftKey(slot.day, slot.shiftLabel);
+    if (!slotAssignments.has(shiftKey)) {
+      slotAssignments.set(shiftKey, new Set());
     }
+    slotAssignments.get(shiftKey).add(candidate.id);
+    
+    return true;
+  }
 
-    // Only fill remaining slots if we need more people
-    const stillNeeded = needed - assigned.length;
+  // Separate people into non-ES members and ES members
+  const nonESMembers = people.filter(p => !personToESGroup.has(p.id));
+  const esMembers = people.filter(p => personToESGroup.has(p.id));
+
+  // Combined assignment loop - prioritize non-ES members but use ES when needed
+  let madeProgress = true;
+  while (madeProgress) {
+    madeProgress = false;
     
-    if (stillNeeded > 0) {
-      // Get eligible candidates sorted by least shifts (equal distribution)
-      let candidates = people
+    // Check if there are any unfilled slots
+    const unfilledSlots = slotsToFill.filter(s => s.stillNeeded > 0);
+    if (unfilledSlots.length === 0) break;
+    
+    // For each unfilled slot, try to find a candidate
+    for (const slot of unfilledSlots) {
+      // First, try non-ES members sorted by shift count
+      const nonESCandidates = nonESMembers
         .filter(p => canWork(p, slot))
-        .filter(p => !assigned.some(a => a.id === p.id)) // Exclude already assigned
+        .filter(p => {
+          const slotKey = `${slot.postId}|${slot.day}|${slot.shiftLabel}`;
+          const existingInSlot = existingBySlot.get(slotKey) || [];
+          return !existingInSlot.includes(p.id);
+        })
         .sort((a, b) => shiftCountByPerson[a.id] - shiftCountByPerson[b.id]);
-
-      // Assign remaining needed people
-      for (let i = 0; i < stillNeeded; i++) {
-        let foundCandidate = null;
-        
-        for (const candidate of candidates) {
-          if (assigned.some(a => a.id === candidate.id)) continue;
-          if (!canAssignToThisSlot(candidate.id)) continue;
-          
-          // For pairs with same-gender preference, check compatibility
-          if (assigned.length > 0) {
-            const first = assigned[0];
-            if (!canPair(first, candidate)) continue;
-          }
-          
-          foundCandidate = candidate;
-          break;
-        }
-        
-        if (foundCandidate) {
-          assigned.push(foundCandidate);
-          markAssignedToSlot(foundCandidate.id);
-          
-          // Add to final assignments
-          assignments.push({
-            postId: slot.postId,
-            personId: foundCandidate.id,
-            shiftLabel: slot.shiftLabel,
-            start: slot.start,
-            end: slot.end,
-            day: slot.day,
-          });
-          
-          // Update tracking
-          lastEndByPerson[foundCandidate.id] = slot.end;
-          shiftCountByPerson[foundCandidate.id]++;
-          markESMemberWorking(foundCandidate.id, slot.day, slot.shiftLabel);
-        } else {
+      
+      let assigned = false;
+      for (const candidate of nonESCandidates) {
+        if (tryAssignToSlot(candidate, slot)) {
+          madeProgress = true;
+          assigned = true;
           break;
         }
       }
-    }
-
-    // Check if we filled the slot
-    if (assigned.length < needed && !slot.optional) {
-      unfilledMandatory = true;
+      
+      // If no non-ES member could be assigned, try ES members
+      if (!assigned) {
+        const esCandidates = esMembers
+          .filter(p => canWork(p, slot))
+          .filter(p => {
+            const slotKey = `${slot.postId}|${slot.day}|${slot.shiftLabel}`;
+            const existingInSlot = existingBySlot.get(slotKey) || [];
+            return !existingInSlot.includes(p.id);
+          })
+          .sort((a, b) => shiftCountByPerson[a.id] - shiftCountByPerson[b.id]);
+        
+        for (const candidate of esCandidates) {
+          if (tryAssignToSlot(candidate, slot)) {
+            madeProgress = true;
+            assigned = true;
+            break;
+          }
+        }
+      }
     }
   }
 
+  // Check for unfilled mandatory slots
+  const unfilledMandatory = slotsToFill.some(slot => slot.stillNeeded > 0 && !slot.optional);
+  
   if (unfilledMandatory) {
     return { assignments: [], error: 'not enough manpower' };
   }
