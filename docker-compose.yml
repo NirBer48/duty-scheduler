@@ -5,8 +5,7 @@ services:
     ports:
       - '4000:4000'
     volumes:
-      - server-data:/app/data
-      - ./server/duty.db:/app/duty.db
+      - ./server/data:/app/data
     environment:
       - NODE_ENV=production
     restart: unless-stopped
@@ -24,6 +23,3 @@ services:
     depends_on:
       - server
     restart: unless-stopped
-
-volumes:
-  server-data:

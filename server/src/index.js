@@ -2,19 +2,26 @@ import express from 'express';
 import cors from 'cors';
 import sqlite3 from 'sqlite3';
 import { open } from 'sqlite';
+import fs from 'fs';
+import path from 'path';
 import peopleRoute from './routes/people.js';
 import postsRoute from './routes/posts.js';
 import scheduleRoute from './routes/schedule.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const DB_PATH = process.env.DATABASE_PATH || './data/duty.db';
+const DB_DIR = path.dirname(DB_PATH);
+
+// Ensure the directory for the SQLite file exists before opening the DB
+fs.mkdirSync(DB_DIR, { recursive: true });
 
 app.use(cors());
 app.use(express.json());
 
 const initDb = async () =>
   open({
-    filename: './duty.db',
+    filename: DB_PATH,
     driver: sqlite3.Database,
   });
 
