@@ -1,7 +1,9 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useMemo, useState, ReactNode } from 'react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 
-const translations = {
+type Language = 'en' | 'he';
+type TranslationMap = Record<string, string>;
+const translations: Record<Language, TranslationMap> = {
   en: {
     'Duty Scheduler': 'Duty Scheduler',
     'People': 'People',
@@ -36,7 +38,7 @@ const translations = {
     'has': 'has',
     'and': 'and',
     'more errors': 'more errors',
-      'Search people': 'Search people',
+    'Search people': 'Search people',
     'Save failed': 'Save failed',
     'Day': 'Day',
     'Rest violation': 'Rest violation',
@@ -98,7 +100,7 @@ const translations = {
     'has': 'יש',
     'and': 'ועוד',
     'more errors': 'שגיאות נוספות',
-      'Search people': 'חיפוש אנשים',
+    'Search people': 'חיפוש אנשים',
     'Save failed': 'השמירה נכשלה',
     'Day': 'יום',
     'Rest violation': 'הפרת מנוחה',
@@ -128,35 +130,35 @@ const translations = {
   }
 };
 
-const I18nContext = createContext<{
-  lang: 'en' | 'he';
+type I18nContextValue = {
+  lang: Language;
   rtl: boolean;
-  setLang: (l: 'en' | 'he') => void;
-  t: (k: string) => string;
-}>({
+  setLang: (lang: Language) => void;
+  t: (key: string) => string;
+};
+
+const I18nContext = createContext<I18nContextValue>({
   lang: 'he',
   rtl: true,
   setLang: () => {},
   t: (k) => k
 });
 
-export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [lang, setLang] = useState<'en' | 'he'>('he');
+export const I18nProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [lang, setLang] = useState<Language>('he');
   const rtl = lang === 'he';
   const theme = useMemo(() => createTheme({ direction: rtl ? 'rtl' : 'ltr' }), [rtl]);
-  const t = (k: string) => (translations[lang] as Record<string, string>)[k] || k;
+  const t = (k: string) => translations[lang][k] || k;
 
   return (
     <I18nContext.Provider value={{ lang, rtl, setLang, t }}>
       <ThemeProvider theme={theme}>
-        <div dir={rtl ? 'rtl' : 'ltr'} style={{width:'100%'}}>
+        <div dir={rtl ? 'rtl' : 'ltr'} style={{ width: '100%' }}>
           {children}
         </div>
       </ThemeProvider>
     </I18nContext.Provider>
   );
-}
+};
 
-export function useI18n() {
-  return useContext(I18nContext);
-}
+export const useI18n = () => useContext(I18nContext);

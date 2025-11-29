@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ScheduleCalendar from './components/ScheduleView';
 import PeopleEditor from './components/PeopleEditor';
 import PostsEditor from './components/PostsEditor';
-import { fetchPeople, fetchPosts, generateSchedule, fetchLastSchedule, clearSchedule } from './api';
+import { fetchPeople, fetchPosts, generateSchedule, clearSchedule } from './api';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
@@ -20,80 +20,58 @@ const STORAGE_KEY_ES_ASSIGNMENTS = 'duty_scheduler_es_assignments';
 const STORAGE_KEY_ES_GROUPS = 'duty_scheduler_es_groups';
 const STORAGE_KEY_SHIFT_OVERRIDES = 'duty_scheduler_shift_overrides';
 
-// Format date as local datetime-local string (YYYY-MM-DDTHH:MM)
-function formatLocalDateTime(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hours = String(d.getHours()).padStart(2, '0');
-  const minutes = String(d.getMinutes()).padStart(2, '0');
+const formatLocalDateTime = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
   return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
+};
 
-// Calculate the most recent 20:00 (start of current duty cycle)
-function calculateDefaultStart(): string {
+const calculateDefaultStart = () => {
   const now = new Date();
-  const d = new Date(now);
-  
-  // Set to 20:00 of current day
-  d.setHours(20, 0, 0, 0);
-  
-  // If current time is before 20:00, use yesterday's 20:00
-  if (now < d) {
-    d.setDate(d.getDate() - 1);
-  }
-  
-  return formatLocalDateTime(d);
-}
+  const start = new Date(now);
+  start.setHours(20, 0, 0, 0);
+  if (now < start) start.setDate(start.getDate() - 1);
+  return formatLocalDateTime(start);
+};
 
-// Calculate 20:00 the next day (end of current duty cycle - 24 hours = 6 shifts)
-function calculateDefaultEnd(): string {
+const calculateDefaultEnd = () => {
   const now = new Date();
-  const d = new Date(now);
-  
-  // Set to 20:00 of current day
-  d.setHours(20, 0, 0, 0);
-  
-  // If current time is before 20:00, use today's 20:00
-  // Otherwise use tomorrow's 20:00
-  if (now >= d) {
-    d.setDate(d.getDate() + 1);
-  }
-  
-  return formatLocalDateTime(d);
-}
+  const end = new Date(now);
+  end.setHours(20, 0, 0, 0);
+  if (now >= end) end.setDate(end.getDate() + 1);
+  return formatLocalDateTime(end);
+};
 
-// Get saved start or calculate default
-function getDefaultStart() {
-  const saved = localStorage.getItem(STORAGE_KEY_START);
-  // Only use saved value if it's at 20:00, otherwise recalculate
-  if (saved && saved.endsWith('T20:00')) return saved;
-  const newDefault = calculateDefaultStart();
-  localStorage.setItem(STORAGE_KEY_START, newDefault);
-  return newDefault;
-}
-
-// Get saved end or calculate default
-function getDefaultEnd() {
-  const saved = localStorage.getItem(STORAGE_KEY_END);
-  // Only use saved value if it's at 20:00, otherwise recalculate
-  if (saved && saved.endsWith('T20:00')) return saved;
-  const newDefault = calculateDefaultEnd();
-  localStorage.setItem(STORAGE_KEY_END, newDefault);
-  return newDefault;
-}
-
-function loadFromStorage<T>(key: string, defaultValue: T): T {
+const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
   try {
     const saved = localStorage.getItem(key);
-    if (saved) return JSON.parse(saved);
-  } catch (e) {
-    console.error('Error loading from storage:', key, e);
+    if (saved) return JSON.parse(saved) as T;
+  } catch {
+    // ignore malformed storage entries
   }
   return defaultValue;
-}
+};
 
-export default function App() {
+const ensureDefaultStart = () => {
+  const saved = localStorage.getItem(STORAGE_KEY_START);
+  if (saved && saved.endsWith('T20:00')) return saved;
+  const next = calculateDefaultStart();
+  localStorage.setItem(STORAGE_KEY_START, next);
+  return next;
+};
+
+const ensureDefaultEnd = () => {
+  const saved = localStorage.getItem(STORAGE_KEY_END);
+  if (saved && saved.endsWith('T20:00')) return saved;
+  const next = calculateDefaultEnd();
+  localStorage.setItem(STORAGE_KEY_END, next);
+  return next;
+};
+
+const App: React.FC = () => {
   const [assignments, setAssignments] = useState<Assignment[]>(() => 
     loadFromStorage(STORAGE_KEY_ASSIGNMENTS, [])
   );
@@ -114,15 +92,25 @@ export default function App() {
       { id: 'es2', name: "כ\"כ ב'", totalPeople: 5, activePerShift: 1 },
     ])
   );
-  const [start, setStart] = useState(getDefaultStart);
-  const [end, setEnd] = useState(getDefaultEnd);
+  const [start, setStart] = useState(ensureDefaultStart);
+  const [end, setEnd] = useState(ensureDefaultEnd);
   const { t, lang, setLang } = useI18n();
   const [error, setError] = useState('');
 
-  useEffect(() => { fetchPeople().then(setPeople); }, []);
-  useEffect(() => { fetchPosts().then(setPosts); }, []);
+  const refreshPeople = () => fetchPeople().then(setPeople);
+  const refreshPosts = () => fetchPosts().then(data => {
+    setPosts(data);
+    return data;
+  });
 
-  // Persist all state to localStorage
+  useEffect(() => {
+    refreshPeople();
+  }, []);
+
+  useEffect(() => {
+    refreshPosts();
+  }, []);
+
   useEffect(() => { localStorage.setItem(STORAGE_KEY_START, start); }, [start]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_END, end); }, [end]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ASSIGNMENTS, JSON.stringify(assignments)); }, [assignments]);
@@ -133,24 +121,19 @@ export default function App() {
   const handleSchedule = async () => {
     const startISO = new Date(start).toISOString();
     const endISO = new Date(end).toISOString();
-    // Pass ES assignments and existing assignments to the scheduler
     const res = await generateSchedule(startISO, endISO, shiftOverrides, esAssignments, assignments);
     setAssignments(res.assignments || []);
     setError(res.error || '');
-    fetchPeople().then(setPeople);
-    fetchPosts().then(setPosts);
+    await Promise.all([refreshPeople(), refreshPosts()]);
   };
 
   const handleClearSchedule = async () => {
     if (window.confirm(t('Are you sure you want to clear the schedule?'))) {
       setAssignments([]);
-      // Keep shiftOverrides - they should persist across clears
-      // Clear ES assignments as well
       setESAssignments([
         { groupId: 'es1', personIds: [] },
         { groupId: 'es2', personIds: [] },
       ]);
-      // Reset dates to default (20:00 to 20:00)
       setStart(calculateDefaultStart());
       setEnd(calculateDefaultEnd());
       setError('');
@@ -158,13 +141,12 @@ export default function App() {
     }
   };
 
-  // Reactive: update posts in grid when PostsEditor changes
   const handlePostsUpdate = (updatedPosts: Post[]) => {
     setPosts(updatedPosts);
   };
-  // Reactive: update people in grid when PeopleEditor changes
+
   const handlePeopleUpdate = () => {
-    fetchPeople().then(setPeople);
+    refreshPeople();
   };
 
   return (
@@ -179,13 +161,11 @@ export default function App() {
       </AppBar>
       <Container maxWidth={false} sx={{ mt: 4, px: 3 }}>
         <Box display="flex" gap={3} alignItems="flex-start">
-          {/* Sidebar - People & Posts editors */}
           <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
             <PeopleEditor onUpdate={handlePeopleUpdate} />
             <PostsEditor onUpdate={handlePostsUpdate} />
           </Box>
           
-          {/* Main content - Schedule */}
           <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
             <Paper sx={{ p: 2, mb: 2 }}>
               <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
@@ -223,3 +203,5 @@ export default function App() {
     </Box>
   );
 }
+
+export default App;

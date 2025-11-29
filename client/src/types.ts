@@ -1,7 +1,10 @@
+export type Gender = 'M' | 'F' | 'X';
+export type ESGroupId = 'es1' | 'es2';
+
 export interface Person {
   id: number;
   name: string;
-  gender: 'M' | 'F' | 'X';
+  gender: Gender;
   sameGenderPreference: boolean;
   exemptions: string[];
 }
@@ -30,12 +33,12 @@ export interface ShiftOverride {
 }
 
 export interface ESGroupAssignment {
-  groupId: 'es1' | 'es2';
+  groupId: ESGroupId;
   personIds: number[];
 }
 
 export interface ESGroup {
-  id: 'es1' | 'es2';
+  id: ESGroupId;
   name: string;
   totalPeople: number;
   activePerShift: number;

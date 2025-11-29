@@ -1,57 +1,68 @@
-// In production (Docker), use relative URL so nginx can proxy
-// In development, use localhost:4000
-const BASE = import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? '/api' : 'http://localhost:4000/api');
+import type { Assignment, ESGroupAssignment, Person, Post } from './types';
 
-export async function fetchPeople() { 
-  return fetch(BASE + '/people').then(r => r.json()); 
-}
+const BASE =
+  import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? '/api' : 'http://localhost:4000/api');
 
-export async function addPerson(body: { name: string; gender: string; sameGenderPref: boolean }) { 
-  return fetch(BASE + '/people', { 
-    method: 'POST', 
-    headers: { 'Content-Type': 'application/json' }, 
-    body: JSON.stringify(body) 
-  }).then(r => r.json()); 
-}
+const request = async <T>(path: string, init?: RequestInit) => {
+  const response = await fetch(`${BASE}${path}`, init);
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Request failed: ${response.status}`);
+  }
+  return response.json() as Promise<T>;
+};
 
-export async function deletePerson(id: number) { 
-  return fetch(BASE + '/people/' + id, { method: 'DELETE' }).then(r => r.json()); 
-}
+type AddPersonPayload = {
+  name: string;
+  gender: Person['gender'];
+  sameGenderPref: boolean;
+};
 
-export async function fetchPosts() { 
-  return fetch(BASE + '/posts').then(r => r.json()); 
-}
+type AddPostPayload = {
+  name: string;
+  requiredPerShift: number;
+};
 
-export async function addPost(body: { name: string; requiredPerShift: number }) { 
-  return fetch(BASE + '/posts', { 
-    method: 'POST', 
-    headers: { 'Content-Type': 'application/json' }, 
-    body: JSON.stringify(body) 
-  }).then(r => r.json()); 
-}
+type ExistingAssignment = Pick<Assignment, 'postId' | 'personId' | 'day' | 'shiftLabel'>;
 
-export async function deletePost(id: number) { 
-  return fetch(BASE + '/posts/' + id, { method: 'DELETE' }).then(r => r.json()); 
-}
+type ScheduleResponse = {
+  assignments?: Assignment[];
+  error?: string;
+};
 
-export async function generateSchedule(
-  startISO: string, 
-  endISO: string, 
+export const fetchPeople = () => request<Person[]>('/people');
+
+export const addPerson = (body: AddPersonPayload) =>
+  request<Person>('/people', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+export const deletePerson = (id: number) => request<{ ok: boolean }>(`/people/${id}`, { method: 'DELETE' });
+
+export const fetchPosts = () => request<Post[]>('/posts');
+
+export const addPost = (body: AddPostPayload) =>
+  request<Post>('/posts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+export const deletePost = (id: number) => request<{ ok: boolean }>(`/posts/${id}`, { method: 'DELETE' });
+
+export const generateSchedule = (
+  startISO: string,
+  endISO: string,
   shiftOverrides: { postId: number; day: string; shiftLabel: string; requiredPerShift: number }[] = [],
-  esAssignments: { groupId: string; personIds: number[] }[] = [],
-  existingAssignments: { postId: number; personId: number; day: string; shiftLabel: string }[] = []
-) { 
-  return fetch(BASE + '/schedule/generate', { 
-    method: 'POST', 
-    headers: { 'Content-Type': 'application/json' }, 
-    body: JSON.stringify({ startISO, endISO, shiftOverrides, esAssignments, existingAssignments }) 
-  }).then(r => r.json()); 
-}
+  esAssignments: ESGroupAssignment[] = [],
+  existingAssignments: ExistingAssignment[] = []
+) =>
+  request<ScheduleResponse>('/schedule/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ startISO, endISO, shiftOverrides, esAssignments, existingAssignments }),
+  });
 
-export async function fetchLastSchedule() {
-  return fetch(BASE + '/schedule/last').then(r => r.json());
-}
-
-export async function clearSchedule() {
-  return fetch(BASE + '/schedule/clear', { method: 'DELETE' }).then(r => r.json());
-}
+export const clearSchedule = () => request<{ ok: boolean }>('/schedule/clear', { method: 'DELETE' });

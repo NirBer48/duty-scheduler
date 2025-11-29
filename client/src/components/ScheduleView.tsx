@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Assignment, Person, Post, ShiftOverride, ESGroup, ESGroupAssignment } from "../types";
+import { Assignment, Person, Post, ShiftOverride, ESGroup, ESGroupAssignment, ESGroupId } from "../types";
 import { useI18n } from "../util/i18n";
 import { Box, Typography, Alert, Button, IconButton, Chip } from "@mui/material";
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -149,7 +149,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         return invalidCells.has(getCellKey(postId, day, shiftLabel));
     };
 
-    const isESInvalid = (groupId: 'es1' | 'es2'): boolean => {
+    const isESInvalid = (groupId: ESGroupId): boolean => {
         const group = esGroups.find(g => g.id === groupId)!;
         const esAssignment = esAssignments.find(es => es.groupId === groupId);
         if ((esAssignment?.personIds.length || 0) < group.totalPeople) return true;
