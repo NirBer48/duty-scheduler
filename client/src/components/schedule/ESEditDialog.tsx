@@ -69,7 +69,7 @@ export function ESEditDialog({
                 {t('Edit ES Group')}: {group.name}
             </DialogTitle>
             <DialogContent>
-                <Box sx={{ mb: 2 }}>
+                <Box sx={{ mb: 2, mt: 1}}>
                     <TextField
                         type="number"
                         label={t('Total people needed')}

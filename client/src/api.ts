@@ -37,11 +37,12 @@ export async function deletePost(id: number) {
 export async function generateSchedule(
   startISO: string, 
   endISO: string, 
-  shiftOverrides: { postId: number; day: string; shiftLabel: string; requiredPerShift: number }[] = []
+  shiftOverrides: { postId: number; day: string; shiftLabel: string; requiredPerShift: number }[] = [],
+  esAssignments: { groupId: string; personIds: number[] }[] = []
 ) { 
   return fetch(BASE + '/schedule/generate', { 
     method: 'POST', 
     headers: { 'Content-Type': 'application/json' }, 
-    body: JSON.stringify({ startISO, endISO, shiftOverrides }) 
+    body: JSON.stringify({ startISO, endISO, shiftOverrides, esAssignments }) 
   }).then(r => r.json()); 
 }

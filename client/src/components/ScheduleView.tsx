@@ -26,6 +26,8 @@ interface Props {
     onAssignmentsChange?: (assignments: Assignment[]) => void;
     shiftOverrides?: ShiftOverride[];
     onShiftOverridesChange?: (overrides: ShiftOverride[]) => void;
+    esAssignments?: ESGroupAssignment[];
+    onESAssignmentsChange?: (esAssignments: ESGroupAssignment[]) => void;
 }
 
 const ScheduleCalendar: React.FC<Props> = ({ 
@@ -36,7 +38,9 @@ const ScheduleCalendar: React.FC<Props> = ({
     end, 
     onAssignmentsChange,
     shiftOverrides: externalOverrides = [],
-    onShiftOverridesChange
+    onShiftOverridesChange,
+    esAssignments: externalESAssignments,
+    onESAssignmentsChange
 }) => {
     const shifts = getShiftsForPeriod(start, end);
     const { t, lang } = useI18n();
@@ -61,10 +65,14 @@ const ScheduleCalendar: React.FC<Props> = ({
     const [localShiftOverrides, setLocalShiftOverrides] = useState<ShiftOverride[]>(externalOverrides);
     const shiftOverrides = onShiftOverridesChange ? externalOverrides : localShiftOverrides;
     
-    const [esAssignments, setESAssignments] = useState<ESGroupAssignment[]>([
+    const [localESAssignments, setLocalESAssignments] = useState<ESGroupAssignment[]>([
         { groupId: 'es1', personIds: [] },
         { groupId: 'es2', personIds: [] },
     ]);
+    
+    // Use external ES assignments if provided, otherwise use local state
+    const esAssignments = onESAssignmentsChange && externalESAssignments ? externalESAssignments : localESAssignments;
+    const setESAssignments = onESAssignmentsChange || setLocalESAssignments;
     
     const [hasChanges, setHasChanges] = useState(false);
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -207,9 +215,15 @@ const ScheduleCalendar: React.FC<Props> = ({
     const handleESSave = (personIds: number[], totalPeople: number) => {
         if (!esEditDialog.group) return;
 
-        setESAssignments(prev => prev.map(es =>
+        const newESAssignments = esAssignments.map(es =>
             es.groupId === esEditDialog.group!.id ? { ...es, personIds } : es
-        ));
+        );
+        
+        if (onESAssignmentsChange) {
+            onESAssignmentsChange(newESAssignments);
+        } else {
+            setLocalESAssignments(newESAssignments);
+        }
 
         setESGroups(prev => prev.map(g =>
             g.id === esEditDialog.group!.id ? { ...g, totalPeople } : g

@@ -5,10 +5,14 @@ const router = express.Router();
 router.post('/generate', async (req, res) => {
   try {
     const db = req.app.locals.db;
-    const { startISO, endISO, shiftOverrides = [] } = req.body;
+    const { startISO, endISO, shiftOverrides = [], esAssignments = [] } = req.body;
+    
+    // Debug: Log ES assignments received
+    console.log('ES Assignments received:', JSON.stringify(esAssignments, null, 2));
+    
     const people = (await db.all('SELECT * FROM people')).map(r => ({...r, sameGenderPref: Boolean(r.sameGenderPref), exemptions: JSON.parse(r.exemptions || '[]') }));
     const posts = (await db.all('SELECT * FROM posts')).map(r => ({...r, optional: Boolean(r.optional)}));
-    const result = scheduleGenerator(people, posts, startISO, endISO, shiftOverrides);
+    const result = scheduleGenerator(people, posts, startISO, endISO, shiftOverrides, esAssignments);
 
     if (result.error) {
       return res.json({ assignments: [], error: result.error });

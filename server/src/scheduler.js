@@ -3,7 +3,15 @@ import utc from 'dayjs/plugin/utc.js';
 
 dayjs.extend(utc);
 
-export function scheduleGenerator(people, posts, startISO, endISO, shiftOverrides = []) {
+/**
+ * @param {Array} people - List of people
+ * @param {Array} posts - List of posts
+ * @param {string} startISO - Start date/time
+ * @param {string} endISO - End date/time
+ * @param {Array} shiftOverrides - Override requirements for specific shifts
+ * @param {Array} esAssignments - ES group assignments [{ groupId: 'es1'|'es2', personIds: number[] }]
+ */
+export function scheduleGenerator(people, posts, startISO, endISO, shiftOverrides = [], esAssignments = []) {
   // Build all 4-hour shift time slots between start and end
   const shiftDefinitions = [
     { label: '00:00-04:00', startOffset: 0, endOffset: 4 },
@@ -20,6 +28,57 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
       o.postId === postId && o.day === day && o.shiftLabel === shiftLabel
     );
     return override ? override.requiredPerShift : defaultRequired;
+  }
+
+  // Build ES group membership map: personId -> groupId
+  // Ensure personIds are numbers for consistent lookup
+  const personToESGroup = new Map();
+  console.log('Building ES group map from:', JSON.stringify(esAssignments));
+  for (const es of esAssignments) {
+    for (const personId of es.personIds) {
+      const numericId = Number(personId);
+      personToESGroup.set(numericId, es.groupId);
+      console.log(`  Person ${numericId} (type: ${typeof numericId}) -> ES group ${es.groupId}`);
+    }
+  }
+  console.log('ES group map size:', personToESGroup.size);
+  console.log('People IDs:', people.map(p => `${p.id} (${typeof p.id})`).join(', '));
+
+  // Track ES group members working at each shift: `${day}|${shiftLabel}` -> Set of groupIds that have someone working
+  const esGroupWorkingAtShift = new Map();
+
+  // Helper to get the shift key
+  function getShiftKey(day, shiftLabel) {
+    return `${day}|${shiftLabel}`;
+  }
+
+  // Helper to check if an ES group member can work at a shift
+  function canESMemberWork(personId, day, shiftLabel) {
+    const groupId = personToESGroup.get(personId);
+    if (!groupId) return true; // Not in an ES group, no restriction
+    
+    const shiftKey = getShiftKey(day, shiftLabel);
+    const workingGroups = esGroupWorkingAtShift.get(shiftKey);
+    
+    if (!workingGroups) return true; // No one from any ES group working yet
+    
+    // Check if someone from this person's ES group is already working
+    const canWork = !workingGroups.has(groupId);
+
+    return canWork;
+  }
+
+  // Helper to mark an ES group member as working at a shift
+  function markESMemberWorking(personId, day, shiftLabel) {
+    const groupId = personToESGroup.get(personId);
+    if (!groupId) return; // Not in an ES group
+    
+    const shiftKey = getShiftKey(day, shiftLabel);
+    if (!esGroupWorkingAtShift.has(shiftKey)) {
+      esGroupWorkingAtShift.set(shiftKey, new Set());
+    }
+    esGroupWorkingAtShift.get(shiftKey).add(groupId);
+    console.log(`ES MARK: Person ${personId} (${groupId}) marked as working at ${shiftKey}`);
   }
 
   // Track per-person: last shift end time and total shift count
@@ -116,6 +175,12 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
     }
     // Check exemptions
     if (isExempt(person, slot)) return false;
+    
+    // Check ES group constraint - only 1 person from each ES group per shift
+    if (!canESMemberWork(person.id, slot.day, slot.shiftLabel)) {
+      return false;
+    }
+    
     return true;
   }
 
@@ -131,6 +196,30 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
   for (const slot of slotsToFill) {
     const needed = slot.required;
     const assigned = [];
+    
+    // Track ES groups already assigned in THIS slot (for same-slot multi-person assignments)
+    const esGroupsInThisSlot = new Set();
+    
+    // Helper to check if person can be assigned to this specific slot
+    // considering both global ES tracking AND local slot tracking
+    function canAssignToThisSlot(personId) {
+      const groupId = personToESGroup.get(personId);
+      if (!groupId) return true; // Not in ES group
+      
+      // Check if this ES group already has someone in this slot
+      if (esGroupsInThisSlot.has(groupId)) return false;
+      
+      // Also check global tracking (for cross-post same-shift assignments)
+      return canESMemberWork(personId, slot.day, slot.shiftLabel);
+    }
+    
+    // Helper to mark person as assigned to this slot
+    function markAssignedToSlot(personId) {
+      const groupId = personToESGroup.get(personId);
+      if (groupId) {
+        esGroupsInThisSlot.add(groupId);
+      }
+    }
 
     // Get eligible candidates sorted by least shifts (equal distribution)
     let candidates = people
@@ -138,24 +227,33 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
       .sort((a, b) => shiftCountByPerson[a.id] - shiftCountByPerson[b.id]);
 
     // Assign exactly `needed` people
-    for (let i = 0; i < needed && i < candidates.length; i++) {
-      // For pairs with same-gender preference, check compatibility
-      if (needed === 2 && assigned.length === 1) {
-        // Find a compatible second person
-        const first = assigned[0];
-        let foundCompatible = false;
-        for (let j = i; j < candidates.length; j++) {
-          if (canPair(first, candidates[j])) {
-            assigned.push(candidates[j]);
-            foundCompatible = true;
-            break;
-          }
+    for (let i = 0; i < needed; i++) {
+      // Find next eligible candidate
+      let foundCandidate = null;
+      
+      for (const candidate of candidates) {
+        // Skip if already assigned to this slot
+        if (assigned.some(a => a.id === candidate.id)) continue;
+        
+        // Check ES group constraint for this slot
+        if (!canAssignToThisSlot(candidate.id)) continue;
+        
+        // For pairs with same-gender preference, check compatibility
+        if (assigned.length > 0) {
+          const first = assigned[0];
+          if (!canPair(first, candidate)) continue;
         }
-        if (!foundCompatible && candidates[i]) {
-          assigned.push(candidates[i]);
-        }
+        
+        foundCandidate = candidate;
+        break;
+      }
+      
+      if (foundCandidate) {
+        assigned.push(foundCandidate);
+        markAssignedToSlot(foundCandidate.id);
       } else {
-        assigned.push(candidates[i]);
+        // No more eligible candidates
+        break;
       }
     }
 
@@ -176,6 +274,9 @@ export function scheduleGenerator(people, posts, startISO, endISO, shiftOverride
       });
       lastEndByPerson[person.id] = slot.end;
       shiftCountByPerson[person.id]++;
+      
+      // Mark ES group member as working at this shift (for cross-post tracking)
+      markESMemberWorking(person.id, slot.day, slot.shiftLabel);
     }
   }
 

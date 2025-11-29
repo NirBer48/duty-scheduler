@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ScheduleCalendar from './components/ScheduleView';
 import PeopleEditor from './components/PeopleEditor';
 import PostsEditor from './components/PostsEditor';
-import { fetchPeople, fetchPosts, generateSchedule } from './api';
+import { fetchPeople, fetchPosts, generateSchedule, fetchLastSchedule, clearSchedule } from './api';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
@@ -11,33 +11,85 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
 import { useI18n } from './util/i18n';
-import type { Post, Person, Assignment, ShiftOverride } from './types';
+import type { Post, Person, Assignment, ShiftOverride, ESGroupAssignment, ESGroup } from './types';
 
 const STORAGE_KEY_START = 'duty_scheduler_start';
 const STORAGE_KEY_END = 'duty_scheduler_end';
+const STORAGE_KEY_ASSIGNMENTS = 'duty_scheduler_assignments';
+const STORAGE_KEY_ES_ASSIGNMENTS = 'duty_scheduler_es_assignments';
+const STORAGE_KEY_ES_GROUPS = 'duty_scheduler_es_groups';
+const STORAGE_KEY_SHIFT_OVERRIDES = 'duty_scheduler_shift_overrides';
 
+// Get the closest 20:00 (either today if before 20:00, or yesterday if after)
 function getDefaultStart() {
   const saved = localStorage.getItem(STORAGE_KEY_START);
   if (saved) return saved;
-  const d = new Date();
-  d.setMinutes(0, 0, 0);
-  d.setHours(Math.floor(d.getHours() / 4) * 4);
-  return d.toISOString().slice(0, 16);
-}
-function getDefaultEnd() {
-  const saved = localStorage.getItem(STORAGE_KEY_END);
-  if (saved) return saved;
-  const d = new Date();
-  d.setMinutes(0, 0, 0);
-  d.setHours(Math.floor(d.getHours() / 4) * 4 + 24);
+  
+  const now = new Date();
+  const d = new Date(now);
+  
+  // Set to 20:00 of current day
+  d.setHours(20, 0, 0, 0);
+  
+  // If current time is before 20:00, use yesterday's 20:00
+  if (now < d) {
+    d.setDate(d.getDate() - 1);
+  }
+  
   return d.toISOString().slice(0, 16);
 }
 
+// Get 20:00 the next day from start
+function getDefaultEnd() {
+  const saved = localStorage.getItem(STORAGE_KEY_END);
+  if (saved) return saved;
+  
+  const now = new Date();
+  const d = new Date(now);
+  
+  // Set to 20:00 of current day
+  d.setHours(20, 0, 0, 0);
+  
+  // If current time is before 20:00, use today's 20:00
+  // Otherwise use tomorrow's 20:00
+  if (now >= d) {
+    d.setDate(d.getDate() + 1);
+  }
+  
+  return d.toISOString().slice(0, 16);
+}
+
+function loadFromStorage<T>(key: string, defaultValue: T): T {
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved) return JSON.parse(saved);
+  } catch (e) {
+    console.error('Error loading from storage:', key, e);
+  }
+  return defaultValue;
+}
+
 export default function App() {
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>(() => 
+    loadFromStorage(STORAGE_KEY_ASSIGNMENTS, [])
+  );
   const [people, setPeople] = useState<Person[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [shiftOverrides, setShiftOverrides] = useState<ShiftOverride[]>([]);
+  const [shiftOverrides, setShiftOverrides] = useState<ShiftOverride[]>(() =>
+    loadFromStorage(STORAGE_KEY_SHIFT_OVERRIDES, [])
+  );
+  const [esAssignments, setESAssignments] = useState<ESGroupAssignment[]>(() =>
+    loadFromStorage(STORAGE_KEY_ES_ASSIGNMENTS, [
+      { groupId: 'es1', personIds: [] },
+      { groupId: 'es2', personIds: [] },
+    ])
+  );
+  const [esGroups, setESGroups] = useState<ESGroup[]>(() =>
+    loadFromStorage(STORAGE_KEY_ES_GROUPS, [
+      { id: 'es1', name: "כ\"כ א'", totalPeople: 5, activePerShift: 1 },
+      { id: 'es2', name: "כ\"כ ב'", totalPeople: 4, activePerShift: 1 },
+    ])
+  );
   const [start, setStart] = useState(getDefaultStart);
   const [end, setEnd] = useState(getDefaultEnd);
   const { t, lang, setLang } = useI18n();
@@ -46,18 +98,33 @@ export default function App() {
   useEffect(() => { fetchPeople().then(setPeople); }, []);
   useEffect(() => { fetchPosts().then(setPosts); }, []);
 
-  // Persist dates
+  // Persist all state to localStorage
   useEffect(() => { localStorage.setItem(STORAGE_KEY_START, start); }, [start]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_END, end); }, [end]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_ASSIGNMENTS, JSON.stringify(assignments)); }, [assignments]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_ES_ASSIGNMENTS, JSON.stringify(esAssignments)); }, [esAssignments]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_ES_GROUPS, JSON.stringify(esGroups)); }, [esGroups]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_SHIFT_OVERRIDES, JSON.stringify(shiftOverrides)); }, [shiftOverrides]);
 
   const handleSchedule = async () => {
     const startISO = new Date(start).toISOString();
     const endISO = new Date(end).toISOString();
-    const res = await generateSchedule(startISO, endISO, shiftOverrides);
+    // Pass ES assignments and existing assignments to the scheduler
+    const res = await generateSchedule(startISO, endISO, shiftOverrides, esAssignments, assignments);
     setAssignments(res.assignments || []);
     setError(res.error || '');
     fetchPeople().then(setPeople);
     fetchPosts().then(setPosts);
+  };
+
+  const handleClearSchedule = async () => {
+    if (window.confirm(t('Are you sure you want to clear the schedule?'))) {
+      setAssignments([]);
+      setShiftOverrides([]);
+      // Don't clear ES assignments - they persist across schedules
+      setError('');
+      await clearSchedule();
+    }
   };
 
   // Reactive: update posts in grid when PostsEditor changes
@@ -97,6 +164,7 @@ export default function App() {
                 <Typography>{t('End')}:</Typography>
                 <input type="datetime-local" value={end} step={14400} onChange={e => setEnd(e.target.value)} />
                 <Button onClick={handleSchedule} variant="contained">{t('Generate')}</Button>
+                <Button onClick={handleClearSchedule} variant="outlined" color="error">{t('Clear')}</Button>
               </Box>
               {error && (
                 <Typography color="error" sx={{ mt: 2 }}>{t(error)}</Typography>
@@ -112,6 +180,10 @@ export default function App() {
                 onAssignmentsChange={setAssignments}
                 shiftOverrides={shiftOverrides}
                 onShiftOverridesChange={setShiftOverrides}
+                esAssignments={esAssignments}
+                onESAssignmentsChange={setESAssignments}
+                esGroups={esGroups}
+                onESGroupsChange={setESGroups}
               />
             </Paper>
           </Box>
