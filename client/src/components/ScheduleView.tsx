@@ -11,8 +11,7 @@ import {
     ShiftSettingsDialog, 
     exportToExcel,
     getShiftsForPeriod,
-    getAssignedPersonIds,
-    getPeopleAtShift,
+    getPersonIds,
     getCellKey,
     getShiftIndex
 } from "./schedule";
@@ -139,13 +138,13 @@ const ScheduleCalendar: React.FC<Props> = ({
     };
 
     const getPeopleNames = (postId: number, shiftLabel: string, day: string): string => {
-        const ids = getAssignedPersonIds(localAssignments, postId, shiftLabel, day);
+        const ids = getPersonIds(localAssignments, shiftLabel, day, postId);
         return people.filter(p => ids.includes(p.id)).map(p => p.name).join(", ");
     };
 
     const isInvalidCell = (postId: number, shiftLabel: string, day: string): boolean => {
         const required = getRequiredCount(postId, day, shiftLabel);
-        const assignedCount = getAssignedPersonIds(localAssignments, postId, shiftLabel, day).length;
+        const assignedCount = getPersonIds(localAssignments, shiftLabel, day, postId).length;
         if (assignedCount < required) return true;
         return invalidCells.has(getCellKey(postId, day, shiftLabel));
     };
@@ -164,7 +163,7 @@ const ScheduleCalendar: React.FC<Props> = ({
             post,
             day,
             shiftLabel,
-            currentPersonIds: getAssignedPersonIds(localAssignments, post.id, shiftLabel, day)
+            currentPersonIds: getPersonIds(localAssignments, shiftLabel, day, post.id)
         });
     };
 
@@ -264,7 +263,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         for (const shift of shifts) {
             for (const post of posts) {
                 const required = getRequiredCount(post.id, shift.day, shift.label);
-                const assignedCount = getAssignedPersonIds(localAssignments, post.id, shift.label, shift.day).length;
+                const assignedCount = getPersonIds(localAssignments, shift.label, shift.day, post.id).length;
                 if (assignedCount < required) {
                     errors.push(`${shift.day} ${shift.label} - ${post.name}: ${t('needs')} ${required}, ${t('has')} ${assignedCount}`);
                     newInvalidCells.add(getCellKey(post.id, shift.day, shift.label));
@@ -287,7 +286,7 @@ const ScheduleCalendar: React.FC<Props> = ({
             for (const group of esGroups) {
                 const esAssignment = esAssignments.find(es => es.groupId === group.id);
                 const esMembers = esAssignment?.personIds || [];
-                const peopleAtShiftTime = getPeopleAtShift(localAssignments, shift.label, shift.day);
+                const peopleAtShiftTime = getPersonIds(localAssignments, shift.label, shift.day);
                 const esMembersWorking = peopleAtShiftTime.filter(pid => esMembers.includes(pid));
 
                 if (esMembersWorking.length > group.activePerShift) {
@@ -296,7 +295,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                     newInvalidESGroups.add(group.id);
                     
                     for (const post of posts) {
-                        const cellPeople = getAssignedPersonIds(localAssignments, post.id, shift.label, shift.day);
+                        const cellPeople = getPersonIds(localAssignments, shift.label, shift.day, post.id);
                         if (cellPeople.some(pid => esMembers.includes(pid))) {
                             newInvalidCells.add(getCellKey(post.id, shift.day, shift.label));
                         }
@@ -331,7 +330,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         // Check same gender pairing
         for (const shift of shifts) {
             for (const post of posts) {
-                const assignedIds = getAssignedPersonIds(localAssignments, post.id, shift.label, shift.day);
+                const assignedIds = getPersonIds(localAssignments, shift.label, shift.day, post.id);
                 if (assignedIds.length > 1) {
                     const assignedPeople = people.filter(p => assignedIds.includes(p.id));
                     for (const person of assignedPeople) {
@@ -462,7 +461,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                 {posts.map(post => {
                                     const names = getPeopleNames(post.id, shift.label, shift.day);
                                     const required = getRequiredCount(post.id, shift.day, shift.label);
-                                    const assignedCount = getAssignedPersonIds(localAssignments, post.id, shift.label, shift.day).length;
+                                    const assignedCount = getPersonIds(localAssignments, shift.label, shift.day, post.id).length;
                                     const isInvalid = isInvalidCell(post.id, shift.label, shift.day);
                                     const hasOverride = shiftOverrides.some(o => o.postId === post.id && o.day === shift.day && o.shiftLabel === shift.label);
 

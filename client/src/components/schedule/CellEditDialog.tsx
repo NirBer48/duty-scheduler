@@ -32,7 +32,7 @@ interface Props {
     esGroups: ESGroup[];
 }
 
-export function CellEditDialog({ 
+export const CellEditDialog: React.FC<Props> = ({ 
     open, 
     onClose, 
     post, 
@@ -46,7 +46,7 @@ export function CellEditDialog({
     allShifts, 
     esAssignments, 
     esGroups 
-}: Props) {
+}) => {
     const [selected, setSelected] = useState<number[]>(currentPersonIds);
     const [search, setSearch] = useState('');
     const { t } = useI18n();
@@ -91,7 +91,7 @@ export function CellEditDialog({
         }
 
         return null;
-    };
+};
 
     const hasESViolation = (personId: number): string | null => {
         const personGroup = personToESGroup.get(personId);

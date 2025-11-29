@@ -11,7 +11,7 @@ interface Props {
   onUpdate?: () => void;
 }
 
-export default function PeopleEditor({ onUpdate }: Props) {
+const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
   const [people, setPeople] = useState<Person[]>([]);
   const [name, setName] = useState('');
   const [gender, setGender] = useState<'F' | 'M' | 'X'>('M');
@@ -19,9 +19,18 @@ export default function PeopleEditor({ onUpdate }: Props) {
   const [validationError, setValidationError] = useState('');
   const { t } = useI18n();
 
-  useEffect(() => { fetchPeople().then(setPeople); }, []);
+  const refreshPeople = async () => {
+    const updated = await fetchPeople();
+    setPeople(updated);
+    onUpdate?.();
+    return updated;
+  };
 
-  async function add() {
+  useEffect(() => {
+    refreshPeople();
+  }, []);
+
+  const handleAdd = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
       setValidationError(t('Name cannot be empty'));
@@ -35,19 +44,38 @@ export default function PeopleEditor({ onUpdate }: Props) {
     await addPerson({ name: trimmed, gender, sameGenderPref });
     setName('');
     setSameGenderPref(false);
-    const updated = await fetchPeople();
-    setPeople(updated);
-    onUpdate?.();
-  }
+    await refreshPeople();
+  };
 
-  async function handleDelete(id: number) {
+  const handleDelete = async (id: number) => {
     await deletePerson(id);
-    const updated = await fetchPeople();
-    setPeople(updated);
-    onUpdate?.();
-  }
+    await refreshPeople();
+  };
 
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+  const parseBool = (value: unknown) => {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value === 1;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toUpperCase();
+      return ['TRUE', 'YES', '1', 'כן'].includes(normalized);
+    }
+    return false;
+  };
+
+  const resolveName = (row: any): string =>
+    (row.name || row.Name || row['שם'] || '').toString().trim();
+
+  const resolveGender = (row: any): 'F' | 'M' | 'X' => {
+    const raw = (row.gender || row.Gender || row['מגדר'] || 'M').toString().toUpperCase();
+    if (['F', 'נ', 'FEMALE'].includes(raw)) return 'F';
+    if (['X', 'OTHER'].includes(raw)) return 'X';
+    return 'M';
+  };
+
+  const resolveSameGenderPref = (row: any) =>
+    parseBool(row.sameGenderPref ?? row['העדפת מגדר'] ?? row.sameGender ?? false);
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
@@ -61,71 +89,42 @@ export default function PeopleEditor({ onUpdate }: Props) {
       let importedCount = 0;
       let skippedCount = 0;
       
-      // Get current people to check for duplicates
-      const currentPeople = await fetchPeople();
+      const currentPeople = await refreshPeople();
       const existingNames = new Set(currentPeople.map((p: Person) => p.name.toLowerCase()));
       
       for (const row of jsonData as any[]) {
-        // Handle different possible column names (case-insensitive)
-        const name = (row.name || row.Name || row['שם'] || '').toString().trim();
-        const genderRaw = (row.gender || row.Gender || row['מגדר'] || 'M').toString().toUpperCase();
-        const sameGenderRaw = row.sameGenderPref || row.sameGenderPref || 
-                             row['העדפת מגדר'] || row['sameGender'] || false;
-        
-        if (!name) {
+        const resolvedName = resolveName(row);
+        if (!resolvedName) {
           skippedCount++;
           continue;
         }
         
-        // Check for duplicates
-        if (existingNames.has(name.toLowerCase())) {
+        if (existingNames.has(resolvedName.toLowerCase())) {
           skippedCount++;
           continue;
         }
         
-        // Parse gender
-        let gender: 'F' | 'M' | 'X' = 'M';
-        if (genderRaw === 'F' || genderRaw === 'נ' || genderRaw === 'FEMALE') {
-          gender = 'F';
-        } else if (genderRaw === 'M' || genderRaw === 'ז' || genderRaw === 'MALE') {
-          gender = 'M';
-        } else if (genderRaw === 'X' || genderRaw === 'OTHER') {
-          gender = 'X';
-        }
+        const resolvedGender = resolveGender(row);
+        const resolvedSameGenderPref = resolveSameGenderPref(row);
         
-        // Parse sameGenderPref - handle boolean, string "TRUE"/"FALSE", Hebrew, etc.
-        let sameGenderPref = false;
-        if (typeof sameGenderRaw === 'boolean') {
-          sameGenderPref = sameGenderRaw;
-        } else if (typeof sameGenderRaw === 'string') {
-          const val = sameGenderRaw.toUpperCase();
-          sameGenderPref = val === 'TRUE' || val === 'כן' || val === 'YES' || val === '1';
-        } else if (typeof sameGenderRaw === 'number') {
-          sameGenderPref = sameGenderRaw === 1;
-        }
-        
-        await addPerson({ name, gender, sameGenderPref });
-        existingNames.add(name.toLowerCase());
+        await addPerson({ name: resolvedName, gender: resolvedGender, sameGenderPref: resolvedSameGenderPref });
+        existingNames.add(resolvedName.toLowerCase());
         importedCount++;
       }
       
-      const updated = await fetchPeople();
-      setPeople(updated);
-      onUpdate?.();
+      await refreshPeople();
       
       if (skippedCount > 0) {
         setValidationError(`${t('Imported')}: ${importedCount}, ${t('Skipped')}: ${skippedCount}`);
       } else {
         setValidationError('');
       }
-    } catch (err) {
-      console.error('Import error:', err);
+    } catch {
       setValidationError(t('Import failed'));
     }
     
-    // Reset the file input
     e.target.value = '';
-  }
+  };
 
   return (
     <Paper sx={{ p: 2, mb: 2, maxHeight: 450, minWidth: 300, display: 'flex', flexDirection: 'column' }}>
@@ -178,7 +177,7 @@ export default function PeopleEditor({ onUpdate }: Props) {
             label={<Typography variant="body2">{t('Same gender only')}</Typography>}
             sx={{ mr: 0 }}
           />
-          <Button onClick={add} variant="contained" size="small">{t('Add')}</Button>
+          <Button onClick={handleAdd} variant="contained" size="small">{t('Add')}</Button>
         </Box>
       </Box>
       
@@ -218,4 +217,6 @@ export default function PeopleEditor({ onUpdate }: Props) {
       </Box>
     </Paper>
   );
-}
+};
+
+export default PeopleEditor;

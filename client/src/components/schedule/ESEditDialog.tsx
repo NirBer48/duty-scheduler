@@ -24,7 +24,7 @@ interface Props {
     otherESPersonIds: number[];
 }
 
-export function ESEditDialog({ 
+export const ESEditDialog: React.FC<Props> = ({ 
     open, 
     onClose, 
     group, 
@@ -32,7 +32,7 @@ export function ESEditDialog({
     currentPersonIds, 
     onSave, 
     otherESPersonIds 
-}: Props) {
+}) => {
     const [selected, setSelected] = useState<number[]>(currentPersonIds);
     const [totalPeople, setTotalPeople] = useState(group.totalPeople);
     const { t } = useI18n();
@@ -55,7 +55,7 @@ export function ESEditDialog({
                 return prev;
             }
         });
-    };
+};
 
     const handleSave = () => {
         onSave(selected, totalPeople);

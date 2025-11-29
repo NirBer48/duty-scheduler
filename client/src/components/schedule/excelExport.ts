@@ -1,6 +1,6 @@
 import XLSX from 'xlsx-js-style';
 import { Person, Post, Assignment, ESGroup, ESGroupAssignment, ShiftOverride } from "../../types";
-import { ShiftSlot, getAssignedPersonIds } from "./utils";
+import { ShiftSlot, getPersonIds } from "./utils";
 
 interface ExportParams {
     shifts: ShiftSlot[];
@@ -15,7 +15,7 @@ interface ExportParams {
     t: (key: string) => string;
 }
 
-export function exportToExcel({
+export const exportToExcel = ({
     shifts,
     posts,
     people,
@@ -26,13 +26,12 @@ export function exportToExcel({
     start,
     end,
     t
-}: ExportParams) {
+}: ExportParams) => {
     const headers = [t('Day'), t('Shift'), ...posts.map(p => p.name), ...esGroups.map(g => g.name)];
-    
+
     const wb = XLSX.utils.book_new();
     const wsData: XLSX.CellObject[][] = [];
-    
-    // Helper to get required count
+
     const getRequiredCount = (postId: number, day: string, shiftLabel: string): number => {
         const override = shiftOverrides.find(o =>
             o.postId === postId && o.day === day && o.shiftLabel === shiftLabel
@@ -42,9 +41,8 @@ export function exportToExcel({
         return post?.requiredPerShift || 1;
     };
 
-    // Helper to get people names
     const getPeopleNames = (postId: number, shiftLabel: string, day: string): string => {
-        const ids = getAssignedPersonIds(assignments, postId, shiftLabel, day);
+        const ids = getPersonIds(assignments, shiftLabel, day, postId);
         return people.filter(p => ids.includes(p.id)).map(p => p.name).join(", ");
     };
     
@@ -117,7 +115,7 @@ export function exportToExcel({
         posts.forEach(post => {
             const names = getPeopleNames(post.id, shift.label, shift.day);
             const required = getRequiredCount(post.id, shift.day, shift.label);
-            const assignedCount = getAssignedPersonIds(assignments, post.id, shift.label, shift.day).length;
+            const assignedCount = getPersonIds(assignments, shift.label, shift.day, post.id).length;
             
             let bgColor = 'FFF2CC';
             if (required === 0) {
@@ -223,5 +221,5 @@ export function exportToExcel({
     
     XLSX.utils.book_append_sheet(wb, ws, t('Schedule'));
     XLSX.writeFile(wb, `schedule_${start.slice(0, 10)}_to_${end.slice(0, 10)}.xlsx`);
-}
+};
 

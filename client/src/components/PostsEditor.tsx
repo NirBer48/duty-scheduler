@@ -9,21 +9,25 @@ interface Props {
   onUpdate?: (posts: Post[]) => void;
 }
 
-export default function PostsEditor({ onUpdate }: Props) {
+const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [name, setName] = useState('');
   const [required, setRequired] = useState<number>(1);
   const [validationError, setValidationError] = useState('');
   const { t } = useI18n();
 
+  const refreshPosts = async () => {
+    const data = await fetchPosts();
+    setPosts(data);
+    onUpdate?.(data);
+    return data;
+  };
+
   useEffect(() => {
-    fetchPosts().then(data => {
-      setPosts(data);
-      onUpdate?.(data);
-    });
+    refreshPosts();
   }, []);
 
-  async function add() {
+  const handleAdd = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
       setValidationError(t('Name cannot be empty'));
@@ -37,17 +41,13 @@ export default function PostsEditor({ onUpdate }: Props) {
     await addPost({ name: trimmed, requiredPerShift: Number(required) });
     setName('');
     setRequired(1);
-    const updated = await fetchPosts();
-    setPosts(updated);
-    onUpdate?.(updated);
-  }
+    await refreshPosts();
+  };
 
-  async function handleDelete(id: number) {
+  const handleDelete = async (id: number) => {
     await deletePost(id);
-    const updated = await fetchPosts();
-    setPosts(updated);
-    onUpdate?.(updated);
-  }
+    await refreshPosts();
+  };
 
   return (
     <Paper sx={{ p: 2, mb: 2, maxHeight: 350, minWidth: 300, display: 'flex', flexDirection: 'column' }}>
@@ -55,7 +55,6 @@ export default function PostsEditor({ onUpdate }: Props) {
       
       <Divider sx={{ mb: 2 }} />
       
-      {/* Add form */}
       <Box display="flex" flexDirection="column" gap={1.5} mb={2}>
         <TextField 
           size="small" 
@@ -70,11 +69,11 @@ export default function PostsEditor({ onUpdate }: Props) {
             type="number" 
             label={t('Required per shift')} 
             value={required} 
-            onChange={e => setRequired(Number(e.target.value))} 
+          onChange={e => setRequired(Math.max(1, Number(e.target.value)))} 
             InputProps={{ inputProps: { min: 1 } }}
             sx={{ flex: 1 }}
           />
-          <Button onClick={add} variant="contained" size="small">{t('Add')}</Button>
+          <Button onClick={handleAdd} variant="contained" size="small">{t('Add')}</Button>
         </Box>
       </Box>
       
@@ -82,7 +81,6 @@ export default function PostsEditor({ onUpdate }: Props) {
       
       <Divider sx={{ mb: 1 }} />
       
-      {/* Posts list */}
       <Box sx={{ overflow: 'auto', flex: 1 }}>
         <List dense>
           {posts.map(p => (
@@ -114,4 +112,6 @@ export default function PostsEditor({ onUpdate }: Props) {
       </Box>
     </Paper>
   );
-}
+};
+
+export default PostsEditor;

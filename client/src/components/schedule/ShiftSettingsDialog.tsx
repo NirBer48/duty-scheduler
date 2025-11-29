@@ -21,7 +21,7 @@ interface Props {
     onSave: (required: number) => void;
 }
 
-export function ShiftSettingsDialog({ 
+export const ShiftSettingsDialog: React.FC<Props> = ({ 
     open, 
     onClose, 
     post, 
@@ -29,7 +29,7 @@ export function ShiftSettingsDialog({
     shiftLabel, 
     currentRequired, 
     onSave 
-}: Props) {
+}) => {
     const [required, setRequired] = useState(currentRequired);
     const { t } = useI18n();
 
@@ -40,7 +40,7 @@ export function ShiftSettingsDialog({
     const handleSave = () => {
         onSave(required);
         onClose();
-    };
+};
 
     return (
         <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>

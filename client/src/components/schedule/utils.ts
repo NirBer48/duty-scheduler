@@ -5,7 +5,7 @@ export interface ShiftSlot {
     label: string;
 }
 
-export function getShiftsForPeriod(start: string, end: string): ShiftSlot[] {
+export const getShiftsForPeriod = (start: string, end: string): ShiftSlot[] => {
     const result: ShiftSlot[] = [];
     const shifts = [
         { label: "00:00-04:00", startH: 0 },
@@ -28,43 +28,37 @@ export function getShiftsForPeriod(start: string, end: string): ShiftSlot[] {
             const year = curr.getFullYear();
             const month = String(curr.getMonth() + 1).padStart(2, '0');
             const date = String(curr.getDate()).padStart(2, '0');
-            const dayStr = `${year}-${month}-${date}`;
             result.push({
-                day: dayStr,
+                day: `${year}-${month}-${date}`,
                 label: shift.label,
             });
         }
         curr.setHours(curr.getHours() + 4);
     }
     return result;
-}
+};
 
-export function getShiftIndex(day: string, shiftLabel: string, allShifts: ShiftSlot[]): number {
-    return allShifts.findIndex(s => s.day === day && s.label === shiftLabel);
-}
+export const getShiftIndex = (day: string, shiftLabel: string, allShifts: ShiftSlot[]): number =>
+    allShifts.findIndex(s => s.day === day && s.label === shiftLabel);
 
-export function getAssignedPersonIds(
-    assignments: Assignment[], 
-    postId: number, 
-    shiftLabel: string, 
-    day: string
-): number[] {
-    const matched = assignments.filter(a => 
-        a.postId === postId && a.shiftLabel === shiftLabel && a.day === day
+const uniquePersonIds = (assignments: Assignment[], predicate: (assignment: Assignment) => boolean) =>
+    [...new Set(assignments.filter(predicate).map(a => a.personId))];
+
+export const getPersonIds = (
+    assignments: Assignment[],
+    shiftLabel: string,
+    day: string,
+    postId?: number
+): number[] =>
+    uniquePersonIds(
+        assignments,
+        a =>
+            a.shiftLabel === shiftLabel &&
+            a.day === day &&
+            (postId === undefined || a.postId === postId)
     );
-    return [...new Set(matched.map(a => a.personId))];
-}
 
-export function getPeopleAtShift(
-    assignments: Assignment[], 
-    shiftLabel: string, 
-    day: string
-): number[] {
-    const matched = assignments.filter(a => a.shiftLabel === shiftLabel && a.day === day);
-    return [...new Set(matched.map(a => a.personId))];
-}
+export const getCellKey = (postId: number, day: string, shiftLabel: string): string =>
+    `${postId}-${day}-${shiftLabel}`;
 
-export function getCellKey(postId: number, day: string, shiftLabel: string): string {
-    return `${postId}-${day}-${shiftLabel}`;
-}
 
