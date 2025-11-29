@@ -1,26 +1,45 @@
 import express from 'express';
+
 const router = express.Router();
+const getDb = req => req.app.locals.db;
 
-router.get('/', async (req, res) => {
-  const db = req.app.locals.db;
-  const rows = await db.all('SELECT * FROM posts');
-  const posts = rows.map(r => ({ ...r, optional: !!r.optional }));
-  res.json(posts);
+const mapPost = row => ({
+  id: row.id,
+  name: row.name,
+  requiredPerShift: row.requiredPerShift,
+  optional: Boolean(row.optional),
 });
 
-router.post('/', async (req, res) => {
-  const db = req.app.locals.db;
-  const { name, requiredPerShift = 1, optional = false } = req.body;
-  const result = await db.run('INSERT INTO posts (name, requiredPerShift, optional) VALUES (?, ?, ?)', [name, requiredPerShift, optional ? 1 : 0]);
-  const id = result.lastID;
-  res.json({ id, name, requiredPerShift, optional });
+router.get('/', async (req, res, next) => {
+  try {
+    const rows = await getDb(req).all('SELECT * FROM posts');
+    res.json(rows.map(mapPost));
+  } catch (err) {
+    next(err);
+  }
 });
 
-router.delete('/:id', async (req, res) => {
-  const db = req.app.locals.db;
-  const id = Number(req.params.id);
-  await db.run('DELETE FROM posts WHERE id = ?', id);
-  res.json({ ok: true });
+router.post('/', async (req, res, next) => {
+  try {
+    const db = getDb(req);
+    const { name, requiredPerShift = 1, optional = false } = req.body;
+    const result = await db.run(
+      'INSERT INTO posts (name, requiredPerShift, optional) VALUES (?, ?, ?)',
+      [name, requiredPerShift, optional ? 1 : 0]
+    );
+    res.json(mapPost({ id: result.lastID, name, requiredPerShift, optional }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/:id', async (req, res, next) => {
+  try {
+    await getDb(req).run('DELETE FROM posts WHERE id = ?', Number(req.params.id));
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

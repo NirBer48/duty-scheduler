@@ -1,110 +1,120 @@
 import express from 'express';
 import { scheduleGenerator } from '../scheduler.js';
-const router = express.Router();
 
-router.post('/generate', async (req, res) => {
+const router = express.Router();
+const getDb = req => req.app.locals.db;
+
+const mapPerson = row => ({
+  ...row,
+  sameGenderPref: Boolean(row.sameGenderPref),
+  exemptions: JSON.parse(row.exemptions || '[]'),
+});
+
+const mapPost = row => ({
+  ...row,
+  optional: Boolean(row.optional),
+});
+
+const respondError = (res, message = 'not enough manpower') =>
+  res.json({ assignments: [], error: message });
+
+const clearAssignments = db => db.run('DELETE FROM assignments');
+
+const persistAssignments = async (db, assignments) => {
+  await clearAssignments(db);
+  for (const { personId, postId, day, shiftLabel, start, end } of assignments) {
+    await db.run(
+      'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO) VALUES (?,?,?,?,?,?)',
+      [personId, postId, day, shiftLabel, start || '', end || '']
+    );
+  }
+};
+
+router.post('/generate', async (req, res, next) => {
   try {
-    const db = req.app.locals.db;
+    const db = getDb(req);
     const { startISO, endISO, shiftOverrides = [], esAssignments = [], existingAssignments = [] } = req.body;
-    
-    // Debug: Log ES assignments received
-    console.log('ES Assignments received:', JSON.stringify(esAssignments, null, 2));
-    console.log('Existing assignments received:', existingAssignments.length);
-    
-    const people = (await db.all('SELECT * FROM people')).map(r => ({...r, sameGenderPref: Boolean(r.sameGenderPref), exemptions: JSON.parse(r.exemptions || '[]') }));
-    const posts = (await db.all('SELECT * FROM posts')).map(r => ({...r, optional: Boolean(r.optional)}));
-    const result = scheduleGenerator(people, posts, startISO, endISO, shiftOverrides, esAssignments, existingAssignments);
+
+    const [peopleRows, postRows] = await Promise.all([
+      db.all('SELECT * FROM people'),
+      db.all('SELECT * FROM posts'),
+    ]);
+
+    const result = scheduleGenerator(
+      peopleRows.map(mapPerson),
+      postRows.map(mapPost),
+      startISO,
+      endISO,
+      shiftOverrides,
+      esAssignments,
+      existingAssignments
+    );
 
     if (result.error) {
-      return res.json({ assignments: [], error: result.error });
+      return respondError(res, result.error);
     }
-    // If any assignment is missing a person or post, treat as error
+
     if (result.assignments.some(a => a.personId == null || a.postId == null)) {
-      return res.json({ assignments: [], error: 'not enough manpower' });
+      return respondError(res);
     }
-    // persist
-    await db.run('DELETE FROM assignments');
-    for (const a of result.assignments) {
-      await db.run(
-        'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO) VALUES (?,?,?,?,?,?)',
-        [a.personId, a.postId, a.day, a.shiftLabel, a.start, a.end]
-      );
-    }
+
+    await persistAssignments(db, result.assignments);
     res.json({ assignments: result.assignments });
   } catch (err) {
-    console.error(err);
-    res.json({ assignments: [], error: 'not enough manpower' });
+    next(err);
   }
 });
 
-// Save all assignments (replace entire schedule)
-router.post('/save-all', async (req, res) => {
+router.post('/save-all', async (req, res, next) => {
   try {
-    const db = req.app.locals.db;
-    const { assignments } = req.body;
-    
-    // Clear existing assignments
-    await db.run('DELETE FROM assignments');
-    
-    // Insert all new assignments
-    for (const a of assignments) {
-      await db.run(
-        'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO) VALUES (?,?,?,?,?,?)',
-        [a.personId, a.postId, a.day, a.shiftLabel, a.start || '', a.end || '']
-      );
-    }
-    
+    const db = getDb(req);
+    const { assignments = [] } = req.body;
+    await persistAssignments(db, assignments);
     res.json({ ok: true });
   } catch (err) {
-    console.error(err);
-    res.json({ ok: false, error: err.message });
+    next(err);
   }
 });
 
-// Update assignments for a specific cell (post + day + shiftLabel)
-router.post('/update-cell', async (req, res) => {
+router.post('/update-cell', async (req, res, next) => {
   try {
-    const db = req.app.locals.db;
-    const { postId, day, shiftLabel, personIds } = req.body;
-    
-    // Delete existing assignments for this cell
+    const db = getDb(req);
+    const { postId, day, shiftLabel, personIds = [] } = req.body;
+
     await db.run(
       'DELETE FROM assignments WHERE postId = ? AND day = ? AND shiftLabel = ?',
       [postId, day, shiftLabel]
     );
-    
-    // Insert new assignments
+
     for (const personId of personIds) {
       await db.run(
         'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO) VALUES (?,?,?,?,?,?)',
         [personId, postId, day, shiftLabel, '', '']
       );
     }
-    
-    // Return all assignments
+
     const rows = await db.all('SELECT * FROM assignments');
     res.json({ ok: true, assignments: rows });
   } catch (err) {
-    console.error(err);
-    res.json({ ok: false, error: err.message });
+    next(err);
   }
 });
 
-router.get('/last', async (req, res) => {
-  const db = req.app.locals.db;
-  const rows = await db.all('SELECT * FROM assignments');
-  res.json(rows);
+router.get('/last', async (req, res, next) => {
+  try {
+    const rows = await getDb(req).all('SELECT * FROM assignments');
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
 });
 
-// Clear all assignments
-router.delete('/clear', async (req, res) => {
+router.delete('/clear', async (req, res, next) => {
   try {
-    const db = req.app.locals.db;
-    await db.run('DELETE FROM assignments');
+    await clearAssignments(getDb(req));
     res.json({ ok: true });
   } catch (err) {
-    console.error(err);
-    res.json({ ok: false, error: err.message });
+    next(err);
   }
 });
 
