@@ -55,21 +55,16 @@ const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
   return defaultValue;
 };
 
-const ensureDefaultStart = () => {
-  const saved = localStorage.getItem(STORAGE_KEY_START);
+const ensureDefaultTime = (storageKey: string, calculate: () => string) => {
+  const saved = localStorage.getItem(storageKey);
   if (saved && saved.endsWith('T20:00')) return saved;
-  const next = calculateDefaultStart();
-  localStorage.setItem(STORAGE_KEY_START, next);
+  const next = calculate();
+  localStorage.setItem(storageKey, next);
   return next;
 };
 
-const ensureDefaultEnd = () => {
-  const saved = localStorage.getItem(STORAGE_KEY_END);
-  if (saved && saved.endsWith('T20:00')) return saved;
-  const next = calculateDefaultEnd();
-  localStorage.setItem(STORAGE_KEY_END, next);
-  return next;
-};
+const ensureDefaultStart = () => ensureDefaultTime(STORAGE_KEY_START, calculateDefaultStart);
+const ensureDefaultEnd = () => ensureDefaultTime(STORAGE_KEY_END, calculateDefaultEnd);
 
 const App: React.FC = () => {
   const [assignments, setAssignments] = useState<Assignment[]>(() => 
