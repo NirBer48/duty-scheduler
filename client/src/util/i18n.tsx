@@ -68,6 +68,15 @@ const translations: Record<Language, TranslationMap> = {
     'Limited ability (LT)': 'Limited ability (LT)',
     'Limited ability note': 'People marked as limited ability (LT) cannot be assigned to ES groups.',
     'Limited ability note short': 'Limited ability (LT)',
+    'Shifts': 'Shifts',
+    'Hours': 'Hours',
+    'BW Assignments': 'BW Assignments',
+    'BW Slot': 'BW Slot',
+    'Edit BW Slot': 'Edit BW Slot',
+    'Required per slot': 'Required per slot',
+    'Overlapping shift in this timeframe': 'Overlapping shift in this timeframe',
+    'ES limit reached for this slot': 'ES limit reached for this slot',
+    'ES overlap with shift': 'Another ES member is already on shift at this time',
   },
   he: {
     'Duty Scheduler': 'סידור תורנויות',
@@ -133,6 +142,15 @@ const translations: Record<Language, TranslationMap> = {
     'Limited ability (LT)': 'כ"מ (LT)',
     'Limited ability note': 'אנשים המסומנים ככ"מ אינם יכולים להיבחר לכ"כ.',
     'Limited ability note short': 'כ"מ',
+    'Shifts': 'משמרות',
+    'Hours': 'שעות',
+    'BW Assignments': 'עב"ס',
+    'BW Slot': 'שורת עב"ס',
+    'Edit BW Slot': 'עריכת עב"ס',
+    'Required per slot': 'נדרשים לשורה',
+    'Overlapping shift in this timeframe': 'משמרת חופפת בזמן זה',
+    'ES limit reached for this slot': 'כבר נבחר כ"כ לשורה זו',
+    'ES overlap with shift': 'חבר כ"כ אחר כבר במשמרת בזמן זה',
   }
 };
 

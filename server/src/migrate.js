@@ -18,6 +18,27 @@ const ensureLimitedAbilityColumn = async db => {
   }
 };
 
+const ensureBWAssignmentsTable = async db => {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS bw_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      slotId TEXT NOT NULL
+    )
+  `);
+};
+
+const ensureESAssignmentsTable = async db => {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS es_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      groupId TEXT NOT NULL,
+      personId INTEGER NOT NULL
+    )
+  `);
+};
+
 const runMigration = async () => {
   const db = await open({
     filename: DB_PATH,
@@ -28,6 +49,8 @@ const runMigration = async () => {
     const sql = fs.readFileSync('./migrations/init.sql', 'utf8');
     await db.exec(sql);
     await ensureLimitedAbilityColumn(db);
+    await ensureBWAssignmentsTable(db);
+    await ensureESAssignmentsTable(db);
     console.log('Migration applied.');
   } catch (err) {
     console.error('Migration failed', err);

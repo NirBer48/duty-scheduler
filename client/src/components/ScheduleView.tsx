@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Assignment, Person, Post, ShiftOverride, ESGroup, ESGroupAssignment, ESGroupId } from "../types";
+import { Assignment, Person, Post, ShiftOverride, ESGroup, ESGroupAssignment, ESGroupId, BWAssignment } from "../types";
 import { useI18n } from "../util/i18n";
 import { Box, Typography, Alert, Button, IconButton, Chip } from "@mui/material";
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -9,11 +9,19 @@ import {
     CellEditDialog, 
     ESEditDialog, 
     ShiftSettingsDialog, 
+    BWEditDialog,
     exportToExcel,
     getShiftsForPeriod,
     getPersonIds,
     getCellKey,
-    getShiftIndex
+    getShiftIndex,
+    BW_SLOT_DEFINITIONS,
+    BW_REQUIRED_PER_SLOT,
+    getBwSlotKey,
+    getShiftTimeWindow,
+    hasTimeOverlap,
+    getBwSlotRangeMinutes,
+    getBwDaysForRange
 } from "./schedule";
 
 interface Props {
@@ -29,6 +37,8 @@ interface Props {
     onESAssignmentsChange?: (esAssignments: ESGroupAssignment[]) => void;
     esGroups?: ESGroup[];
     onESGroupsChange?: (esGroups: ESGroup[]) => void;
+    bwAssignments?: BWAssignment[];
+    onBWAssignmentsChange?: (assignments: BWAssignment[]) => void;
 }
 
 const ScheduleCalendar: React.FC<Props> = ({ 
@@ -43,7 +53,9 @@ const ScheduleCalendar: React.FC<Props> = ({
     esAssignments: externalESAssignments,
     onESAssignmentsChange,
     esGroups: externalESGroups,
-    onESGroupsChange
+    onESGroupsChange,
+    bwAssignments: externalBWAssignments = [],
+    onBWAssignmentsChange
 }) => {
     const shifts = getShiftsForPeriod(start, end);
     const { t, lang } = useI18n();
@@ -85,11 +97,17 @@ const ScheduleCalendar: React.FC<Props> = ({
     // Use external ES assignments if provided, otherwise use local state
     const esAssignments = onESAssignmentsChange && externalESAssignments ? externalESAssignments : localESAssignments;
     const setESAssignments = onESAssignmentsChange || setLocalESAssignments;
+
+    const [localBWAssignments, setLocalBWAssignments] = useState<BWAssignment[]>(externalBWAssignments);
+    const bwAssignments = onBWAssignmentsChange ? externalBWAssignments : localBWAssignments;
+    const setBWAssignments = onBWAssignmentsChange || setLocalBWAssignments;
+    const bwDays = getBwDaysForRange(start, end, bwAssignments);
     
     const [hasChanges, setHasChanges] = useState(false);
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
     const [invalidCells, setInvalidCells] = useState<Set<string>>(new Set());
     const [invalidESGroups, setInvalidESGroups] = useState<Set<string>>(new Set());
+    const [invalidBWSlots, setInvalidBWSlots] = useState<Set<string>>(new Set());
 
     // Dialog states
     const [editDialog, setEditDialog] = useState<{
@@ -112,14 +130,24 @@ const ScheduleCalendar: React.FC<Props> = ({
         group: ESGroup | null;
     }>({ open: false, group: null });
 
+    const [bwEditDialog, setBWEditDialog] = useState<{
+        open: boolean;
+        day: string;
+        slotId: string;
+    }>({ open: false, day: '', slotId: '' });
+
     // Sync effects
     useEffect(() => {
         setLocalAssignments(initialAssignments);
+        if (!onBWAssignmentsChange) {
+            setLocalBWAssignments(externalBWAssignments);
+        }
         setHasChanges(false);
         setValidationErrors([]);
         setInvalidCells(new Set());
         setInvalidESGroups(new Set());
-    }, [initialAssignments]);
+        setInvalidBWSlots(new Set());
+    }, [initialAssignments, externalBWAssignments, onBWAssignmentsChange]);
 
     useEffect(() => {
         if (!onShiftOverridesChange) {
@@ -141,6 +169,14 @@ const ScheduleCalendar: React.FC<Props> = ({
         const ids = getPersonIds(localAssignments, shiftLabel, day, postId);
         return people.filter(p => ids.includes(p.id)).map(p => p.name).join(", ");
     };
+
+    const getBWPersonIds = (day: string, slotId: string): number[] =>
+        bwAssignments
+            .filter(a => a.day === day && a.slotId === slotId)
+            .map(a => a.personId);
+
+    const isInvalidBWSlot = (day: string, slotId: string): boolean =>
+        invalidBWSlots.has(getBwSlotKey(day, slotId));
 
     const isInvalidCell = (postId: number, shiftLabel: string, day: string): boolean => {
         const required = getRequiredCount(postId, day, shiftLabel);
@@ -176,6 +212,10 @@ const ScheduleCalendar: React.FC<Props> = ({
         setESEditDialog({ open: true, group });
     };
 
+    const handleBWCellClick = (day: string, slotId: string) => {
+        setBWEditDialog({ open: true, day, slotId });
+    };
+
     const handleCellSave = (personIds: number[]) => {
         if (!editDialog.post) return;
         const { post, day, shiftLabel } = editDialog;
@@ -198,6 +238,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         setValidationErrors([]);
         setInvalidCells(new Set());
         setInvalidESGroups(new Set());
+        setInvalidBWSlots(new Set());
     };
 
     const handleSettingsSave = (required: number) => {
@@ -222,6 +263,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         setValidationErrors([]);
         setInvalidCells(new Set());
         setInvalidESGroups(new Set());
+        setInvalidBWSlots(new Set());
     };
 
     const handleESSave = (personIds: number[], totalPeople: number) => {
@@ -251,6 +293,27 @@ const ScheduleCalendar: React.FC<Props> = ({
         setValidationErrors([]);
         setInvalidCells(new Set());
         setInvalidESGroups(new Set());
+        setInvalidBWSlots(new Set());
+    };
+
+    const handleBWSave = (day: string, slotId: string, personIds: number[]) => {
+        const filtered = bwAssignments.filter(a => !(a.day === day && a.slotId === slotId));
+        const updated: BWAssignment[] = [
+            ...filtered,
+            ...personIds.map(personId => ({ day, slotId, personId })),
+        ];
+
+        if (onBWAssignmentsChange) {
+            onBWAssignmentsChange(updated);
+        } else {
+            setLocalBWAssignments(updated);
+        }
+
+        setHasChanges(true);
+        setValidationErrors([]);
+        setInvalidCells(new Set());
+        setInvalidESGroups(new Set());
+        setInvalidBWSlots(new Set());
     };
 
     // Validation
@@ -258,6 +321,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         const errors: string[] = [];
         const newInvalidCells = new Set<string>();
         const newInvalidESGroups = new Set<string>();
+        const newInvalidBWSlots = new Set<string>();
 
         // Check required counts
         for (const shift of shifts) {
@@ -347,8 +411,70 @@ const ScheduleCalendar: React.FC<Props> = ({
             }
         }
 
+        const esGroupLookup = new Map<number, string>();
+        esAssignments.forEach(es => es.personIds.forEach(pid => esGroupLookup.set(pid, es.groupId)));
+
+        for (const day of bwDays) {
+            for (const slot of BW_SLOT_DEFINITIONS) {
+                const key = getBwSlotKey(day, slot.id);
+                const assignedIds = getBWPersonIds(day, slot.id);
+                if (assignedIds.length < BW_REQUIRED_PER_SLOT) {
+                    errors.push(`${day} ${slot.label}: ${t('needs')} ${BW_REQUIRED_PER_SLOT}, ${t('has')} ${assignedIds.length}`);
+                    newInvalidBWSlots.add(key);
+                }
+
+                const slotRange = getBwSlotRangeMinutes(slot);
+                for (const personId of assignedIds) {
+                    const assignmentsForPerson = localAssignments.filter(a => a.personId === personId && a.day === day);
+                    for (const assignment of assignmentsForPerson) {
+                        const window = getShiftTimeWindow(assignment.shiftLabel);
+                        if (!window) continue;
+                        if (hasTimeOverlap(slotRange.start, slotRange.end, window.start, window.end)) {
+                            const person = people.find(p => p.id === personId);
+                            errors.push(`${person?.name || personId}: ${t('Overlapping shift in this timeframe')} (${day} ${slot.label})`);
+                            newInvalidBWSlots.add(key);
+                            break;
+                        }
+                    }
+                }
+
+                const usedGroups = new Set<string>();
+                for (const personId of assignedIds) {
+                    const groupId = esGroupLookup.get(personId);
+                    if (!groupId) continue;
+                    if (usedGroups.has(groupId)) {
+                        const groupName = esGroups.find(g => g.id === groupId)?.name || groupId;
+                        errors.push(`${day} ${slot.label} - ${groupName}: ${t('ES limit reached for this slot')}`);
+                        newInvalidBWSlots.add(key);
+                        break;
+                    }
+                    usedGroups.add(groupId);
+                }
+
+                for (const personId of assignedIds) {
+                    const groupId = esGroupLookup.get(personId);
+                    if (!groupId) continue;
+                    const hasGroupShiftConflict = localAssignments.some(a => {
+                        if (a.personId === personId) return false;
+                        if (a.day !== day) return false;
+                        if (esGroupLookup.get(a.personId) !== groupId) return false;
+                        const window = getShiftTimeWindow(a.shiftLabel);
+                        if (!window) return false;
+                        return hasTimeOverlap(slotRange.start, slotRange.end, window.start, window.end);
+                    });
+                    if (hasGroupShiftConflict) {
+                        const groupName = esGroups.find(g => g.id === groupId)?.name || groupId;
+                        errors.push(`${day} ${slot.label} - ${groupName}: ${t('ES overlap with shift')}`);
+                        newInvalidBWSlots.add(key);
+                        break;
+                    }
+                }
+            }
+        }
+
         setInvalidCells(newInvalidCells);
         setInvalidESGroups(newInvalidESGroups);
+        setInvalidBWSlots(newInvalidBWSlots);
         return { valid: errors.length === 0, errors };
     };
 
@@ -370,7 +496,8 @@ const ScheduleCalendar: React.FC<Props> = ({
                     assignments: localAssignments,
                     overrides: shiftOverrides,
                     esAssignments,
-                    esGroups
+                    esGroups,
+                    bwAssignments
                 })
             });
             const result = await response.json();
@@ -379,6 +506,8 @@ const ScheduleCalendar: React.FC<Props> = ({
                 setHasChanges(false);
                 setValidationErrors([]);
                 onAssignmentsChange?.(localAssignments);
+                onBWAssignmentsChange?.(bwAssignments);
+                setInvalidBWSlots(new Set());
             } else {
                 setValidationErrors([result.error || t('Save failed')]);
             }
@@ -396,6 +525,7 @@ const ScheduleCalendar: React.FC<Props> = ({
             esGroups,
             esAssignments,
             shiftOverrides,
+            bwAssignments,
             start,
             end,
             t
@@ -433,12 +563,15 @@ const ScheduleCalendar: React.FC<Props> = ({
             )}
 
             {/* Schedule table */}
+            <Typography variant="h6" align="center" sx={{ mb: 1 }}>
+                {t('Shifts')}
+            </Typography>
             <Box sx={{ overflowX: "auto", width: "100%", minWidth: 600 }}>
                 <table style={{ borderCollapse: "collapse", minWidth: "100%", tableLayout: "fixed" }}>
                     <thead>
                         <tr>
                             <th style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: 140, padding: "8px 4px", position: "sticky", left: 0, zIndex: 1 }}>
-                                {t('Shift')}
+                                {t('Hours')}
                             </th>
                             {posts.map(post => (
                                 <th key={post.id} style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: 130, padding: "8px 4px" }}>
@@ -551,6 +684,73 @@ const ScheduleCalendar: React.FC<Props> = ({
                 </table>
             </Box>
 
+            {/* BW table */}
+            {bwDays.length > 0 && (
+                <Box sx={{ mt: 4, overflowX: 'auto' }}>
+                    <Typography variant="h6" align="center" sx={{ mb: 1 }}>{t('BW Assignments')}</Typography>
+                    <table style={{ borderCollapse: 'collapse', minWidth: '100%', tableLayout: 'fixed' }}>
+                        <thead>
+                            <tr>
+                                <th style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: 160, padding: "8px 4px" }}>
+                                    {t('Hours')}
+                                </th>
+                                {bwDays.map(day => (
+                                    <th key={day} style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: 160, padding: "8px 4px" }}>
+                                        {day}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {BW_SLOT_DEFINITIONS.map(slot => {
+                                const slotLabel = lang === 'he' ? `עב"ס ${slot.label}` : `BW ${slot.label}`;
+                                return (
+                                    <tr key={slot.id}>
+                                        <td style={{ border: "1px solid #888", padding: "6px 8px", background: "#fafafa", fontWeight: 600 }}>
+                                            {slotLabel}
+                                        </td>
+                                        {bwDays.map(day => {
+                                            const personIds = getBWPersonIds(day, slot.id);
+                                            const key = getBwSlotKey(day, slot.id);
+                                            const isInvalid = isInvalidBWSlot(day, slot.id);
+                                            const names = personIds
+                                                .map(pid => people.find(p => p.id === pid)?.name || pid)
+                                                .join(", ");
+
+                                            let bgColor = '#fff3e0';
+                                            if (isInvalid && validationErrors.length > 0) bgColor = '#ffcdd2';
+                                            else if (personIds.length === 0) bgColor = '#ffebee';
+                                            else if (personIds.length >= BW_REQUIRED_PER_SLOT) bgColor = '#e8f5e9';
+
+                                            return (
+                                                <td
+                                                    key={key}
+                                                    onClick={() => handleBWCellClick(day, slot.id)}
+                                                    style={{
+                                                        border: isInvalid && validationErrors.length > 0 ? "2px solid #f44336" : "1px solid #ccc",
+                                                        padding: 8,
+                                                        cursor: 'pointer',
+                                                        backgroundColor: bgColor,
+                                                        verticalAlign: 'top'
+                                                    }}
+                                                >
+                                                    <Typography variant="body2" sx={{ minHeight: 24 }}>
+                                                        {names || <span style={{ color: '#999' }}>—</span>}
+                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {personIds.length} / {BW_REQUIRED_PER_SLOT}
+                                                    </Typography>
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </Box>
+            )}
+
             {/* Dialogs */}
             {editDialog.post && (
                 <CellEditDialog
@@ -591,6 +791,21 @@ const ScheduleCalendar: React.FC<Props> = ({
                     currentPersonIds={esAssignments.find(es => es.groupId === esEditDialog.group!.id)?.personIds || []}
                     onSave={handleESSave}
                     otherESPersonIds={esAssignments.filter(es => es.groupId !== esEditDialog.group!.id).flatMap(es => es.personIds)}
+                />
+            )}
+
+            {bwEditDialog.open && (
+                <BWEditDialog
+                    open={bwEditDialog.open}
+                    onClose={() => setBWEditDialog({ open: false, day: '', slotId: '' })}
+                    day={bwEditDialog.day}
+                    slotId={bwEditDialog.slotId}
+                    people={people}
+                    currentPersonIds={getBWPersonIds(bwEditDialog.day, bwEditDialog.slotId)}
+                    onSave={(personIds) => handleBWSave(bwEditDialog.day, bwEditDialog.slotId, personIds)}
+                    assignments={localAssignments}
+                    esAssignments={esAssignments}
+                    esGroups={esGroups}
                 />
             )}
         </>

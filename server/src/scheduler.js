@@ -3,6 +3,49 @@ import utc from 'dayjs/plugin/utc.js';
 
 dayjs.extend(utc);
 
+const BW_SLOTS = [
+  { id: 'bw_morning', label: 'BW 08:30-11:30', startHour: 8, startMinute: 30, endHour: 11, endMinute: 30 },
+  { id: 'bw_afternoon', label: 'BW 13:30-17:30', startHour: 13, startMinute: 30, endHour: 17, endMinute: 30 },
+  { id: 'bw_evening', label: 'BW 18:30-20:00', startHour: 18, startMinute: 30, endHour: 20, endMinute: 0 },
+];
+const BW_REQUIRED = 20;
+
+const computeBWDays = (startISO, endISO, existingBwAssignments = []) => {
+  const start = dayjs(startISO);
+  const end = dayjs(endISO);
+  const rangeStart = start.startOf('day');
+  const rangeEnd = end.endOf('day');
+  const daysSet = new Set();
+
+  const addDayIfApplicable = dayMoment => {
+    const normalized = dayjs(dayMoment).startOf('day');
+    if (normalized.isBefore(rangeStart) || normalized.isAfter(rangeEnd)) {
+      return;
+    }
+    const hasSlotWithinRange = BW_SLOTS.some(slot => {
+      const slotStart = normalized.add(slot.startHour, 'hour').add(slot.startMinute, 'minute');
+      let slotEnd = normalized.add(slot.endHour, 'hour').add(slot.endMinute, 'minute');
+      if (!slotEnd.isAfter(slotStart)) {
+        slotEnd = slotEnd.add(1, 'day');
+      }
+      return slotEnd.isAfter(start) && slotStart.isBefore(end);
+    });
+    if (hasSlotWithinRange) {
+      daysSet.add(normalized.format('YYYY-MM-DD'));
+    }
+  };
+
+  existingBwAssignments.forEach(bw => addDayIfApplicable(bw.day));
+
+  let cursor = rangeStart.clone();
+  while (cursor.isBefore(rangeEnd) || cursor.isSame(rangeEnd, 'day')) {
+    addDayIfApplicable(cursor);
+    cursor = cursor.add(1, 'day');
+  }
+
+  return Array.from(daysSet).sort();
+};
+
 export const scheduleGenerator = (
   people,
   posts,
@@ -10,7 +53,8 @@ export const scheduleGenerator = (
   endISO,
   shiftOverrides = [],
   esAssignments = [],
-  existingAssignments = []
+  existingAssignments = [],
+  existingBwAssignments = []
 ) => {
   // Build all 4-hour shift time slots between start and end
   const shiftDefinitions = [
@@ -41,9 +85,11 @@ export const scheduleGenerator = (
   // Track per-person: assigned shifts (for rest tracking) and total shift count
   const personShifts = new Map(); // personId -> array of { start, end, day, shiftLabel }
   const shiftCountByPerson = {};
+  const bwAssignmentCount = {};
   people.forEach(p => {
     personShifts.set(p.id, []);
     shiftCountByPerson[p.id] = 0;
+    bwAssignmentCount[p.id] = 0;
   });
 
   // Build list of all shift time slots in the date range
@@ -355,8 +401,127 @@ export const scheduleGenerator = (
   const unfilledMandatory = slotsToFill.some(slot => slot.stillNeeded > 0 && !slot.optional);
   
   if (unfilledMandatory) {
-    return { assignments: [], error: 'not enough manpower' };
+    return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
   }
 
-  return { assignments };
+  const bwAssignments = [];
+  const bwDays = computeBWDays(startISO, endISO, existingBwAssignments);
+  const bwSlotKey = (day, slotId) => `${day}|${slotId}`;
+  const bwSlotAssignments = new Map(); // key -> Set of personIds
+
+  const pad = value => String(value).padStart(2, '0');
+  const buildSlotTimes = (day, slot) => {
+    const start = dayjs(`${day}T${pad(slot.startHour)}:${pad(slot.startMinute)}:00`).toISOString();
+    let endDay = day;
+    let endHour = slot.endHour;
+    let endMinute = slot.endMinute;
+    if (slot.endHour < slot.startHour || (slot.endHour === slot.startHour && slot.endMinute <= slot.startMinute)) {
+      // crosses midnight
+      endDay = dayjs(day).add(1, 'day').format('YYYY-MM-DD');
+    }
+    const end = dayjs(`${endDay}T${pad(endHour)}:${pad(endMinute)}:00`).toISOString();
+    return { start, end };
+  };
+
+  // Seed with existing BW assignments
+  for (const bw of existingBwAssignments) {
+    const slot = BW_SLOTS.find(s => s.id === bw.slotId);
+    if (!slot) continue;
+    const key = bwSlotKey(bw.day, slot.id);
+    if (!bwSlotAssignments.has(key)) {
+      bwSlotAssignments.set(key, new Set());
+    }
+    bwSlotAssignments.get(key).add(Number(bw.personId));
+    bwAssignmentCount[bw.personId] = (bwAssignmentCount[bw.personId] || 0) + 1;
+    const times = buildSlotTimes(bw.day, slot);
+    bwAssignments.push({
+      day: bw.day,
+      slotId: slot.id,
+      personId: Number(bw.personId),
+      start: times.start,
+      end: times.end,
+    });
+  }
+
+  const overlapsWithShift = (personId, slotStartISO, slotEndISO) => {
+    const shifts = personShifts.get(personId) || [];
+    const slotStart = dayjs(slotStartISO);
+    const slotEnd = dayjs(slotEndISO);
+    for (const shift of shifts) {
+      const shiftStart = dayjs(shift.start);
+      const shiftEnd = dayjs(shift.end);
+      if (shiftStart.isBefore(slotEnd) && slotStart.isBefore(shiftEnd)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const canESMemberWorkBW = (personId, key) => {
+    const groupId = personToESGroup.get(personId);
+    if (!groupId) return true;
+    const assigned = bwSlotAssignments.get(key) || new Set();
+    for (const assignedId of assigned) {
+      if (personToESGroup.get(assignedId) === groupId && assignedId !== personId) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const esShiftOverlapExists = (groupId, slotStartISO, slotEndISO, excludePersonId) => {
+    if (!groupId) return false;
+    const slotStart = dayjs(slotStartISO);
+    const slotEnd = dayjs(slotEndISO);
+    for (const assignment of assignments) {
+      if (assignment.personId === excludePersonId) continue;
+      if (personToESGroup.get(assignment.personId) !== groupId) continue;
+      const assignmentStart = dayjs(assignment.start);
+      const assignmentEnd = dayjs(assignment.end);
+      if (assignmentStart.isBefore(slotEnd) && slotStart.isBefore(assignmentEnd)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (const day of bwDays) {
+    for (const slot of BW_SLOTS) {
+      const key = bwSlotKey(day, slot.id);
+      if (!bwSlotAssignments.has(key)) {
+        bwSlotAssignments.set(key, new Set());
+      }
+      const assignedSet = bwSlotAssignments.get(key);
+      const stillNeeded = BW_REQUIRED - assignedSet.size;
+      if (stillNeeded <= 0) continue;
+      const { start, end } = buildSlotTimes(day, slot);
+
+      const candidates = [...people]
+        .filter(person => !assignedSet.has(person.id))
+        .filter(person => !overlapsWithShift(person.id, start, end))
+        .sort((a, b) => {
+          const workA = shiftCountByPerson[a.id] + (bwAssignmentCount[a.id] || 0);
+          const workB = shiftCountByPerson[b.id] + (bwAssignmentCount[b.id] || 0);
+          return workA - workB;
+        });
+
+      for (const candidate of candidates) {
+        if (assignedSet.size >= BW_REQUIRED) break;
+        if (!canESMemberWorkBW(candidate.id, key)) continue;
+        const candidateGroup = personToESGroup.get(candidate.id);
+        if (esShiftOverlapExists(candidateGroup, start, end, candidate.id)) continue;
+        assignedSet.add(candidate.id);
+        bwAssignmentCount[candidate.id] = (bwAssignmentCount[candidate.id] || 0) + 1;
+        bwAssignments.push({
+          day,
+          slotId: slot.id,
+          personId: candidate.id,
+          start,
+          end,
+        });
+      }
+    }
+  }
+
+  return { assignments, bwAssignments };
 };
