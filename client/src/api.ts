@@ -16,6 +16,7 @@ type AddPersonPayload = {
   name: string;
   gender: Person['gender'];
   sameGenderPref: boolean;
+  limitedAbility: boolean;
 };
 
 type AddPostPayload = {

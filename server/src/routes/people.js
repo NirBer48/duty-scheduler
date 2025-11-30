@@ -8,7 +8,7 @@ const mapPerson = row => ({
   name: row.name,
   gender: row.gender,
   sameGenderPreference: Boolean(row.sameGenderPref),
-  exemptions: JSON.parse(row.exemptions || '[]'),
+  limitedAbility: Boolean(row.limitedAbility),
 });
 
 router.get('/', async (req, res, next) => {
@@ -23,12 +23,18 @@ router.get('/', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const db = getDb(req);
-    const { name, gender, sameGenderPref = false, exemptions = [] } = req.body;
+    const { name, gender, sameGenderPref = false, limitedAbility = false } = req.body;
     const result = await db.run(
-      'INSERT INTO people (name, gender, sameGenderPref, exemptions) VALUES (?, ?, ?, ?)',
-      [name, gender, sameGenderPref ? 1 : 0, JSON.stringify(exemptions)]
+      'INSERT INTO people (name, gender, sameGenderPref, limitedAbility) VALUES (?, ?, ?, ?)',
+      [name, gender, sameGenderPref ? 1 : 0, limitedAbility ? 1 : 0]
     );
-    res.json({ id: result.lastID, name, gender, sameGenderPreference: sameGenderPref, exemptions });
+    res.json({
+      id: result.lastID,
+      name,
+      gender,
+      sameGenderPreference: sameGenderPref,
+      limitedAbility,
+    });
   } catch (err) {
     next(err);
   }

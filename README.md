@@ -14,6 +14,7 @@ A web application for scheduling people across duty shifts with support for mult
 - Add/delete people with name, gender (M/F/X), and same-gender preference
 - Import people from Excel (.xlsx) files
 - Same-gender preference ensures pairing only with same gender
+- Limited ability (כ"מ) flag prevents selecting unsuitable people for כ"כ groups
 
 ### Posts Management
 - Create multiple posts/stations that need staffing
@@ -25,7 +26,6 @@ A web application for scheduling people across duty shifts with support for mult
   - **8-hour rest rule**: Minimum 8 hours between shifts (2 shift gap)
   - **Equal distribution**: Spreads shifts evenly among all people
   - **Same-gender pairing**: Respects gender preferences when pairing
-  - **Exemptions**: Support for post/date exemptions
 - Manual editing of individual cells
 - Visual validation with color-coded cells
 
@@ -40,7 +40,7 @@ A web application for scheduling people across duty shifts with support for mult
   - Color-coded cells (green=full, orange=partial, red=empty)
   - Merged cells for ES groups
   - Bold headers and borders
-- Import people from Excel with columns: `name`, `gender`, `sameGenderPref`
+- Import people from Excel with columns: `name`, `gender`, `sameGenderPref`, `limitedAbility`
 
 ### Internationalization
 - Full support for English and Hebrew (עברית)
@@ -189,7 +189,7 @@ CREATE TABLE people (
   name TEXT NOT NULL,
   gender TEXT NOT NULL,
   sameGenderPref INTEGER DEFAULT 0,
-  exemptions TEXT DEFAULT '[]'
+  limitedAbility INTEGER DEFAULT 0
 );
 
 -- Posts table

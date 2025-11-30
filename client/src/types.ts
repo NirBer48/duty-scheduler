@@ -6,7 +6,7 @@ export interface Person {
   name: string;
   gender: Gender;
   sameGenderPreference: boolean;
-  exemptions: string[];
+  limitedAbility: boolean;
 }
 
 export interface Post {

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchPeople, addPerson, deletePerson } from '../api';
-import { Box, Paper, Typography, TextField, Select, MenuItem, Button, IconButton, List, ListItem, ListItemText, Alert, FormControlLabel, Checkbox, Divider } from '@mui/material';
+import { Box, Paper, Typography, TextField, Select, MenuItem, Button, IconButton, List, ListItem, ListItemText, Alert, FormControlLabel, Checkbox, Divider, Chip } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import { useI18n } from '../util/i18n';
@@ -16,6 +16,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
   const [name, setName] = useState('');
   const [gender, setGender] = useState<'F' | 'M' | 'X'>('M');
   const [sameGenderPref, setSameGenderPref] = useState(false);
+  const [limitedAbility, setLimitedAbility] = useState(false);
   const [validationError, setValidationError] = useState('');
   const { t, lang } = useI18n();
 
@@ -41,9 +42,10 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
       return;
     }
     setValidationError('');
-    await addPerson({ name: trimmed, gender, sameGenderPref });
+    await addPerson({ name: trimmed, gender, sameGenderPref, limitedAbility });
     setName('');
     setSameGenderPref(false);
+    setLimitedAbility(false);
     await refreshPeople();
   };
 
@@ -74,6 +76,17 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
 
   const resolveSameGenderPref = (row: any) =>
     parseBool(row.sameGenderPref ?? row['העדפת מגדר'] ?? row.sameGender ?? false);
+
+  const resolveLimitedAbility = (row: any) =>
+    parseBool(
+      row.limitedAbility ??
+      row.LimitedAbility ??
+      row.LT ??
+      row['LT'] ??
+      row['כ"מ'] ??
+      row['כמ'] ??
+      false
+    );
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -106,8 +119,14 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
         
         const resolvedGender = resolveGender(row);
         const resolvedSameGenderPref = resolveSameGenderPref(row);
+        const resolvedLimitedAbility = resolveLimitedAbility(row);
         
-        await addPerson({ name: resolvedName, gender: resolvedGender, sameGenderPref: resolvedSameGenderPref });
+        await addPerson({
+          name: resolvedName,
+          gender: resolvedGender,
+          sameGenderPref: resolvedSameGenderPref,
+          limitedAbility: resolvedLimitedAbility,
+        });
         existingNames.add(resolvedName.toLowerCase());
         importedCount++;
       }
@@ -166,7 +185,13 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
           </Select>
         </Box>
         
-        <Box display="flex" justifyContent="space-between" alignItems="center">
+        <Box
+          display="flex"
+          flexWrap="wrap"
+          alignItems="center"
+          gap={1}
+          sx={{ direction: lang === 'he' ? 'rtl' : 'ltr' }}
+        >
           <FormControlLabel
             control={
               <Checkbox 
@@ -178,7 +203,28 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
             label={<Typography variant="body2">{t('Same gender only')}</Typography>}
             sx={{ mr: 0 }}
           />
-          <Button onClick={handleAdd} variant="contained" size="small">{t('Add')}</Button>
+          <FormControlLabel
+            control={
+              <Checkbox 
+                checked={limitedAbility} 
+                onChange={e => setLimitedAbility(e.target.checked)} 
+                size="small" 
+              />
+            }
+            label={<Typography variant="body2">{t('Limited ability (LT)')}</Typography>}
+            sx={{
+              mr: lang === 'he' ? 0 : 2,
+              ml: lang === 'he' ? 2 : 0,
+            }}
+          />
+          <Button
+            onClick={handleAdd}
+            variant="contained"
+            size="small"
+            sx={{ ml: lang === 'he' ? 0 : 'auto', mr: lang === 'he' ? 'auto' : 0 }}
+          >
+            {t('Add')}
+          </Button>
         </Box>
       </Box>
       
@@ -188,27 +234,80 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
       
       {/* People list */}
       <Box sx={{ overflow: 'auto', flex: 1 }}>
-        <List dense>
-          {people.map(p => (
-            <ListItem 
-              secondaryAction={
-                <IconButton edge="end" onClick={() => handleDelete(p.id)} size="small">
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              } 
-              key={p.id}
-              sx={{ py: 0.5 }}
-            >
-              <ListItemText 
-                primary={
-                  <Typography variant="body2">
-                    {p.name} ({p.gender}){p.sameGenderPreference ? ' 👫' : ''}
-                  </Typography>
+        <List
+          dense
+          sx={{
+            direction: lang === 'he' ? 'rtl' : 'ltr',
+            textAlign: lang === 'he' ? 'right' : 'left',
+          }}
+        >
+          {people.map(p => {
+            const indicators = [
+              p.sameGenderPreference ? t('Same gender only') : null,
+              p.limitedAbility ? t('Limited ability note short') : null,
+            ].filter(Boolean);
+
+            return (
+              <ListItem
+                secondaryAction={
+                  <IconButton edge="end" onClick={() => handleDelete(p.id)} size="small">
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
                 }
-                secondary={p.sameGenderPreference ? t('Same gender only') : null}
-              />
-            </ListItem>
-          ))}
+                key={p.id}
+                sx={{
+                  py: 0.5,
+                  textAlign: lang === 'he' ? 'right' : 'left',
+                  direction: lang === 'he' ? 'rtl' : 'ltr',
+                }}
+              >
+                <ListItemText
+                  sx={{ textAlign: lang === 'he' ? 'right' : 'left' }}
+                  primary={
+                    <Box
+                      component="span"
+                      sx={{
+                        display: 'inline-flex',
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        columnGap: 0.75,
+                        rowGap: 0.5,
+                        direction: lang === 'he' ? 'rtl' : 'ltr',
+                        width: '100%',
+                      }}
+                    >
+                      <Typography
+                        variant="body2"
+                        component="span"
+                        sx={{ direction: lang === 'he' ? 'rtl' : 'ltr' }}
+                      >
+                        {p.name} ({p.gender}){p.sameGenderPreference ? ' 👫' : ''}
+                      </Typography>
+                      {p.limitedAbility && (
+                        <Chip
+                          label={t('Limited ability (LT)')}
+                          size="small"
+                          color="warning"
+                          sx={{ direction: 'ltr' }}
+                        />
+                      )}
+                    </Box>
+                  }
+                  secondary={
+                    indicators.length > 0 ? (
+                      <Typography
+                        variant="caption"
+                        component="span"
+                        sx={{ display: 'block', direction: lang === 'he' ? 'rtl' : 'ltr' }}
+                      >
+                        {indicators.join(' • ')}
+                      </Typography>
+                    ) : null
+                  }
+                />
+              </ListItem>
+            );
+          })}
           {people.length === 0 && (
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
               {t('No people added yet')}

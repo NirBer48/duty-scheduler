@@ -9,7 +9,8 @@ import {
     FormControlLabel,
     Box,
     Typography,
-    TextField
+    TextField,
+    Alert
 } from "@mui/material";
 import { useI18n } from "../../util/i18n";
 import { Person, ESGroup } from "../../types";
@@ -39,10 +40,14 @@ export const ESEditDialog: React.FC<Props> = ({
     const [search, setSearch] = useState('');
 
     useEffect(() => {
-        setSelected(currentPersonIds);
+        const safeSelection = currentPersonIds.filter(id => {
+            const person = people.find(p => p.id === id);
+            return person && !person.limitedAbility;
+        });
+        setSelected(safeSelection);
         setTotalPeople(group.totalPeople);
         setSearch('');
-    }, [currentPersonIds, group.totalPeople, open]);
+    }, [currentPersonIds, group.totalPeople, open, people]);
 
     const handleToggle = (personId: number) => {
         setSelected(prev => {
@@ -58,14 +63,23 @@ export const ESEditDialog: React.FC<Props> = ({
 };
 
     const handleSave = () => {
-        onSave(selected, totalPeople);
+        const safeSelection = selected.filter(id => {
+            const person = people.find(p => p.id === id);
+            return person && !person.limitedAbility;
+        });
+        onSave(safeSelection, totalPeople);
         onClose();
     };
 
-    // Filter out people already in the other ES group
+    // Filter out people already in the other ES group or marked as limited ability
     const availablePeople = useMemo(
-        () => people.filter(p => !otherESPersonIds.includes(p.id)),
+        () => people.filter(p => !p.limitedAbility && !otherESPersonIds.includes(p.id)),
         [people, otherESPersonIds]
+    );
+
+    const limitedAbilityCount = useMemo(
+        () => people.filter(p => p.limitedAbility).length,
+        [people]
     );
 
     const filteredPeople = availablePeople.filter(person => {
@@ -106,6 +120,11 @@ export const ESEditDialog: React.FC<Props> = ({
                 <Typography variant="body2" color={selected.length === totalPeople ? "success.main" : "warning.main"} sx={{ mb: 2 }}>
                     {t('Selected')}: {selected.length} / {totalPeople}
                 </Typography>
+                {limitedAbilityCount > 0 && (
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        {t('Limited ability note')}
+                    </Alert>
+                )}
                 <TextField
                     value={search}
                     onChange={e => setSearch(e.target.value)}

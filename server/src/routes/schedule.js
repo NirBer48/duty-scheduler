@@ -7,7 +7,7 @@ const getDb = req => req.app.locals.db;
 const mapPerson = row => ({
   ...row,
   sameGenderPref: Boolean(row.sameGenderPref),
-  exemptions: JSON.parse(row.exemptions || '[]'),
+  limitedAbility: Boolean(row.limitedAbility),
 });
 
 const mapPost = row => ({

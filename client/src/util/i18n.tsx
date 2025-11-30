@@ -65,6 +65,9 @@ const translations: Record<Language, TranslationMap> = {
     'Import failed': 'Import failed',
     'Clear': 'Clear',
     'Are you sure you want to clear the schedule?': 'Are you sure you want to clear the schedule?',
+    'Limited ability (LT)': 'Limited ability (LT)',
+    'Limited ability note': 'People marked as limited ability (LT) cannot be assigned to ES groups.',
+    'Limited ability note short': 'Limited ability (LT)',
   },
   he: {
     'Duty Scheduler': 'סידור תורנויות',
@@ -127,6 +130,9 @@ const translations: Record<Language, TranslationMap> = {
     'Import failed': 'הייבוא נכשל',
     'Clear': 'נקה',
     'Are you sure you want to clear the schedule?': 'האם אתה בטוח שברצונך לנקות את הסידור?',
+    'Limited ability (LT)': 'כ"מ (LT)',
+    'Limited ability note': 'אנשים המסומנים ככ"מ אינם יכולים להיבחר לכ"כ.',
+    'Limited ability note short': 'כ"מ',
   }
 };
 

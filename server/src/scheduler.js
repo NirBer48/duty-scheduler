@@ -230,20 +230,12 @@ export const scheduleGenerator = (
     return false;
   };
 
-  const isExempt = (person, slot) => {
-    if (!person.exemptions) return false;
-    if (person.exemptions.includes(String(slot.postId))) return true;
-    if (person.exemptions.includes(`${slot.postId}|${slot.day}`)) return true;
-    return false;
-  };
-
   const canWork = (person, slot) => {
     const shiftKey = getShiftKey(slot.day, slot.shiftLabel);
     const assignedPeople = slotAssignments.get(shiftKey);
     if (assignedPeople?.has(person.id)) return false;
 
     if (hasRestViolation(person.id, slot.index)) return false;
-    if (isExempt(person, slot)) return false;
     if (!canESMemberWorkAtShift(person.id, slot.day, slot.shiftLabel)) return false;
     return true;
   };

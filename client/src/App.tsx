@@ -108,6 +108,24 @@ const App: React.FC = () => {
     refreshPosts();
   }, []);
 
+  useEffect(() => {
+    setESAssignments((prev: ESGroupAssignment[]) => {
+      let changed = false;
+      const sanitized = prev.map(group => {
+        const allowedIds = group.personIds.filter(id => {
+          const person = people.find((person: Person) => person.id === id);
+          return person && !person.limitedAbility;
+        });
+        if (allowedIds.length !== group.personIds.length) {
+          changed = true;
+          return { ...group, personIds: allowedIds };
+        }
+        return group;
+      });
+      return changed ? sanitized : prev;
+    });
+  }, [people]);
+
   useEffect(() => { localStorage.setItem(STORAGE_KEY_START, start); }, [start]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_END, end); }, [end]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ASSIGNMENTS, JSON.stringify(assignments)); }, [assignments]);
@@ -171,7 +189,7 @@ const App: React.FC = () => {
                   type="datetime-local"
                   label={t('Start')}
                   value={start}
-                  onChange={e => setStart(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStart(e.target.value)}
                   InputLabelProps={{ shrink: true }}
                   inputProps={{ step: 14400 }}
                   size="small"
@@ -180,7 +198,7 @@ const App: React.FC = () => {
                   type="datetime-local"
                   label={t('End')}
                   value={end}
-                  onChange={e => setEnd(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnd(e.target.value)}
                   InputLabelProps={{ shrink: true }}
                   inputProps={{ step: 14400 }}
                   size="small"

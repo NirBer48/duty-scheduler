@@ -9,6 +9,15 @@ const DB_DIR = path.dirname(DB_PATH);
 // Ensure DB directory exists before running migrations
 fs.mkdirSync(DB_DIR, { recursive: true });
 
+const ensureLimitedAbilityColumn = async db => {
+  const columns = await db.all('PRAGMA table_info(people)');
+  const hasColumn = columns.some(column => column.name === 'limitedAbility');
+  if (!hasColumn) {
+    await db.run('ALTER TABLE people ADD COLUMN limitedAbility INTEGER NOT NULL DEFAULT 0');
+    console.log('Added limitedAbility column to people table.');
+  }
+};
+
 const runMigration = async () => {
   const db = await open({
     filename: DB_PATH,
@@ -18,6 +27,7 @@ const runMigration = async () => {
   try {
     const sql = fs.readFileSync('./migrations/init.sql', 'utf8');
     await db.exec(sql);
+    await ensureLimitedAbilityColumn(db);
     console.log('Migration applied.');
   } catch (err) {
     console.error('Migration failed', err);
