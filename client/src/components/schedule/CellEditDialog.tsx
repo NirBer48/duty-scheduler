@@ -13,8 +13,8 @@ import {
     TextField
 } from "@mui/material";
 import { useI18n } from "../../util/i18n";
-import { Person, Post, Assignment, ESGroup, ESGroupAssignment } from "../../types";
-import { ShiftSlot, getShiftIndex } from "./utils";
+import { Person, Post, Assignment, ESGroup, ESGroupAssignment, BWAssignment } from "../../types";
+import { ShiftSlot, getShiftIndex, BW_SLOT_DEFINITIONS, getShiftTimeWindow, getBwSlotRangeMinutes, hasTimeOverlap } from "./utils";
 
 interface Props {
     open: boolean;
@@ -30,6 +30,7 @@ interface Props {
     allShifts: ShiftSlot[];
     esAssignments: ESGroupAssignment[];
     esGroups: ESGroup[];
+    bwAssignments: BWAssignment[];
 }
 
 export const CellEditDialog: React.FC<Props> = ({ 
@@ -45,7 +46,8 @@ export const CellEditDialog: React.FC<Props> = ({
     allAssignments, 
     allShifts, 
     esAssignments, 
-    esGroups 
+    esGroups,
+    bwAssignments 
 }) => {
     const [selected, setSelected] = useState<number[]>(currentPersonIds);
     const [search, setSearch] = useState('');
@@ -131,6 +133,54 @@ export const CellEditDialog: React.FC<Props> = ({
         return conflict ? t('already in shift') : null;
     };
 
+    const hasBWConflict = (personId: number): string | null => {
+        const shiftWindow = getShiftTimeWindow(shiftLabel);
+        if (!shiftWindow) return null;
+
+        // Check if person is assigned to a BW slot on the same day that overlaps with this shift
+        for (const bwAssignment of bwAssignments) {
+            if (bwAssignment.personId !== personId) continue;
+            if (bwAssignment.day !== day) continue;
+
+            const slot = BW_SLOT_DEFINITIONS.find(s => s.id === bwAssignment.slotId);
+            if (!slot) continue;
+
+            const bwRange = getBwSlotRangeMinutes(slot);
+            if (hasTimeOverlap(shiftWindow.start, shiftWindow.end, bwRange.start, bwRange.end)) {
+                return `${t('BW conflict')}: ${slot.label}`;
+            }
+        }
+        return null;
+    };
+
+    // Check if an ES member has another ES group member in a BW slot that overlaps with this shift
+    const hasESBWConflict = (personId: number): string | null => {
+        const personGroup = personToESGroup.get(personId);
+        if (!personGroup) return null;
+
+        const shiftWindow = getShiftTimeWindow(shiftLabel);
+        if (!shiftWindow) return null;
+
+        const esGroupMembers = esAssignments.find(es => es.groupId === personGroup.id)?.personIds || [];
+
+        // Check if another ES group member is in a BW slot that overlaps with this shift
+        for (const bwAssignment of bwAssignments) {
+            if (bwAssignment.day !== day) continue;
+            if (bwAssignment.personId === personId) continue; // Skip self
+            if (!esGroupMembers.includes(bwAssignment.personId)) continue; // Only check same ES group
+
+            const slot = BW_SLOT_DEFINITIONS.find(s => s.id === bwAssignment.slotId);
+            if (!slot) continue;
+
+            const bwRange = getBwSlotRangeMinutes(slot);
+            if (hasTimeOverlap(shiftWindow.start, shiftWindow.end, bwRange.start, bwRange.end)) {
+                const otherPerson = people.find(p => p.id === bwAssignment.personId);
+                return `${personGroup.name}: ${otherPerson?.name || bwAssignment.personId} ${t('in BW at this time')}`;
+            }
+        }
+        return null;
+    };
+
     const checkGenderCompatibility = (personId: number): string | null => {
         const person = people.find(p => p.id === personId);
 
@@ -157,6 +207,18 @@ export const CellEditDialog: React.FC<Props> = ({
         }
 
         return null;
+    };
+
+    // Count violations for sorting
+    const getViolationCount = (personId: number): number => {
+        let count = 0;
+        if (hasRestViolation(personId)) count++;
+        if (hasESViolation(personId)) count++;
+        if (hasSameShiftConflict(personId)) count++;
+        if (hasBWConflict(personId)) count++;
+        if (hasESBWConflict(personId)) count++;
+        if (checkGenderCompatibility(personId)) count++;
+        return count;
     };
 
     const handleToggle = (personId: number) => {
@@ -205,12 +267,15 @@ export const CellEditDialog: React.FC<Props> = ({
                             const query = search.toLowerCase();
                             return person.name.toLowerCase().includes(query) || person.gender.toLowerCase().includes(query);
                         })
+                        .sort((a, b) => getViolationCount(a.id) - getViolationCount(b.id))
                         .map(person => {
                         const isSelected = selected.includes(person.id);
                         const restViolation = hasRestViolation(person.id);
                         const esViolation = hasESViolation(person.id);
                         const genderIssue = checkGenderCompatibility(person.id);
                         const shiftConflict = hasSameShiftConflict(person.id);
+                        const bwConflict = hasBWConflict(person.id);
+                        const esBwConflict = hasESBWConflict(person.id);
                         const isDisabled = !isSelected && selected.length >= maxAllowed;
                         const esGroup = personToESGroup.get(person.id);
 
@@ -246,6 +311,16 @@ export const CellEditDialog: React.FC<Props> = ({
                                 {shiftConflict && (
                                     <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
                                         ⚠️ {shiftConflict}
+                                    </Typography>
+                                )}
+                                {bwConflict && (
+                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                        ⚠️ {bwConflict}
+                                    </Typography>
+                                )}
+                                {esBwConflict && (
+                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                        ⚠️ {esBwConflict}
                                     </Typography>
                                 )}
                                 {genderIssue && (

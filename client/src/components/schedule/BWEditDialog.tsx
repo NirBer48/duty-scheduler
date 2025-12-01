@@ -9,7 +9,8 @@ import {
     FormControlLabel,
     Box,
     Typography,
-    TextField
+    TextField,
+    Chip
 } from "@mui/material";
 import { useI18n } from "../../util/i18n";
 import { Assignment, ESGroup, ESGroupAssignment, Person } from "../../types";
@@ -60,13 +61,24 @@ export const BWEditDialog: React.FC<Props> = ({
         [assignments, day]
     );
 
-    const personToESGroup = useMemo(() => {
+    const personToESGroupId = useMemo(() => {
         const map = new Map<number, string>();
         esAssignments.forEach(group => {
             group.personIds.forEach(pid => map.set(pid, group.groupId));
         });
         return map;
     }, [esAssignments]);
+
+    const personToESGroup = useMemo(() => {
+        const map = new Map<number, ESGroup>();
+        esAssignments.forEach(es => {
+            const group = esGroups.find(g => g.id === es.groupId);
+            if (group) {
+                es.personIds.forEach(pid => map.set(pid, group));
+            }
+        });
+        return map;
+    }, [esAssignments, esGroups]);
 
     const hasShiftConflict = (personId: number) => {
         const conflicts = assignmentsForDay.filter(a => a.personId === personId);
@@ -81,11 +93,11 @@ export const BWEditDialog: React.FC<Props> = ({
     };
 
     const violatesESRule = (personId: number, nextSelection: number[]) => {
-        const groupId = personToESGroup.get(personId);
+        const groupId = personToESGroupId.get(personId);
         if (!groupId) return false;
         for (const selectedId of nextSelection) {
             if (selectedId === personId) continue;
-            if (personToESGroup.get(selectedId) === groupId) {
+            if (personToESGroupId.get(selectedId) === groupId) {
                 return true;
             }
         }
@@ -93,19 +105,29 @@ export const BWEditDialog: React.FC<Props> = ({
     };
 
     const hasGroupShiftConflict = (personId: number): string | null => {
-        const groupId = personToESGroup.get(personId);
+        const groupId = personToESGroupId.get(personId);
         if (!groupId) return null;
         const slotRange = getBwSlotRangeMinutes(slot);
         const conflict = assignments.some(assignment => {
             if (assignment.personId === personId) return false;
             if (assignment.day !== day) return false;
-            const otherGroup = personToESGroup.get(assignment.personId);
+            const otherGroup = personToESGroupId.get(assignment.personId);
             if (otherGroup !== groupId) return false;
             const window = getShiftTimeWindow(assignment.shiftLabel);
             if (!window) return false;
             return hasTimeOverlap(slotRange.start, slotRange.end, window.start, window.end);
         });
         return conflict ? t('ES overlap with shift') : null;
+    };
+
+    // Count violations for sorting
+    const getViolationCount = (personId: number): number => {
+        let count = 0;
+        if (hasShiftConflict(personId)) count++;
+        const wouldSelect = selected.includes(personId) ? selected : [...selected, personId];
+        if (violatesESRule(personId, wouldSelect)) count++;
+        if (hasGroupShiftConflict(personId)) count++;
+        return count;
     };
 
     const togglePerson = (personId: number) => {
@@ -118,14 +140,16 @@ export const BWEditDialog: React.FC<Props> = ({
         });
     };
 
-    const filteredPeople = people.filter(person => {
-        if (!search.trim()) return true;
-        const query = search.toLowerCase();
-        return (
-            person.name.toLowerCase().includes(query) ||
-            person.gender.toLowerCase().includes(query)
-        );
-    });
+    const filteredPeople = people
+        .filter(person => {
+            if (!search.trim()) return true;
+            const query = search.toLowerCase();
+            return (
+                person.name.toLowerCase().includes(query) ||
+                person.gender.toLowerCase().includes(query)
+            );
+        })
+        .sort((a, b) => getViolationCount(a.id) - getViolationCount(b.id));
 
     const labelForSlot = lang === 'he'
         ? `עב"ס ${slot.label}`
@@ -160,9 +184,11 @@ export const BWEditDialog: React.FC<Props> = ({
                         const isSelected = selected.includes(person.id);
                         const wouldSelect = isSelected ? selected : [...selected, person.id];
                         const shiftConflict = hasShiftConflict(person.id);
-                        const esConflict = !isSelected && violatesESRule(person.id, wouldSelect);
+                        const esConflict = violatesESRule(person.id, wouldSelect);
                         const groupShiftConflict = hasGroupShiftConflict(person.id);
-                        const disabled = (!isSelected && selected.length >= BW_REQUIRED_PER_SLOT) || shiftConflict || esConflict || (!!groupShiftConflict && !isSelected);
+                        // Only disable if max selected reached (not for violations - just show warnings)
+                        const disabled = !isSelected && selected.length >= BW_REQUIRED_PER_SLOT;
+                        const esGroup = personToESGroup.get(person.id);
 
                         return (
                             <Box key={person.id} sx={{ mb: 1 }}>
@@ -174,22 +200,28 @@ export const BWEditDialog: React.FC<Props> = ({
                                             disabled={disabled}
                                         />
                                     }
-                                    label={`${person.name} (${person.gender})`}
-                                    sx={{ opacity: disabled && !isSelected ? 0.5 : 1 }}
+                                    label={
+                                        <span>
+                                            {person.name} ({person.gender})
+                                            {person.sameGenderPreference && ' 👫'}
+                                            {esGroup && <Chip label={esGroup.name} size="small" sx={{ ml: 1 }} color="info" />}
+                                        </span>
+                                    }
+                                    sx={{ opacity: disabled ? 0.5 : 1 }}
                                 />
                                 {shiftConflict && (
                                     <Typography variant="caption" color="error" sx={{ display: 'block', ml: 4 }}>
-                                        • {t('Overlapping shift in this timeframe')}
+                                        ⚠️ {t('Overlapping shift in this timeframe')}
                                     </Typography>
                                 )}
                                 {esConflict && (
                                     <Typography variant="caption" color="error" sx={{ display: 'block', ml: 4 }}>
-                                        • {t('ES limit reached for this slot')}
+                                        ⚠️ {t('ES limit reached for this slot')}
                                     </Typography>
                                 )}
-                                {groupShiftConflict && !isSelected && (
+                                {groupShiftConflict && (
                                     <Typography variant="caption" color="error" sx={{ display: 'block', ml: 4 }}>
-                                        • {groupShiftConflict}
+                                        ⚠️ {groupShiftConflict}
                                     </Typography>
                                 )}
                             </Box>

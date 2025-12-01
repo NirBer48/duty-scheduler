@@ -77,6 +77,8 @@ const translations: Record<Language, TranslationMap> = {
     'Overlapping shift in this timeframe': 'Overlapping shift in this timeframe',
     'ES limit reached for this slot': 'ES limit reached for this slot',
     'ES overlap with shift': 'Another ES member is already on shift at this time',
+    'BW conflict': 'BW conflict',
+    'in BW at this time': 'in BW at this time',
   },
   he: {
     'Duty Scheduler': 'סידור תורנויות',
@@ -151,6 +153,8 @@ const translations: Record<Language, TranslationMap> = {
     'Overlapping shift in this timeframe': 'משמרת חופפת בזמן זה',
     'ES limit reached for this slot': 'כבר נבחר כ"כ לשורה זו',
     'ES overlap with shift': 'חבר כ"כ אחר כבר במשמרת בזמן זה',
+    'BW conflict': 'חפיפה עם עב"ס',
+    'in BW at this time': 'בעב"ס בזמן זה',
   }
 };
 

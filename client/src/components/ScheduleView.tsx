@@ -136,18 +136,22 @@ const ScheduleCalendar: React.FC<Props> = ({
         slotId: string;
     }>({ open: false, day: '', slotId: '' });
 
-    // Sync effects
+    // Sync effects - only reset on initial assignments change (not BW changes)
     useEffect(() => {
         setLocalAssignments(initialAssignments);
-        if (!onBWAssignmentsChange) {
-            setLocalBWAssignments(externalBWAssignments);
-        }
         setHasChanges(false);
         setValidationErrors([]);
         setInvalidCells(new Set());
         setInvalidESGroups(new Set());
         setInvalidBWSlots(new Set());
-    }, [initialAssignments, externalBWAssignments, onBWAssignmentsChange]);
+    }, [initialAssignments]);
+
+    // Sync BW assignments from external source (without resetting hasChanges)
+    useEffect(() => {
+        if (!onBWAssignmentsChange) {
+            setLocalBWAssignments(externalBWAssignments);
+        }
+    }, [externalBWAssignments, onBWAssignmentsChange]);
 
     useEffect(() => {
         if (!onShiftOverridesChange) {
@@ -303,21 +307,23 @@ const ScheduleCalendar: React.FC<Props> = ({
             ...personIds.map(personId => ({ day, slotId, personId })),
         ];
 
-        if (onBWAssignmentsChange) {
-            onBWAssignmentsChange(updated);
-        } else {
-            setLocalBWAssignments(updated);
-        }
-
+        setBWAssignments(updated);
         setHasChanges(true);
-        setValidationErrors([]);
-        setInvalidCells(new Set());
-        setInvalidESGroups(new Set());
-        setInvalidBWSlots(new Set());
+        
+        // Run validation with the updated BW assignments
+        const validation = validateAndMarkCells(updated);
+        setValidationErrors(validation.errors);
     };
 
     // Validation
-    const validateAndMarkCells = (): { valid: boolean; errors: string[] } => {
+    const validateAndMarkCells = (overrideBwAssignments?: BWAssignment[]): { valid: boolean; errors: string[] } => {
+        const bwToValidate = overrideBwAssignments ?? bwAssignments;
+        const getBWPersonIdsForValidation = (day: string, slotId: string): number[] =>
+            bwToValidate
+                .filter(a => a.day === day && a.slotId === slotId)
+                .map(a => a.personId);
+        const bwDaysForValidation = getBwDaysForRange(start, end, bwToValidate);
+
         const errors: string[] = [];
         const newInvalidCells = new Set<string>();
         const newInvalidESGroups = new Set<string>();
@@ -414,10 +420,10 @@ const ScheduleCalendar: React.FC<Props> = ({
         const esGroupLookup = new Map<number, string>();
         esAssignments.forEach(es => es.personIds.forEach(pid => esGroupLookup.set(pid, es.groupId)));
 
-        for (const day of bwDays) {
+        for (const day of bwDaysForValidation) {
             for (const slot of BW_SLOT_DEFINITIONS) {
                 const key = getBwSlotKey(day, slot.id);
-                const assignedIds = getBWPersonIds(day, slot.id);
+                const assignedIds = getBWPersonIdsForValidation(day, slot.id);
                 if (assignedIds.length < BW_REQUIRED_PER_SLOT) {
                     errors.push(`${day} ${slot.label}: ${t('needs')} ${BW_REQUIRED_PER_SLOT}, ${t('has')} ${assignedIds.length}`);
                     newInvalidBWSlots.add(key);
@@ -767,6 +773,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                     allShifts={shifts}
                     esAssignments={esAssignments}
                     esGroups={esGroups}
+                    bwAssignments={bwAssignments}
                 />
             )}
 
