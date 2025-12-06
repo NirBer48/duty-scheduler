@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Assignment, Person, Post, ShiftOverride, ESGroup, ESGroupAssignment, ESGroupId, BWAssignment } from "../types";
 import { useI18n } from "../util/i18n";
-import { Box, Typography, Alert, Button, IconButton, Chip } from "@mui/material";
+import { Box, Typography, Alert, Button, IconButton, Chip, CircularProgress } from "@mui/material";
 import SettingsIcon from '@mui/icons-material/Settings';
 import EditIcon from '@mui/icons-material/Edit';
 
@@ -30,6 +30,7 @@ interface Props {
     people: Person[];
     start: string;
     end: string;
+    isGenerating?: boolean;
     onAssignmentsChange?: (assignments: Assignment[]) => void;
     shiftOverrides?: ShiftOverride[];
     onShiftOverridesChange?: (overrides: ShiftOverride[]) => void;
@@ -55,7 +56,8 @@ const ScheduleCalendar: React.FC<Props> = ({
     esGroups: externalESGroups,
     onESGroupsChange,
     bwAssignments: externalBWAssignments = [],
-    onBWAssignmentsChange
+    onBWAssignmentsChange,
+    isGenerating = false
 }) => {
     const shifts = getShiftsForPeriod(start, end);
     const { t, lang } = useI18n();
@@ -566,6 +568,14 @@ const ScheduleCalendar: React.FC<Props> = ({
                         )}
                     </ul>
                 </Alert>
+            )}
+
+            {/* Loading indicator during generate */}
+            {isGenerating && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mb: 2 }}>
+                    <CircularProgress size="2rem" />
+                    <Typography variant="h5">{t('Assigning')}</Typography>
+                </Box>
             )}
 
             {/* Schedule table */}

@@ -102,6 +102,7 @@ const App: React.FC = () => {
   const [end, setEnd] = useState(ensureDefaultEnd);
   const { t, lang, setLang } = useI18n();
   const [error, setError] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const refreshPeople = () => fetchPeople().then(setPeople);
   const refreshPosts = () => fetchPosts().then(data => {
@@ -163,21 +164,28 @@ const App: React.FC = () => {
   const handleSchedule = async () => {
     const startISO = new Date(start).toISOString();
     const endISO = new Date(end).toISOString();
-    const res = await generateSchedule(
-      startISO,
-      endISO,
-      shiftOverrides,
-      esAssignments,
-      assignments,
-      bwAssignments
-    );
-    setAssignments(res.assignments || []);
-    setBWAssignments(res.bwAssignments || []);
-    if (res.esAssignments) {
-      setESAssignments(res.esAssignments);
+    setIsGenerating(true);
+    try {
+      const res = await generateSchedule(
+        startISO,
+        endISO,
+        shiftOverrides,
+        esAssignments,
+        assignments,
+        bwAssignments
+      );
+      setAssignments(res.assignments || []);
+      setBWAssignments(res.bwAssignments || []);
+      if (res.esAssignments) {
+        setESAssignments(res.esAssignments);
+      }
+      setError(res.error || '');
+      await Promise.all([refreshPeople(), refreshPosts()]);
+    } catch (e) {
+      setError(t('Save failed'));
+    } finally {
+      setIsGenerating(false);
     }
-    setError(res.error || '');
-    await Promise.all([refreshPeople(), refreshPosts()]);
   };
 
   const handleClearSchedule = async () => {
@@ -188,8 +196,6 @@ const App: React.FC = () => {
         { groupId: 'es2', personIds: [] },
       ]);
       setBWAssignments([]);
-      setStart(calculateDefaultStart());
-      setEnd(calculateDefaultEnd());
       setError('');
       await clearSchedule();
     }
@@ -242,8 +248,16 @@ const App: React.FC = () => {
                   inputProps={{ step: 14400 }}
                   size="small"
                 />
-                <Button onClick={handleSchedule} variant="contained">{t('Generate')}</Button>
-                <Button onClick={handleClearSchedule} variant="outlined" color="error">{t('Clear')}</Button>
+                <Button
+                  onClick={handleSchedule}
+                  variant="contained"
+                  disabled={isGenerating}
+                >
+                  {isGenerating ? t('Generating') : t('Generate')}
+                </Button>
+                <Button onClick={handleClearSchedule} variant="outlined" color="error" disabled={isGenerating}>
+                  {t('Clear')}
+                </Button>
               </Stack>
               {error && (
                 <Typography color="error" sx={{ mt: 2 }}>{t(error)}</Typography>
@@ -256,6 +270,7 @@ const App: React.FC = () => {
                 people={people} 
                 start={start} 
                 end={end}
+                isGenerating={isGenerating}
                 onAssignmentsChange={setAssignments}
                 shiftOverrides={shiftOverrides}
                 onShiftOverridesChange={setShiftOverrides}
