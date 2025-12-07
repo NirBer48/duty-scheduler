@@ -33,6 +33,7 @@ import {
   InputLabel,
   FormControl,
 } from '@mui/material';
+import ConstraintsEditor from './components/ConstraintsEditor';
 
 const STORAGE_KEY_START = 'duty_scheduler_start';
 const STORAGE_KEY_END = 'duty_scheduler_end';
@@ -247,6 +248,7 @@ const App: React.FC = () => {
           <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
             <PeopleEditor onUpdate={handlePeopleUpdate} />
             <PostsEditor onUpdate={handlePostsUpdate} />
+            <ConstraintsEditor people={people} />
           </Box>
           
           <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
