@@ -179,7 +179,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
   };
 
   return (
-    <Paper sx={{ p: 2, mb: 2, maxHeight: 420, minWidth: 300, display: 'flex', flexDirection: 'column' }}>
+    <Paper sx={{ p: 2, mb: 2, maxHeight: 410, minWidth: 300, display: 'flex', flexDirection: 'column' }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
         <Typography variant="h6">{t('People')}</Typography>
         <Button
