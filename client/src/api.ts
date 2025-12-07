@@ -1,4 +1,4 @@
-import type { Assignment, BWAssignment, ESGroupAssignment, Person, Post } from './types';
+import type { Assignment, BWAssignment, ESGroupAssignment, Person, Post, Constraint } from './types';
 
 const BASE =
   import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? '/api' : 'http://localhost:4000/api');
@@ -41,6 +41,18 @@ type ScheduleSnapshot = {
   esAssignments: ESGroupAssignment[];
 };
 
+export const fetchConstraints = () => request<Constraint[]>('/constraints');
+
+export const addConstraint = (body: Omit<Constraint, 'id'>) =>
+  request<Constraint>('/constraints', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+export const deleteConstraint = (id: number) =>
+  request<{ ok: boolean }>(`/constraints/${id}`, { method: 'DELETE' });
+
 export const fetchPeople = () => request<Person[]>('/people');
 
 export const addPerson = (body: AddPersonPayload) =>
@@ -69,7 +81,8 @@ export const generateSchedule = (
   shiftOverrides: { postId: number; day: string; shiftLabel: string; requiredPerShift: number }[] = [],
   esAssignments: ESGroupAssignment[] = [],
   existingAssignments: ExistingAssignment[] = [],
-  existingBwAssignments: BWAssignment[] = []
+  existingBwAssignments: BWAssignment[] = [],
+  constraints: Constraint[] = []
 ) =>
   request<ScheduleResponse>('/schedule/generate', {
     method: 'POST',
@@ -81,6 +94,7 @@ export const generateSchedule = (
       esAssignments,
       existingAssignments,
       existingBwAssignments,
+      constraints,
     }),
   });
 

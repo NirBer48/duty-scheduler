@@ -13,8 +13,9 @@ import {
     TextField
 } from "@mui/material";
 import { useI18n } from "../../util/i18n";
-import { Person, Post, Assignment, ESGroup, ESGroupAssignment, BWAssignment } from "../../types";
+import { Person, Post, Assignment, ESGroup, ESGroupAssignment, BWAssignment, Constraint } from "../../types";
 import { ShiftSlot, getShiftIndex, BW_SLOT_DEFINITIONS, getShiftTimeWindow, getBwSlotRangeMinutes, hasTimeOverlap, isNightShift, isStandingExemptPost } from "./utils";
+import dayjs from "dayjs";
 
 interface Props {
     open: boolean;
@@ -31,23 +32,25 @@ interface Props {
     esAssignments: ESGroupAssignment[];
     esGroups: ESGroup[];
     bwAssignments: BWAssignment[];
+    constraints?: Constraint[];
 }
 
-export const CellEditDialog: React.FC<Props> = ({ 
-    open, 
-    onClose, 
-    post, 
-    day, 
-    shiftLabel, 
-    people, 
-    currentPersonIds, 
-    requiredCount, 
-    onSave, 
-    allAssignments, 
-    allShifts, 
-    esAssignments, 
+export const CellEditDialog: React.FC<Props> = ({
+    open,
+    onClose,
+    post,
+    day,
+    shiftLabel,
+    people,
+    currentPersonIds,
+    requiredCount,
+    onSave,
+    allAssignments,
+    allShifts,
+    esAssignments,
     esGroups,
-    bwAssignments 
+    bwAssignments,
+    constraints = [],
 }) => {
     const [selected, setSelected] = useState<number[]>(currentPersonIds);
     const [search, setSearch] = useState('');
@@ -93,7 +96,7 @@ export const CellEditDialog: React.FC<Props> = ({
         }
 
         return null;
-};
+    };
 
     const hasESViolation = (personId: number): string | null => {
         const personGroup = personToESGroup.get(personId);
@@ -133,13 +136,32 @@ export const CellEditDialog: React.FC<Props> = ({
         return conflict ? t('already in shift') : null;
     };
 
-  const hasStandingExemptionConflict = (personId: number): string | null => {
-      const person = people.find(p => p.id === personId);
-      if (!person) return null;
-      if (!person.standingExemption) return null;
-      if (!isStandingExemptPost(post.name)) return null;
-      return t('Standing exemption - cannot work this post');
-  };
+    const hasStandingExemptionConflict = (personId: number): string | null => {
+        const person = people.find(p => p.id === personId);
+        if (!person) return null;
+        if (!person.standingExemption) return null;
+        if (!isStandingExemptPost(post.name)) return null;
+        return t('Standing exemption - cannot work this post');
+    };
+
+    const hasConstraintConflict = (personId: number): string | null => {
+        const cList = constraints.filter(c => c.personId === personId);
+        if (cList.length === 0) return null;
+        const window = getShiftTimeWindow(shiftLabel);
+        if (!window) return null;
+        const shiftStart = dayjs(`${day}T00:00`).add(window.start, 'minute');
+        let shiftEnd = dayjs(`${day}T00:00`).add(window.end, 'minute');
+        if (!shiftEnd.isAfter(shiftStart)) shiftEnd = shiftEnd.add(1, 'day');
+        
+        for (const c of cList) {
+            const cStart = dayjs(c.startISO);
+            const cEnd = dayjs(c.endISO);
+            if (shiftStart.isBefore(cEnd) && cStart.isBefore(shiftEnd)) {
+                return `${t('Constraint conflict')}: ${c.title}`;
+            }
+        }
+        return null;
+    };
 
     const hasBWConflict = (personId: number): string | null => {
         const shiftWindow = getShiftTimeWindow(shiftLabel);
@@ -193,7 +215,7 @@ export const CellEditDialog: React.FC<Props> = ({
         const person = people.find(p => p.id === personId);
 
         if (!person) return null;
-      if (!isNightShift(shiftLabel)) return null;
+        if (!isNightShift(shiftLabel)) return null;
 
         if (person.sameGenderPreference) {
             const otherSelected = selected.filter(id => id !== personId);
@@ -209,7 +231,7 @@ export const CellEditDialog: React.FC<Props> = ({
             if (selectedId === personId) continue;
 
             const selectedPerson = people.find(p => p.id === selectedId);
-            
+
             if (selectedPerson?.sameGenderPreference && selectedPerson.gender !== person?.gender) {
                 return `${selectedPerson.name} ${t('requires same gender')}`;
             }
@@ -227,6 +249,7 @@ export const CellEditDialog: React.FC<Props> = ({
         if (hasBWConflict(personId)) count++;
         if (hasESBWConflict(personId)) count++;
         if (hasStandingExemptionConflict(personId)) count++;
+        if (hasConstraintConflict(personId)) count++;
         const person = people.find(p => p.id === personId);
         const assignedCountWithPerson = (isSelected => {
             const base = selected.length;
@@ -280,91 +303,97 @@ export const CellEditDialog: React.FC<Props> = ({
                     sx={{ mb: 2 }}
                 />
                 <Box sx={{ maxHeight: 300, overflowY: 'auto', pr: 1 }}>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    {people
-                        .filter(person => {
-                            if (!search.trim()) return true;
-                            const query = search.toLowerCase();
-                            return person.name.toLowerCase().includes(query) || person.gender.toLowerCase().includes(query);
-                        })
-                        .sort((a, b) => getViolationCount(a.id) - getViolationCount(b.id))
-                        .map(person => {
-                        const isSelected = selected.includes(person.id);
-                        const restViolation = hasRestViolation(person.id);
-                        const esViolation = hasESViolation(person.id);
-                        const genderIssue = checkGenderCompatibility(person.id);
-                        const shiftConflict = hasSameShiftConflict(person.id);
-                        const bwConflict = hasBWConflict(person.id);
-                        const esBwConflict = hasESBWConflict(person.id);
-                        const standingConflict = hasStandingExemptionConflict(person.id);
-        const assignedCountWithPerson = isSelected ? selected.length : selected.length + 1;
-        const duelGuardConflict = person.duelGuard && assignedCountWithPerson < Math.max(2, requiredCount);
-                        const isDisabled = (!isSelected && selected.length >= maxAllowed);
-                        const esGroup = personToESGroup.get(person.id);
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        {people
+                            .filter(person => {
+                                if (!search.trim()) return true;
+                                const query = search.toLowerCase();
+                                return person.name.toLowerCase().includes(query) || person.gender.toLowerCase().includes(query);
+                            })
+                            .sort((a, b) => getViolationCount(a.id) - getViolationCount(b.id))
+                            .map(person => {
+                                const isSelected = selected.includes(person.id);
+                                const restViolation = hasRestViolation(person.id);
+                                const esViolation = hasESViolation(person.id);
+                                const genderIssue = checkGenderCompatibility(person.id);
+                                const shiftConflict = hasSameShiftConflict(person.id);
+                                const bwConflict = hasBWConflict(person.id);
+                                const esBwConflict = hasESBWConflict(person.id);
+                                const standingConflict = hasStandingExemptionConflict(person.id);
+                                const constraintConflict = hasConstraintConflict(person.id);
+                                const assignedCountWithPerson = isSelected ? selected.length : selected.length + 1;
+                                const duelGuardConflict = person.duelGuard && assignedCountWithPerson < Math.max(2, requiredCount);
+                                const isDisabled = (!isSelected && selected.length >= maxAllowed);
+                                const esGroup = personToESGroup.get(person.id);
 
-                        return (
-                            <Box key={person.id}>
-                                <FormControlLabel
-                                    control={
-                                        <Checkbox
-                                            checked={isSelected}
-                                            onChange={() => handleToggle(person.id)}
-                                            disabled={isDisabled}
+                                return (
+                                    <Box key={person.id}>
+                                        <FormControlLabel
+                                            control={
+                                                <Checkbox
+                                                    checked={isSelected}
+                                                    onChange={() => handleToggle(person.id)}
+                                                    disabled={isDisabled}
+                                                />
+                                            }
+                                            label={
+                                                <span>
+                                                    {person.name} ({person.gender})
+                                                    {person.sameGenderPreference && ' 👫'}
+                                                    {esGroup && <Chip label={esGroup.name} size="small" sx={{ ml: 1 }} color="info" />}
+                                                </span>
+                                            }
+                                            sx={{ opacity: isDisabled ? 0.5 : 1 }}
                                         />
-                                    }
-                                    label={
-                                        <span>
-                                            {person.name} ({person.gender})
-                                            {person.sameGenderPreference && ' 👫'}
-                                            {esGroup && <Chip label={esGroup.name} size="small" sx={{ ml: 1 }} color="info" />}
-                                        </span>
-                                    }
-                                    sx={{ opacity: isDisabled ? 0.5 : 1 }}
-                                />
-                                {restViolation && (
-                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
-                                        ⚠️ {restViolation}
-                                    </Typography>
-                                )}
-                                {esViolation && (
-                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
-                                        ⚠️ {esViolation}
-                                    </Typography>
-                                )}
-                                {shiftConflict && (
-                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
-                                        ⚠️ {shiftConflict}
-                                    </Typography>
-                                )}
-                                {bwConflict && (
-                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
-                                        ⚠️ {bwConflict}
-                                    </Typography>
-                                )}
-                                {standingConflict && (
-                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
-                                        ⚠️ {standingConflict}
-                                    </Typography>
-                                )}
-                                {duelGuardConflict && (
-                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
-                                        ⚠️ {t('Duel guard - cannot be alone in this shift')}
-                                    </Typography>
-                                )}
-                                {esBwConflict && (
-                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
-                                        ⚠️ {esBwConflict}
-                                    </Typography>
-                                )}
-                                {genderIssue && (
-                                    <Typography variant="caption" color="warning.main" sx={{ ml: 4, display: 'block' }}>
-                                        ⚠️ {genderIssue}
-                                    </Typography>
-                                )}
-                            </Box>
-                        );
-                    })}
-                </Box>
+                                        {restViolation && (
+                                            <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                                ⚠️ {restViolation}
+                                            </Typography>
+                                        )}
+                                        {esViolation && (
+                                            <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                                ⚠️ {esViolation}
+                                            </Typography>
+                                        )}
+                                        {shiftConflict && (
+                                            <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                                ⚠️ {shiftConflict}
+                                            </Typography>
+                                        )}
+                                        {bwConflict && (
+                                            <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                                ⚠️ {bwConflict}
+                                            </Typography>
+                                        )}
+                                        {standingConflict && (
+                                            <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                                ⚠️ {standingConflict}
+                                            </Typography>
+                                        )}
+                                        {constraintConflict && (
+                                            <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                                ⚠️ {constraintConflict}
+                                            </Typography>
+                                        )}
+                                        {duelGuardConflict && (
+                                            <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                                ⚠️ {t('Duel guard - cannot be alone in this shift')}
+                                            </Typography>
+                                        )}
+                                        {esBwConflict && (
+                                            <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                                ⚠️ {esBwConflict}
+                                            </Typography>
+                                        )}
+                                        {genderIssue && (
+                                            <Typography variant="caption" color="warning.main" sx={{ ml: 4, display: 'block' }}>
+                                                ⚠️ {genderIssue}
+                                            </Typography>
+                                        )}
+                                    </Box>
+                                );
+                            })}
+                    </Box>
                 </Box>
             </DialogContent>
             <DialogActions>

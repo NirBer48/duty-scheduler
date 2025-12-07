@@ -7,6 +7,7 @@ import path from 'path';
 import peopleRoute from './routes/people.js';
 import postsRoute from './routes/posts.js';
 import scheduleRoute from './routes/schedule.js';
+import constraintsRoute from './routes/constraints.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -32,6 +33,7 @@ const startServer = async () => {
 
     app.use('/api/people', peopleRoute);
     app.use('/api/posts', postsRoute);
+    app.use('/api/constraints', constraintsRoute);
     app.use('/api/schedule', scheduleRoute);
     app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

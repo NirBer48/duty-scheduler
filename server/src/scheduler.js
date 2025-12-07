@@ -56,7 +56,8 @@ export const scheduleGenerator = (
   shiftOverrides = [],
   esAssignments = [],
   existingAssignments = [],
-  existingBwAssignments = []
+  existingBwAssignments = [],
+  constraints = []
 ) => {
   // Build all 4-hour shift time slots between start and end
   const shiftDefinitions = [
@@ -100,6 +101,18 @@ export const scheduleGenerator = (
     shiftCountByPerson[p.id] = 0;
     bwAssignmentCount[p.id] = 0;
   });
+
+  // Constraints map: personId -> [{start,end,title}]
+  const constraintsByPerson = new Map();
+  for (const c of constraints) {
+    const arr = constraintsByPerson.get(c.personId) || [];
+    arr.push({
+      start: dayjs(c.startISO),
+      end: dayjs(c.endISO),
+      title: c.title || '',
+    });
+    constraintsByPerson.set(c.personId, arr);
+  }
 
   // Build list of all shift time slots in the date range
   const timeSlots = [];
@@ -289,6 +302,17 @@ export const scheduleGenerator = (
     const shiftKey = getShiftKey(slot.day, slot.shiftLabel);
     const assignedPeople = slotAssignments.get(shiftKey);
     if (assignedPeople?.has(person.id)) return false;
+
+    const cList = constraintsByPerson.get(person.id) || [];
+    if (cList.length > 0) {
+      const slotStart = dayjs(slot.start);
+      const slotEnd = dayjs(slot.end);
+      for (const c of cList) {
+        if (slotStart.isBefore(c.end) && c.start.isBefore(slotEnd)) {
+          return false;
+        }
+      }
+    }
 
     if (hasRestViolation(person.id, slot.index)) return false;
     if (!canESMemberWorkAtShift(person.id, slot.day, slot.shiftLabel)) return false;

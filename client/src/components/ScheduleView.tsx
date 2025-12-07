@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Assignment, Person, Post, ShiftOverride, ESGroup, ESGroupAssignment, ESGroupId, BWAssignment } from "../types";
+import dayjs from "dayjs";
+import { Assignment, Person, Post, ShiftOverride, ESGroup, ESGroupAssignment, ESGroupId, BWAssignment, Constraint } from "../types";
 import { useI18n } from "../util/i18n";
 import { Box, Typography, Alert, Button, IconButton, Chip, CircularProgress } from "@mui/material";
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -42,6 +43,7 @@ interface Props {
     onESGroupsChange?: (esGroups: ESGroup[]) => void;
     bwAssignments?: BWAssignment[];
     onBWAssignmentsChange?: (assignments: BWAssignment[]) => void;
+    constraints?: Constraint[];
 }
 
 const ScheduleCalendar: React.FC<Props> = ({ 
@@ -59,7 +61,8 @@ const ScheduleCalendar: React.FC<Props> = ({
     onESGroupsChange,
     bwAssignments: externalBWAssignments = [],
     onBWAssignmentsChange,
-    isGenerating = false
+    isGenerating = false,
+    constraints = [],
 }) => {
     const shifts = getShiftsForPeriod(start, end);
     const { t, lang } = useI18n();
@@ -395,6 +398,26 @@ const ScheduleCalendar: React.FC<Props> = ({
                     errors.push(`${person?.name || personId}: ${t('Rest violation between')} ${sorted[i - 1].day} ${sorted[i - 1].label} ${t('and')} ${sorted[i].day} ${sorted[i].label}`);
                     newInvalidCells.add(getCellKey(sorted[i - 1].postId, sorted[i - 1].day, sorted[i - 1].label));
                     newInvalidCells.add(getCellKey(sorted[i].postId, sorted[i].day, sorted[i].label));
+                }
+            }
+        }
+
+        // Constraint overlaps
+        for (const assignment of localAssignments) {
+            const personConstraints = constraints.filter(c => c.personId === assignment.personId);
+            if (personConstraints.length === 0) continue;
+            const window = getShiftTimeWindow(assignment.shiftLabel);
+            if (!window) continue;
+            const shiftStart = dayjs(`${assignment.day}T00:00`).add(window.start, 'minute');
+            let shiftEnd = dayjs(`${assignment.day}T00:00`).add(window.end, 'minute');
+            if (!shiftEnd.isAfter(shiftStart)) shiftEnd = shiftEnd.add(1, 'day');
+            for (const c of personConstraints) {
+                const cStart = dayjs(c.startISO);
+                const cEnd = dayjs(c.endISO);
+                if (shiftStart.isBefore(cEnd) && cStart.isBefore(shiftEnd)) {
+                    errors.push(`${assignment.day} ${assignment.shiftLabel}: ${people.find(p => p.id === assignment.personId)?.name || assignment.personId} - ${t('Constraint conflict')}: ${c.title}`);
+                    newInvalidCells.add(getCellKey(assignment.postId, assignment.day, assignment.shiftLabel));
+                    break;
                 }
             }
         }
@@ -804,6 +827,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                     esAssignments={esAssignments}
                     esGroups={esGroups}
                     bwAssignments={bwAssignments}
+                    constraints={constraints}
                 />
             )}
 

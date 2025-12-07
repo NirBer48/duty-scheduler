@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ScheduleCalendar from './components/ScheduleView';
 import PeopleEditor from './components/PeopleEditor';
 import PostsEditor from './components/PostsEditor';
-import { fetchPeople, fetchPosts, generateSchedule, clearSchedule, fetchLastSchedule } from './api';
+import { fetchPeople, fetchPosts, generateSchedule, clearSchedule, fetchLastSchedule, fetchConstraints, addConstraint } from './api';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
@@ -21,7 +21,18 @@ import type {
   ESGroupAssignment,
   ESGroup,
   BWAssignment,
+  Constraint,
 } from './types';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  MenuItem,
+  Select,
+  InputLabel,
+  FormControl,
+} from '@mui/material';
 
 const STORAGE_KEY_START = 'duty_scheduler_start';
 const STORAGE_KEY_END = 'duty_scheduler_end';
@@ -98,11 +109,17 @@ const App: React.FC = () => {
     ])
   );
   const [bwAssignments, setBWAssignments] = useState<BWAssignment[]>([]);
+  const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [start, setStart] = useState(ensureDefaultStart);
   const [end, setEnd] = useState(ensureDefaultEnd);
   const { t, lang, setLang } = useI18n();
   const [error, setError] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [constraintDialogOpen, setConstraintDialogOpen] = useState(false);
+  const [constraintPersonId, setConstraintPersonId] = useState<number | ''>('');
+  const [constraintTitle, setConstraintTitle] = useState('');
+  const [constraintStart, setConstraintStart] = useState('');
+  const [constraintEnd, setConstraintEnd] = useState('');
 
   const refreshPeople = () => fetchPeople().then(setPeople);
   const refreshPosts = () => fetchPosts().then(data => {
@@ -116,6 +133,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     refreshPosts();
+  }, []);
+
+  useEffect(() => {
+    fetchConstraints().then(setConstraints).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -172,7 +193,8 @@ const App: React.FC = () => {
         shiftOverrides,
         esAssignments,
         assignments,
-        bwAssignments
+      bwAssignments,
+      constraints
       );
       setAssignments(res.assignments || []);
       setBWAssignments(res.bwAssignments || []);
@@ -258,6 +280,9 @@ const App: React.FC = () => {
                 <Button onClick={handleClearSchedule} variant="outlined" color="error" disabled={isGenerating}>
                   {t('Clear')}
                 </Button>
+                <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
+                  {t('Add Constraint')}
+                </Button>
               </Stack>
               {error && (
                 <Typography color="error" sx={{ mt: 2 }}>{t(error)}</Typography>
@@ -280,11 +305,77 @@ const App: React.FC = () => {
                 onESGroupsChange={setESGroups}
                 bwAssignments={bwAssignments}
                 onBWAssignmentsChange={setBWAssignments}
+                constraints={constraints}
               />
             </Paper>
           </Box>
         </Box>
       </Container>
+      <Dialog open={constraintDialogOpen} onClose={() => setConstraintDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{t('Add Constraint')}</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+          <FormControl fullWidth size="small" sx={{ mt: 1 }}>
+            <InputLabel>{t('Person')}</InputLabel>
+            <Select
+              label={t('Person')}
+              value={constraintPersonId}
+              onChange={e => setConstraintPersonId(Number(e.target.value))}
+            >
+              {people.map(p => (
+                <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField
+            label={t('Activity name')}
+            value={constraintTitle}
+            onChange={e => setConstraintTitle(e.target.value)}
+            fullWidth
+            size="small"
+          />
+          <TextField
+            type="datetime-local"
+            label={t('Start')}
+            value={constraintStart}
+            onChange={e => setConstraintStart(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            size="small"
+          />
+          <TextField
+            type="datetime-local"
+            label={t('End')}
+            value={constraintEnd}
+            onChange={e => setConstraintEnd(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            size="small"
+          />
+        </DialogContent>
+        <DialogActions>
+            <Button onClick={() => setConstraintDialogOpen(false)}>{t('Cancel')}</Button>
+            <Button
+              variant="contained"
+              onClick={async () => {
+                if (!constraintPersonId || !constraintTitle || !constraintStart || !constraintEnd) return;
+                await addConstraint({
+                  personId: Number(constraintPersonId),
+                  title: constraintTitle,
+                  startISO: constraintStart,
+                  endISO: constraintEnd,
+                  id: 0,
+                } as any);
+                const fresh = await fetchConstraints();
+                setConstraints(fresh);
+                setConstraintDialogOpen(false);
+                setConstraintPersonId('');
+                setConstraintTitle('');
+                setConstraintStart('');
+                setConstraintEnd('');
+              }}
+            >
+              {t('Add')}
+            </Button>
+          </DialogActions>
+      </Dialog>
     </Box>
   );
 }

@@ -57,6 +57,18 @@ const ensureESAssignmentsTable = async db => {
   `);
 };
 
+const ensureConstraintsTable = async db => {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS constraints (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      personId INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      startISO TEXT NOT NULL,
+      endISO TEXT NOT NULL
+    )
+  `);
+};
+
 const runMigration = async () => {
   const db = await open({
     filename: DB_PATH,
@@ -71,6 +83,7 @@ const runMigration = async () => {
     await ensureDuelGuardColumn(db);
     await ensureBWAssignmentsTable(db);
     await ensureESAssignmentsTable(db);
+    await ensureConstraintsTable(db);
     console.log('Migration applied.');
   } catch (err) {
     console.error('Migration failed', err);

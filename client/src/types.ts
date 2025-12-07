@@ -35,6 +35,14 @@ export interface BWAssignment {
   end?: string;
 }
 
+export interface Constraint {
+  id: number;
+  personId: number;
+  title: string;
+  startISO: string;
+  endISO: string;
+}
+
 export interface ShiftOverride {
   postId: number;
   day: string;
