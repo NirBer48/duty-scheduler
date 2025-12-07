@@ -253,7 +253,7 @@ const App: React.FC = () => {
                   variant="contained"
                   disabled={isGenerating}
                 >
-                  {isGenerating ? t('Generating') : t('Generate')}
+                  {isGenerating ? t('Assigning') : t('Generate')}
                 </Button>
                 <Button onClick={handleClearSchedule} variant="outlined" color="error" disabled={isGenerating}>
                   {t('Clear')}
