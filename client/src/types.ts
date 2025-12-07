@@ -25,6 +25,14 @@ export interface Assignment {
   day: string;
 }
 
+export interface BWAssignment {
+  day: string;
+  slotId: string;
+  personId: number;
+  start?: string;
+  end?: string;
+}
+
 export interface ShiftOverride {
   postId: number;
   day: string;

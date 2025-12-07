@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ScheduleCalendar from './components/ScheduleView';
 import PeopleEditor from './components/PeopleEditor';
 import PostsEditor from './components/PostsEditor';
-import { fetchPeople, fetchPosts, generateSchedule, clearSchedule } from './api';
+import { fetchPeople, fetchPosts, generateSchedule, clearSchedule, fetchLastSchedule } from './api';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
@@ -13,7 +13,15 @@ import Paper from '@mui/material/Paper';
 import TextField from '@mui/material/TextField';
 import Stack from '@mui/material/Stack';
 import { useI18n } from './util/i18n';
-import type { Post, Person, Assignment, ShiftOverride, ESGroupAssignment, ESGroup } from './types';
+import type {
+  Post,
+  Person,
+  Assignment,
+  ShiftOverride,
+  ESGroupAssignment,
+  ESGroup,
+  BWAssignment,
+} from './types';
 
 const STORAGE_KEY_START = 'duty_scheduler_start';
 const STORAGE_KEY_END = 'duty_scheduler_end';
@@ -89,10 +97,12 @@ const App: React.FC = () => {
       { id: 'es2', name: "כ\"כ ב'", totalPeople: 5, activePerShift: 1 },
     ])
   );
+  const [bwAssignments, setBWAssignments] = useState<BWAssignment[]>([]);
   const [start, setStart] = useState(ensureDefaultStart);
   const [end, setEnd] = useState(ensureDefaultEnd);
   const { t, lang, setLang } = useI18n();
   const [error, setError] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const refreshPeople = () => fetchPeople().then(setPeople);
   const refreshPosts = () => fetchPosts().then(data => {
@@ -106,6 +116,24 @@ const App: React.FC = () => {
 
   useEffect(() => {
     refreshPosts();
+  }, []);
+
+  useEffect(() => {
+    const loadLastSchedule = async () => {
+      try {
+        const snapshot = await fetchLastSchedule();
+        if (snapshot.assignments?.length) {
+          setAssignments(snapshot.assignments);
+        }
+        setBWAssignments(snapshot.bwAssignments || []);
+        if (snapshot.esAssignments?.length) {
+          setESAssignments(snapshot.esAssignments);
+        }
+      } catch (err) {
+        console.error('Failed to load last schedule', err);
+      }
+    };
+    loadLastSchedule();
   }, []);
 
   useEffect(() => {
@@ -136,10 +164,28 @@ const App: React.FC = () => {
   const handleSchedule = async () => {
     const startISO = new Date(start).toISOString();
     const endISO = new Date(end).toISOString();
-    const res = await generateSchedule(startISO, endISO, shiftOverrides, esAssignments);
-    setAssignments(res.assignments || []);
-    setError(res.error || '');
-    await Promise.all([refreshPeople(), refreshPosts()]);
+    setIsGenerating(true);
+    try {
+      const res = await generateSchedule(
+        startISO,
+        endISO,
+        shiftOverrides,
+        esAssignments,
+        assignments,
+        bwAssignments
+      );
+      setAssignments(res.assignments || []);
+      setBWAssignments(res.bwAssignments || []);
+      if (res.esAssignments) {
+        setESAssignments(res.esAssignments);
+      }
+      setError(res.error || '');
+      await Promise.all([refreshPeople(), refreshPosts()]);
+    } catch (e) {
+      setError(t('Save failed'));
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleClearSchedule = async () => {
@@ -149,8 +195,7 @@ const App: React.FC = () => {
         { groupId: 'es1', personIds: [] },
         { groupId: 'es2', personIds: [] },
       ]);
-      setStart(calculateDefaultStart());
-      setEnd(calculateDefaultEnd());
+      setBWAssignments([]);
       setError('');
       await clearSchedule();
     }
@@ -203,8 +248,16 @@ const App: React.FC = () => {
                   inputProps={{ step: 14400 }}
                   size="small"
                 />
-                <Button onClick={handleSchedule} variant="contained">{t('Generate')}</Button>
-                <Button onClick={handleClearSchedule} variant="outlined" color="error">{t('Clear')}</Button>
+                <Button
+                  onClick={handleSchedule}
+                  variant="contained"
+                  disabled={isGenerating}
+                >
+                  {isGenerating ? t('Assigning') : t('Generate')}
+                </Button>
+                <Button onClick={handleClearSchedule} variant="outlined" color="error" disabled={isGenerating}>
+                  {t('Clear')}
+                </Button>
               </Stack>
               {error && (
                 <Typography color="error" sx={{ mt: 2 }}>{t(error)}</Typography>
@@ -217,6 +270,7 @@ const App: React.FC = () => {
                 people={people} 
                 start={start} 
                 end={end}
+                isGenerating={isGenerating}
                 onAssignmentsChange={setAssignments}
                 shiftOverrides={shiftOverrides}
                 onShiftOverridesChange={setShiftOverrides}
@@ -224,6 +278,8 @@ const App: React.FC = () => {
                 onESAssignmentsChange={setESAssignments}
                 esGroups={esGroups}
                 onESGroupsChange={setESGroups}
+                bwAssignments={bwAssignments}
+                onBWAssignmentsChange={setBWAssignments}
               />
             </Paper>
           </Box>

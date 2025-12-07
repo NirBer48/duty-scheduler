@@ -1,4 +1,4 @@
-import type { Assignment, ESGroupAssignment, Person, Post } from './types';
+import type { Assignment, BWAssignment, ESGroupAssignment, Person, Post } from './types';
 
 const BASE =
   import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? '/api' : 'http://localhost:4000/api');
@@ -28,7 +28,15 @@ type ExistingAssignment = Pick<Assignment, 'postId' | 'personId' | 'day' | 'shif
 
 type ScheduleResponse = {
   assignments?: Assignment[];
+  bwAssignments?: BWAssignment[];
+  esAssignments?: ESGroupAssignment[];
   error?: string;
+};
+
+type ScheduleSnapshot = {
+  assignments: Assignment[];
+  bwAssignments: BWAssignment[];
+  esAssignments: ESGroupAssignment[];
 };
 
 export const fetchPeople = () => request<Person[]>('/people');
@@ -58,12 +66,22 @@ export const generateSchedule = (
   endISO: string,
   shiftOverrides: { postId: number; day: string; shiftLabel: string; requiredPerShift: number }[] = [],
   esAssignments: ESGroupAssignment[] = [],
-  existingAssignments: ExistingAssignment[] = []
+  existingAssignments: ExistingAssignment[] = [],
+  existingBwAssignments: BWAssignment[] = []
 ) =>
   request<ScheduleResponse>('/schedule/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ startISO, endISO, shiftOverrides, esAssignments, existingAssignments }),
+    body: JSON.stringify({
+      startISO,
+      endISO,
+      shiftOverrides,
+      esAssignments,
+      existingAssignments,
+      existingBwAssignments,
+    }),
   });
 
 export const clearSchedule = () => request<{ ok: boolean }>('/schedule/clear', { method: 'DELETE' });
+
+export const fetchLastSchedule = () => request<ScheduleSnapshot>('/schedule/last');

@@ -14,7 +14,7 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
   const [name, setName] = useState('');
   const [required, setRequired] = useState<number>(1);
   const [validationError, setValidationError] = useState('');
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
 
   const refreshPosts = async () => {
     const data = await fetchPosts();
@@ -82,7 +82,13 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
       <Divider sx={{ mb: 1 }} />
       
       <Box sx={{ overflow: 'auto', flex: 1 }}>
-        <List dense>
+        <List
+          dense
+          sx={{
+            direction: lang === 'he' ? 'rtl' : 'ltr',
+            textAlign: lang === 'he' ? 'right' : 'left',
+          }}
+        >
           {posts.map(p => (
             <ListItem 
               secondaryAction={
@@ -91,15 +97,31 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
                 </IconButton>
               } 
               key={p.id}
-              sx={{ py: 0.5 }}
+              sx={{
+                py: 0.5,
+                textAlign: lang === 'he' ? 'right' : 'left',
+                direction: lang === 'he' ? 'rtl' : 'ltr',
+              }}
             >
-              <ListItemText 
+              <ListItemText
+                sx={{ textAlign: lang === 'he' ? 'right' : 'left' }}
                 primary={
-                  <Typography variant="body2">
+                  <Typography
+                    variant="body2"
+                    sx={{ direction: lang === 'he' ? 'rtl' : 'ltr' }}
+                  >
                     {p.name}
                   </Typography>
                 }
-                secondary={`${t('Required')}: ${p.requiredPerShift}`}
+                secondary={
+                  <Typography
+                    variant="caption"
+                    component="span"
+                    sx={{ direction: lang === 'he' ? 'rtl' : 'ltr' }}
+                  >
+                    {`${t('Required')}: ${p.requiredPerShift}`}
+                  </Typography>
+                }
               />
             </ListItem>
           ))}
