@@ -9,6 +9,8 @@ const BW_SLOTS = [
   { id: 'bw_evening', label: 'BW 18:30-20:00', startHour: 18, startMinute: 30, endHour: 20, endMinute: 0 },
 ];
 const BW_REQUIRED = 20;
+const NIGHT_SHIFT_LABELS = new Set(['20:00-00:00', '00:00-04:00', '04:00-08:00']);
+const STANDING_EXEMPT_POST_NAMES = ["ימח","שג רכוב אחורי","שג רכוב קדמי","עתודה"]; // posts people with standing exemption cannot occupy
 
 const computeBWDays = (startISO, endISO, existingBwAssignments = []) => {
   const start = dayjs(startISO);
@@ -72,6 +74,13 @@ export const scheduleGenerator = (
     );
     return override ? override.requiredPerShift : defaultRequired;
   };
+
+  // Build standing-exempt post IDs from names list
+  const standingExemptPostIds = new Set(
+    posts
+      .filter(p => STANDING_EXEMPT_POST_NAMES.includes(p.name))
+      .map(p => p.id)
+  );
 
   // Build ES group membership map: personId -> groupId
   const personToESGroup = new Map();
@@ -283,10 +292,12 @@ export const scheduleGenerator = (
 
     if (hasRestViolation(person.id, slot.index)) return false;
     if (!canESMemberWorkAtShift(person.id, slot.day, slot.shiftLabel)) return false;
+    if (person.standingExemption && standingExemptPostIds.has(slot.postId)) return false;
     return true;
   };
 
-  const canPair = (p1, p2) => {
+  const canPair = (p1, p2, shiftLabel) => {
+    if (!NIGHT_SHIFT_LABELS.has(shiftLabel)) return true;
     if (p1.sameGenderPref || p2.sameGenderPref) {
       return p1.gender === p2.gender;
     }
@@ -308,7 +319,12 @@ export const scheduleGenerator = (
     
     if (assignedToThisPost.length > 0) {
       const firstPerson = people.find(p => p.id === assignedToThisPost[0].personId);
-      if (firstPerson && !canPair(firstPerson, candidate)) return false;
+      if (firstPerson && !canPair(firstPerson, candidate, slot.shiftLabel)) return false;
+    }
+
+    // Duel guard: cannot be alone in the post slot
+    if (candidate.duelGuard && assignedToThisPost.length === 0 && slot.stillNeeded <= 1) {
+      return false;
     }
     
     // Assign this candidate to this slot

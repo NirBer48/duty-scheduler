@@ -14,7 +14,7 @@ import {
 } from "@mui/material";
 import { useI18n } from "../../util/i18n";
 import { Person, Post, Assignment, ESGroup, ESGroupAssignment, BWAssignment } from "../../types";
-import { ShiftSlot, getShiftIndex, BW_SLOT_DEFINITIONS, getShiftTimeWindow, getBwSlotRangeMinutes, hasTimeOverlap } from "./utils";
+import { ShiftSlot, getShiftIndex, BW_SLOT_DEFINITIONS, getShiftTimeWindow, getBwSlotRangeMinutes, hasTimeOverlap, isNightShift, isStandingExemptPost } from "./utils";
 
 interface Props {
     open: boolean;
@@ -133,6 +133,14 @@ export const CellEditDialog: React.FC<Props> = ({
         return conflict ? t('already in shift') : null;
     };
 
+  const hasStandingExemptionConflict = (personId: number): string | null => {
+      const person = people.find(p => p.id === personId);
+      if (!person) return null;
+      if (!person.standingExemption) return null;
+      if (!isStandingExemptPost(post.name)) return null;
+      return t('Standing exemption - cannot work this post');
+  };
+
     const hasBWConflict = (personId: number): string | null => {
         const shiftWindow = getShiftTimeWindow(shiftLabel);
         if (!shiftWindow) return null;
@@ -185,6 +193,7 @@ export const CellEditDialog: React.FC<Props> = ({
         const person = people.find(p => p.id === personId);
 
         if (!person) return null;
+      if (!isNightShift(shiftLabel)) return null;
 
         if (person.sameGenderPreference) {
             const otherSelected = selected.filter(id => id !== personId);
@@ -217,6 +226,17 @@ export const CellEditDialog: React.FC<Props> = ({
         if (hasSameShiftConflict(personId)) count++;
         if (hasBWConflict(personId)) count++;
         if (hasESBWConflict(personId)) count++;
+        if (hasStandingExemptionConflict(personId)) count++;
+        const person = people.find(p => p.id === personId);
+        const assignedCountWithPerson = (isSelected => {
+            const base = selected.length;
+            if (isSelected) return base;
+            if (base >= maxAllowed) return base; // cannot add more
+            return base + 1;
+        })(selected.includes(personId));
+        if (person?.duelGuard && assignedCountWithPerson < Math.max(2, requiredCount)) {
+            count++;
+        }
         if (checkGenderCompatibility(personId)) count++;
         return count;
     };
@@ -276,7 +296,10 @@ export const CellEditDialog: React.FC<Props> = ({
                         const shiftConflict = hasSameShiftConflict(person.id);
                         const bwConflict = hasBWConflict(person.id);
                         const esBwConflict = hasESBWConflict(person.id);
-                        const isDisabled = !isSelected && selected.length >= maxAllowed;
+                        const standingConflict = hasStandingExemptionConflict(person.id);
+        const assignedCountWithPerson = isSelected ? selected.length : selected.length + 1;
+        const duelGuardConflict = person.duelGuard && assignedCountWithPerson < Math.max(2, requiredCount);
+                        const isDisabled = (!isSelected && selected.length >= maxAllowed);
                         const esGroup = personToESGroup.get(person.id);
 
                         return (
@@ -316,6 +339,16 @@ export const CellEditDialog: React.FC<Props> = ({
                                 {bwConflict && (
                                     <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
                                         ⚠️ {bwConflict}
+                                    </Typography>
+                                )}
+                                {standingConflict && (
+                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                        ⚠️ {standingConflict}
+                                    </Typography>
+                                )}
+                                {duelGuardConflict && (
+                                    <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                        ⚠️ {t('Duel guard - cannot be alone in this shift')}
                                     </Typography>
                                 )}
                                 {esBwConflict && (

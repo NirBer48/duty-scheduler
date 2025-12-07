@@ -7,6 +7,8 @@ export interface Person {
   gender: Gender;
   sameGenderPreference: boolean;
   limitedAbility: boolean;
+  standingExemption: boolean;
+  duelGuard: boolean;
 }
 
 export interface Post {

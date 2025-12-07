@@ -21,7 +21,9 @@ import {
     getShiftTimeWindow,
     hasTimeOverlap,
     getBwSlotRangeMinutes,
-    getBwDaysForRange
+    getBwDaysForRange,
+    isNightShift,
+    isStandingExemptPost
 } from "./schedule";
 
 interface Props {
@@ -69,7 +71,6 @@ const ScheduleCalendar: React.FC<Props> = ({
     ]);
     
     const esGroups = onESGroupsChange && externalESGroups ? externalESGroups : localESGroups;
-    const setESGroups = onESGroupsChange || setLocalESGroups;
 
     useEffect(() => {
         const updateNames = (groups: ESGroup[]) => groups.map(g => ({
@@ -98,7 +99,6 @@ const ScheduleCalendar: React.FC<Props> = ({
     
     // Use external ES assignments if provided, otherwise use local state
     const esAssignments = onESAssignmentsChange && externalESAssignments ? externalESAssignments : localESAssignments;
-    const setESAssignments = onESAssignmentsChange || setLocalESAssignments;
 
     const [localBWAssignments, setLocalBWAssignments] = useState<BWAssignment[]>(externalBWAssignments);
     const bwAssignments = onBWAssignmentsChange ? externalBWAssignments : localBWAssignments;
@@ -399,8 +399,20 @@ const ScheduleCalendar: React.FC<Props> = ({
             }
         }
 
-        // Check same gender pairing
+        // Standing exemption
+        for (const assignment of localAssignments) {
+            const post = posts.find(p => p.id === assignment.postId);
+            if (!post || !isStandingExemptPost(post.name)) continue;
+            const person = people.find(p => p.id === assignment.personId);
+            if (person?.standingExemption) {
+                errors.push(`${assignment.day} ${assignment.shiftLabel} - ${post.name}: ${t('Standing exemption - cannot work this post')}`);
+                newInvalidCells.add(getCellKey(assignment.postId, assignment.day, assignment.shiftLabel));
+            }
+        }
+
+        // Check same gender pairing (night shifts only)
         for (const shift of shifts) {
+            if (!isNightShift(shift.label)) continue;
             for (const post of posts) {
                 const assignedIds = getPersonIds(localAssignments, shift.label, shift.day, post.id);
                 if (assignedIds.length > 1) {
@@ -414,6 +426,14 @@ const ScheduleCalendar: React.FC<Props> = ({
                                 }
                             }
                         }
+                    }
+                }
+                // Duel guard: cannot be alone in this post/shift
+                if (assignedIds.length === 1) {
+                    const onlyPerson = people.find(p => p.id === assignedIds[0]);
+                    if (onlyPerson?.duelGuard && assignedIds.length < Math.max(2, getRequiredCount(post.id, shift.day, shift.label))) {
+                        errors.push(`${shift.day} ${shift.label} - ${post.name}: ${t('Duel guard - cannot be alone in this shift')}`);
+                        newInvalidCells.add(getCellKey(post.id, shift.day, shift.label));
                     }
                 }
             }

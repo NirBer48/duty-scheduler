@@ -18,6 +18,24 @@ const ensureLimitedAbilityColumn = async db => {
   }
 };
 
+const ensureStandingExemptionColumn = async db => {
+  const columns = await db.all('PRAGMA table_info(people)');
+  const hasColumn = columns.some(column => column.name === 'standingExemption');
+  if (!hasColumn) {
+    await db.run('ALTER TABLE people ADD COLUMN standingExemption INTEGER NOT NULL DEFAULT 0');
+    console.log('Added standingExemption column to people table.');
+  }
+};
+
+const ensureDuelGuardColumn = async db => {
+  const columns = await db.all('PRAGMA table_info(people)');
+  const hasColumn = columns.some(column => column.name === 'duelGuard');
+  if (!hasColumn) {
+    await db.run('ALTER TABLE people ADD COLUMN duelGuard INTEGER NOT NULL DEFAULT 0');
+    console.log('Added duelGuard column to people table.');
+  }
+};
+
 const ensureBWAssignmentsTable = async db => {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS bw_assignments (
@@ -49,6 +67,8 @@ const runMigration = async () => {
     const sql = fs.readFileSync('./migrations/init.sql', 'utf8');
     await db.exec(sql);
     await ensureLimitedAbilityColumn(db);
+    await ensureStandingExemptionColumn(db);
+    await ensureDuelGuardColumn(db);
     await ensureBWAssignmentsTable(db);
     await ensureESAssignmentsTable(db);
     console.log('Migration applied.');

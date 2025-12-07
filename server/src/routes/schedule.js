@@ -8,6 +8,7 @@ const mapPerson = row => ({
   ...row,
   sameGenderPref: Boolean(row.sameGenderPref),
   limitedAbility: Boolean(row.limitedAbility),
+  standingExemption: Boolean(row.standingExemption),
 });
 
 const mapPost = row => ({

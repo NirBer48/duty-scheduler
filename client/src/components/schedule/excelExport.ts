@@ -1,6 +1,7 @@
 import XLSX from 'xlsx-js-style';
+import dayjs from "dayjs";
 import { Person, Post, Assignment, ESGroup, ESGroupAssignment, ShiftOverride, BWAssignment } from "../../types";
-import { ShiftSlot, getPersonIds, BW_SLOT_DEFINITIONS, BW_REQUIRED_PER_SLOT, getBwDaysForRange } from "./utils";
+import { ShiftSlot, getPersonIds, BW_SLOT_DEFINITIONS, BW_REQUIRED_PER_SLOT, getBwDaysForRange, getShiftTimeWindow } from "./utils";
 
 interface ExportParams {
     shifts: ShiftSlot[];
@@ -383,5 +384,79 @@ export const exportToExcel = ({
     
     XLSX.utils.book_append_sheet(wb, ws, t('Schedule'));
     XLSX.writeFile(wb, `schedule_${start.slice(0, 10)}_to_${end.slice(0, 10)}.xlsx`);
+
+    // ---- Per-person summary workbook ----
+    const esMemberSet = new Set<number>();
+    esAssignments.forEach(es => es.personIds.forEach(pid => esMemberSet.add(pid)));
+
+    const startDt = dayjs(start);
+    const endDt = dayjs(end);
+    const inRangeShift = (assignment: Assignment) => {
+        const window = getShiftTimeWindow(assignment.shiftLabel);
+        if (!window) return false;
+        const shiftStart = dayjs(`${assignment.day}T00:00`).add(window.start, 'minute');
+        let shiftEnd = dayjs(`${assignment.day}T00:00`).add(window.end, 'minute');
+        if (window.end <= window.start) {
+            shiftEnd = shiftEnd.add(1, 'day');
+        }
+        return shiftStart.isBefore(endDt) && shiftEnd.isAfter(startDt);
+    };
+    const inRangeBw = (b: BWAssignment) => {
+        const slot = BW_SLOT_DEFINITIONS.find(s => s.id === b.slotId);
+        if (!slot) return false;
+        const bwStart = dayjs(`${b.day}T00:00`).add(slot.startHour, 'hour').add(slot.startMinute, 'minute');
+        let bwEnd = dayjs(`${b.day}T00:00`).add(slot.endHour, 'hour').add(slot.endMinute, 'minute');
+        if (!bwEnd.isAfter(bwStart)) {
+            bwEnd = bwEnd.add(1, 'day');
+        }
+        return bwStart.isBefore(endDt) && bwEnd.isAfter(startDt);
+    };
+
+    const perPerson = people.map(p => {
+        // Count unique shifts (day + shiftLabel) within range to avoid double-counting multiple posts in same shift
+        const shiftKeys = new Set(
+            assignments
+                .filter(a => a.personId === p.id && inRangeShift(a))
+                .map(a => `${a.day}|${a.shiftLabel}`)
+        );
+        const shiftsCount = shiftKeys.size;
+        const bwCount = bwAssignments.filter(b => b.personId === p.id && inRangeBw(b)).length;
+        const nameWithEs = esMemberSet.has(p.id) ? `${p.name} (כ"כ)` : p.name;
+        return { name: nameWithEs, shiftsCount, bwCount };
+    }).sort((a, b) => {
+        if (b.shiftsCount !== a.shiftsCount) return b.shiftsCount - a.shiftsCount;
+        if (b.bwCount !== a.bwCount) return b.bwCount - a.bwCount;
+        return a.name.localeCompare(b.name);
+    });
+
+    const wb2 = XLSX.utils.book_new();
+    const wsSummaryData: XLSX.CellObject[][] = [];
+
+    wsSummaryData.push([
+        { v: t('Name'), t: 's', s: { font: { bold: true }, alignment: { horizontal: 'center' }, border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } } } },
+        { v: t('Shifts'), t: 's', s: { font: { bold: true }, alignment: { horizontal: 'center' }, border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } } } },
+        { v: t('BW Assignments'), t: 's', s: { font: { bold: true }, alignment: { horizontal: 'center' }, border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } } } },
+    ]);
+
+    perPerson.forEach((p, idx) => {
+        wsSummaryData.push([
+            { v: p.name, t: 's', s: { alignment: { horizontal: 'left' }, border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } } } },
+            { v: p.shiftsCount, t: 'n', s: { alignment: { horizontal: 'center' }, border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } } } },
+            { v: p.bwCount, t: 'n', s: { alignment: { horizontal: 'center' }, border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } } } },
+        ]);
+    });
+
+    const wsSummary = XLSX.utils.aoa_to_sheet(wsSummaryData.map(row => row.map(cell => cell.v)));
+    wsSummaryData.forEach((row, r) => {
+        row.forEach((cell, c) => {
+            const ref = XLSX.utils.encode_cell({ r, c });
+            if (wsSummary[ref]) wsSummary[ref].s = cell.s;
+        });
+    });
+
+    wsSummary['!cols'] = [{ wch: 24 }, { wch: 10 }, { wch: 12 }];
+
+    XLSX.utils.book_append_sheet(wb2, wsSummary, 'Shifts per person');
+    XLSX.writeFile(wb2, `shifts_per_person_${start.slice(0, 10)}_to_${end.slice(0, 10)}.xlsx`);
 };
 
