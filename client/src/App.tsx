@@ -120,6 +120,7 @@ const App: React.FC = () => {
   const [constraintTitle, setConstraintTitle] = useState('');
   const [constraintStart, setConstraintStart] = useState('');
   const [constraintEnd, setConstraintEnd] = useState('');
+  const [constraintError, setConstraintError] = useState('');
 
   const refreshPeople = () => fetchPeople().then(setPeople);
   const refreshPosts = () => fetchPosts().then(data => {
@@ -349,13 +350,30 @@ const App: React.FC = () => {
             InputLabelProps={{ shrink: true }}
             size="small"
           />
+          {constraintError && (
+            <Typography color="error" variant="body2">
+              {constraintError}
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions>
             <Button onClick={() => setConstraintDialogOpen(false)}>{t('Cancel')}</Button>
             <Button
               variant="contained"
               onClick={async () => {
-                if (!constraintPersonId || !constraintTitle || !constraintStart || !constraintEnd) return;
+                const titleMissing = !constraintTitle.trim();
+                const missingFields = !constraintPersonId || !constraintStart || !constraintEnd;
+                let err = '';
+                if (titleMissing) err = t('Activity name is required');
+                else {
+                  const startVal = constraintStart;
+                  const endVal = constraintEnd;
+                  if (startVal && endVal && endVal <= startVal) {
+                    err = t('End must be after start');
+                  }
+                }
+                setConstraintError(err);
+                if (err || missingFields) return;
                 await addConstraint({
                   personId: Number(constraintPersonId),
                   title: constraintTitle,
@@ -370,6 +388,7 @@ const App: React.FC = () => {
                 setConstraintTitle('');
                 setConstraintStart('');
                 setConstraintEnd('');
+                setConstraintError('');
               }}
             >
               {t('Add')}
