@@ -13,7 +13,7 @@ import {
     Alert
 } from "@mui/material";
 import { useI18n } from "../../util/i18n";
-import { Person, ESGroup } from "../../types";
+import { Person, ESGroup, Constraint } from "../../types";
 
 interface Props {
     open: boolean;
@@ -23,6 +23,7 @@ interface Props {
     currentPersonIds: number[];
     onSave: (personIds: number[], totalPeople: number) => void;
     otherESPersonIds: number[];
+    constraints?: Constraint[];
 }
 
 export const ESEditDialog: React.FC<Props> = ({ 
@@ -32,7 +33,8 @@ export const ESEditDialog: React.FC<Props> = ({
     people, 
     currentPersonIds, 
     onSave, 
-    otherESPersonIds 
+    otherESPersonIds,
+    constraints = [],
 }) => {
     const [selected, setSelected] = useState<number[]>(currentPersonIds);
     const [totalPeople, setTotalPeople] = useState(group.totalPeople);
@@ -81,6 +83,16 @@ export const ESEditDialog: React.FC<Props> = ({
         () => people.filter(p => p.limitedAbility).length,
         [people]
     );
+
+    const constraintsByPerson = useMemo(() => {
+        const map = new Map<number, Constraint[]>();
+        constraints.forEach(c => {
+            const arr = map.get(c.personId) || [];
+            arr.push(c);
+            map.set(c.personId, arr);
+        });
+        return map;
+    }, [constraints]);
 
     const filteredPeople = availablePeople.filter(person => {
         if (!search.trim()) return true;
@@ -137,20 +149,27 @@ export const ESEditDialog: React.FC<Props> = ({
                     {filteredPeople.map(person => {
                         const isSelected = selected.includes(person.id);
                         const isDisabled = !isSelected && selected.length >= totalPeople;
+                        const personConstraints = constraintsByPerson.get(person.id) || [];
 
                         return (
-                            <FormControlLabel
-                                key={person.id}
-                                control={
-                                    <Checkbox
-                                        checked={isSelected}
-                                        onChange={() => handleToggle(person.id)}
-                                        disabled={isDisabled}
-                                    />
-                                }
-                                label={`${person.name} (${person.gender})`}
-                                sx={{ opacity: isDisabled ? 0.5 : 1 }}
-                            />
+                            <Box key={person.id}>
+                                <FormControlLabel
+                                    control={
+                                        <Checkbox
+                                            checked={isSelected}
+                                            onChange={() => handleToggle(person.id)}
+                                            disabled={isDisabled}
+                                        />
+                                    }
+                                    label={`${person.name} (${person.gender})`}
+                                    sx={{ opacity: isDisabled ? 0.5 : 1 }}
+                                />
+                                {personConstraints.map(c => (
+                                    <Typography key={c.id} variant="caption" color="error" sx={{ display: 'block', ml: 4 }}>
+                                        ⚠️ {t('Constraint conflict')}: {c.title}
+                                    </Typography>
+                                ))}
+                            </Box>
                         );
                     })}
                 </Box>

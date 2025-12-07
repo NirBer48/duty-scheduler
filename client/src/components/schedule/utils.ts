@@ -72,6 +72,11 @@ export const SHIFT_TIME_RANGES: Record<string, { start: number; end: number }> =
 };
 
 export const getShiftTimeWindow = (label: string) => SHIFT_TIME_RANGES[label];
+export const NIGHT_SHIFT_LABELS = new Set(["20:00-00:00", "00:00-04:00", "04:00-08:00"]);
+export const isNightShift = (label: string) => NIGHT_SHIFT_LABELS.has(label);
+export const STANDING_EXEMPT_POST_NAMES: string[] = ["ימח","שג רכוב אחורי","שג רכוב קדמי","עתודה"];
+export const isStandingExemptPost = (postName?: string) =>
+    !!postName && STANDING_EXEMPT_POST_NAMES.includes(postName);
 
 const minutesFromMidnight = (hour: number, minute: number) => hour * 60 + minute;
 

@@ -7,6 +7,8 @@ export interface Person {
   gender: Gender;
   sameGenderPreference: boolean;
   limitedAbility: boolean;
+  standingExemption: boolean;
+  duelGuard: boolean;
 }
 
 export interface Post {
@@ -31,6 +33,14 @@ export interface BWAssignment {
   personId: number;
   start?: string;
   end?: string;
+}
+
+export interface Constraint {
+  id: number;
+  personId: number;
+  title: string;
+  startISO: string;
+  endISO: string;
 }
 
 export interface ShiftOverride {

@@ -8,6 +8,7 @@ const mapPerson = row => ({
   ...row,
   sameGenderPref: Boolean(row.sameGenderPref),
   limitedAbility: Boolean(row.limitedAbility),
+  standingExemption: Boolean(row.standingExemption),
 });
 
 const mapPost = row => ({
@@ -87,6 +88,7 @@ router.post('/generate', async (req, res, next) => {
       esAssignments = [],
       existingAssignments = [],
       existingBwAssignments = [],
+      constraints = [],
     } = req.body;
 
     const [peopleRows, postRows] = await Promise.all([
@@ -102,7 +104,8 @@ router.post('/generate', async (req, res, next) => {
       shiftOverrides,
       esAssignments,
       existingAssignments,
-      existingBwAssignments
+      existingBwAssignments,
+      constraints
     );
 
     if (result.error) {

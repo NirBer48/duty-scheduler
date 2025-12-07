@@ -9,6 +9,8 @@ const BW_SLOTS = [
   { id: 'bw_evening', label: 'BW 18:30-20:00', startHour: 18, startMinute: 30, endHour: 20, endMinute: 0 },
 ];
 const BW_REQUIRED = 20;
+const NIGHT_SHIFT_LABELS = new Set(['20:00-00:00', '00:00-04:00', '04:00-08:00']);
+const STANDING_EXEMPT_POST_NAMES = ["ימח","שג רכוב אחורי","שג רכוב קדמי","עתודה"]; // posts people with standing exemption cannot occupy
 
 const computeBWDays = (startISO, endISO, existingBwAssignments = []) => {
   const start = dayjs(startISO);
@@ -54,7 +56,8 @@ export const scheduleGenerator = (
   shiftOverrides = [],
   esAssignments = [],
   existingAssignments = [],
-  existingBwAssignments = []
+  existingBwAssignments = [],
+  constraints = []
 ) => {
   // Build all 4-hour shift time slots between start and end
   const shiftDefinitions = [
@@ -72,6 +75,13 @@ export const scheduleGenerator = (
     );
     return override ? override.requiredPerShift : defaultRequired;
   };
+
+  // Build standing-exempt post IDs from names list
+  const standingExemptPostIds = new Set(
+    posts
+      .filter(p => STANDING_EXEMPT_POST_NAMES.includes(p.name))
+      .map(p => p.id)
+  );
 
   // Build ES group membership map: personId -> groupId
   const personToESGroup = new Map();
@@ -91,6 +101,18 @@ export const scheduleGenerator = (
     shiftCountByPerson[p.id] = 0;
     bwAssignmentCount[p.id] = 0;
   });
+
+  // Constraints map: personId -> [{start,end,title}]
+  const constraintsByPerson = new Map();
+  for (const c of constraints) {
+    const arr = constraintsByPerson.get(c.personId) || [];
+    arr.push({
+      start: dayjs(c.startISO),
+      end: dayjs(c.endISO),
+      title: c.title || '',
+    });
+    constraintsByPerson.set(c.personId, arr);
+  }
 
   // Build list of all shift time slots in the date range
   const timeSlots = [];
@@ -281,12 +303,25 @@ export const scheduleGenerator = (
     const assignedPeople = slotAssignments.get(shiftKey);
     if (assignedPeople?.has(person.id)) return false;
 
+    const cList = constraintsByPerson.get(person.id) || [];
+    if (cList.length > 0) {
+      const slotStart = dayjs(slot.start);
+      const slotEnd = dayjs(slot.end);
+      for (const c of cList) {
+        if (slotStart.isBefore(c.end) && c.start.isBefore(slotEnd)) {
+          return false;
+        }
+      }
+    }
+
     if (hasRestViolation(person.id, slot.index)) return false;
     if (!canESMemberWorkAtShift(person.id, slot.day, slot.shiftLabel)) return false;
+    if (person.standingExemption && standingExemptPostIds.has(slot.postId)) return false;
     return true;
   };
 
-  const canPair = (p1, p2) => {
+  const canPair = (p1, p2, shiftLabel) => {
+    if (!NIGHT_SHIFT_LABELS.has(shiftLabel)) return true;
     if (p1.sameGenderPref || p2.sameGenderPref) {
       return p1.gender === p2.gender;
     }
@@ -308,7 +343,12 @@ export const scheduleGenerator = (
     
     if (assignedToThisPost.length > 0) {
       const firstPerson = people.find(p => p.id === assignedToThisPost[0].personId);
-      if (firstPerson && !canPair(firstPerson, candidate)) return false;
+      if (firstPerson && !canPair(firstPerson, candidate, slot.shiftLabel)) return false;
+    }
+
+    // Duel guard: cannot be alone in the post slot
+    if (candidate.duelGuard && assignedToThisPost.length === 0 && slot.stillNeeded <= 1) {
+      return false;
     }
     
     // Assign this candidate to this slot

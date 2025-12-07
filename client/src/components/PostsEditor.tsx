@@ -15,6 +15,8 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
   const [required, setRequired] = useState<number>(1);
   const [validationError, setValidationError] = useState('');
   const { t, lang } = useI18n();
+  const dir = lang === 'he' ? 'rtl' : 'ltr';
+  const align = lang === 'he' ? 'right' : 'left';
 
   const refreshPosts = async () => {
     const data = await fetchPosts();
@@ -85,8 +87,8 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
         <List
           dense
           sx={{
-            direction: lang === 'he' ? 'rtl' : 'ltr',
-            textAlign: lang === 'he' ? 'right' : 'left',
+            direction: dir,
+            textAlign: align,
           }}
         >
           {posts.map(p => (
@@ -99,16 +101,16 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
               key={p.id}
               sx={{
                 py: 0.5,
-                textAlign: lang === 'he' ? 'right' : 'left',
-                direction: lang === 'he' ? 'rtl' : 'ltr',
+                textAlign: align,
+                direction: dir,
               }}
             >
               <ListItemText
-                sx={{ textAlign: lang === 'he' ? 'right' : 'left' }}
+                sx={{ textAlign: align }}
                 primary={
                   <Typography
                     variant="body2"
-                    sx={{ direction: lang === 'he' ? 'rtl' : 'ltr' }}
+                    sx={{ direction: dir }}
                   >
                     {p.name}
                   </Typography>
@@ -117,7 +119,7 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
                   <Typography
                     variant="caption"
                     component="span"
-                    sx={{ direction: lang === 'he' ? 'rtl' : 'ltr' }}
+                    sx={{ direction: dir }}
                   >
                     {`${t('Required')}: ${p.requiredPerShift}`}
                   </Typography>

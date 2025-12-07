@@ -9,6 +9,8 @@ const mapPerson = row => ({
   gender: row.gender,
   sameGenderPreference: Boolean(row.sameGenderPref),
   limitedAbility: Boolean(row.limitedAbility),
+  standingExemption: Boolean(row.standingExemption),
+  duelGuard: Boolean(row.duelGuard),
 });
 
 router.get('/', async (req, res, next) => {
@@ -23,10 +25,10 @@ router.get('/', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const db = getDb(req);
-    const { name, gender, sameGenderPref = false, limitedAbility = false } = req.body;
+    const { name, gender, sameGenderPref = false, limitedAbility = false, standingExemption = false, duelGuard = false } = req.body;
     const result = await db.run(
-      'INSERT INTO people (name, gender, sameGenderPref, limitedAbility) VALUES (?, ?, ?, ?)',
-      [name, gender, sameGenderPref ? 1 : 0, limitedAbility ? 1 : 0]
+      'INSERT INTO people (name, gender, sameGenderPref, limitedAbility, standingExemption, duelGuard) VALUES (?, ?, ?, ?, ?, ?)',
+      [name, gender, sameGenderPref ? 1 : 0, limitedAbility ? 1 : 0, standingExemption ? 1 : 0, duelGuard ? 1 : 0]
     );
     res.json({
       id: result.lastID,
@@ -34,6 +36,8 @@ router.post('/', async (req, res, next) => {
       gender,
       sameGenderPreference: sameGenderPref,
       limitedAbility,
+      standingExemption,
+      duelGuard,
     });
   } catch (err) {
     next(err);
@@ -42,7 +46,13 @@ router.post('/', async (req, res, next) => {
 
 router.delete('/:id', async (req, res, next) => {
   try {
-    await getDb(req).run('DELETE FROM people WHERE id = ?', Number(req.params.id));
+    const db = getDb(req);
+    const id = Number(req.params.id);
+    // Remove related assignments (regular, BW, ES) before deleting the person
+    await db.run('DELETE FROM assignments WHERE personId = ?', id);
+    await db.run('DELETE FROM bw_assignments WHERE personId = ?', id);
+    await db.run('DELETE FROM es_assignments WHERE personId = ?', id);
+    await db.run('DELETE FROM people WHERE id = ?', id);
     res.json({ ok: true });
   } catch (err) {
     next(err);

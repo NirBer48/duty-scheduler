@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Assignment, Person, Post, ShiftOverride, ESGroup, ESGroupAssignment, ESGroupId, BWAssignment } from "../types";
+import dayjs from "dayjs";
+import { Assignment, Person, Post, ShiftOverride, ESGroup, ESGroupAssignment, ESGroupId, BWAssignment, Constraint } from "../types";
 import { useI18n } from "../util/i18n";
 import { Box, Typography, Alert, Button, IconButton, Chip, CircularProgress } from "@mui/material";
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -21,7 +22,9 @@ import {
     getShiftTimeWindow,
     hasTimeOverlap,
     getBwSlotRangeMinutes,
-    getBwDaysForRange
+    getBwDaysForRange,
+    isNightShift,
+    isStandingExemptPost
 } from "./schedule";
 
 interface Props {
@@ -40,6 +43,7 @@ interface Props {
     onESGroupsChange?: (esGroups: ESGroup[]) => void;
     bwAssignments?: BWAssignment[];
     onBWAssignmentsChange?: (assignments: BWAssignment[]) => void;
+    constraints?: Constraint[];
 }
 
 const ScheduleCalendar: React.FC<Props> = ({ 
@@ -57,7 +61,8 @@ const ScheduleCalendar: React.FC<Props> = ({
     onESGroupsChange,
     bwAssignments: externalBWAssignments = [],
     onBWAssignmentsChange,
-    isGenerating = false
+    isGenerating = false,
+    constraints = [],
 }) => {
     const shifts = getShiftsForPeriod(start, end);
     const { t, lang } = useI18n();
@@ -69,7 +74,6 @@ const ScheduleCalendar: React.FC<Props> = ({
     ]);
     
     const esGroups = onESGroupsChange && externalESGroups ? externalESGroups : localESGroups;
-    const setESGroups = onESGroupsChange || setLocalESGroups;
 
     useEffect(() => {
         const updateNames = (groups: ESGroup[]) => groups.map(g => ({
@@ -98,7 +102,6 @@ const ScheduleCalendar: React.FC<Props> = ({
     
     // Use external ES assignments if provided, otherwise use local state
     const esAssignments = onESAssignmentsChange && externalESAssignments ? externalESAssignments : localESAssignments;
-    const setESAssignments = onESAssignmentsChange || setLocalESAssignments;
 
     const [localBWAssignments, setLocalBWAssignments] = useState<BWAssignment[]>(externalBWAssignments);
     const bwAssignments = onBWAssignmentsChange ? externalBWAssignments : localBWAssignments;
@@ -399,8 +402,40 @@ const ScheduleCalendar: React.FC<Props> = ({
             }
         }
 
-        // Check same gender pairing
+        // Constraint overlaps
+        for (const assignment of localAssignments) {
+            const personConstraints = constraints.filter(c => c.personId === assignment.personId);
+            if (personConstraints.length === 0) continue;
+            const window = getShiftTimeWindow(assignment.shiftLabel);
+            if (!window) continue;
+            const shiftStart = dayjs(`${assignment.day}T00:00`).add(window.start, 'minute');
+            let shiftEnd = dayjs(`${assignment.day}T00:00`).add(window.end, 'minute');
+            if (!shiftEnd.isAfter(shiftStart)) shiftEnd = shiftEnd.add(1, 'day');
+            for (const c of personConstraints) {
+                const cStart = dayjs(c.startISO);
+                const cEnd = dayjs(c.endISO);
+                if (shiftStart.isBefore(cEnd) && cStart.isBefore(shiftEnd)) {
+                    errors.push(`${assignment.day} ${assignment.shiftLabel}: ${people.find(p => p.id === assignment.personId)?.name || assignment.personId} - ${t('Constraint conflict')}: ${c.title}`);
+                    newInvalidCells.add(getCellKey(assignment.postId, assignment.day, assignment.shiftLabel));
+                    break;
+                }
+            }
+        }
+
+        // Standing exemption
+        for (const assignment of localAssignments) {
+            const post = posts.find(p => p.id === assignment.postId);
+            if (!post || !isStandingExemptPost(post.name)) continue;
+            const person = people.find(p => p.id === assignment.personId);
+            if (person?.standingExemption) {
+                errors.push(`${assignment.day} ${assignment.shiftLabel} - ${post.name}: ${t('Standing exemption - cannot work this post')}`);
+                newInvalidCells.add(getCellKey(assignment.postId, assignment.day, assignment.shiftLabel));
+            }
+        }
+
+        // Check same gender pairing (night shifts only)
         for (const shift of shifts) {
+            if (!isNightShift(shift.label)) continue;
             for (const post of posts) {
                 const assignedIds = getPersonIds(localAssignments, shift.label, shift.day, post.id);
                 if (assignedIds.length > 1) {
@@ -414,6 +449,14 @@ const ScheduleCalendar: React.FC<Props> = ({
                                 }
                             }
                         }
+                    }
+                }
+                // Duel guard: cannot be alone in this post/shift
+                if (assignedIds.length === 1) {
+                    const onlyPerson = people.find(p => p.id === assignedIds[0]);
+                    if (onlyPerson?.duelGuard && assignedIds.length < Math.max(2, getRequiredCount(post.id, shift.day, shift.label))) {
+                        errors.push(`${shift.day} ${shift.label} - ${post.name}: ${t('Duel guard - cannot be alone in this shift')}`);
+                        newInvalidCells.add(getCellKey(post.id, shift.day, shift.label));
                     }
                 }
             }
@@ -784,6 +827,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                     esAssignments={esAssignments}
                     esGroups={esGroups}
                     bwAssignments={bwAssignments}
+                    constraints={constraints}
                 />
             )}
 
@@ -808,6 +852,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                     currentPersonIds={esAssignments.find(es => es.groupId === esEditDialog.group!.id)?.personIds || []}
                     onSave={handleESSave}
                     otherESPersonIds={esAssignments.filter(es => es.groupId !== esEditDialog.group!.id).flatMap(es => es.personIds)}
+                    constraints={constraints}
                 />
             )}
 
