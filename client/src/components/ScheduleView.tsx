@@ -852,6 +852,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                     currentPersonIds={esAssignments.find(es => es.groupId === esEditDialog.group!.id)?.personIds || []}
                     onSave={handleESSave}
                     otherESPersonIds={esAssignments.filter(es => es.groupId !== esEditDialog.group!.id).flatMap(es => es.personIds)}
+                    constraints={constraints}
                 />
             )}
 
