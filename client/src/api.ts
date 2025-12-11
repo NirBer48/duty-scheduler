@@ -123,3 +123,13 @@ export const generateSchedule = (
 export const clearSchedule = () => request<{ ok: boolean }>('/schedule/clear', { method: 'DELETE' });
 
 export const fetchLastSchedule = () => request<ScheduleSnapshot>('/schedule/last');
+
+export const saveAllSchedules = (
+  assignments: Assignment[],
+  bwAssignments: BWAssignment[],
+  esAssignments: ESGroupAssignment[]
+) =>
+  request<{ ok: boolean; error?: string }>('/schedule/save-all', {
+    method: 'POST',
+    body: JSON.stringify({ assignments, bwAssignments, esAssignments }),
+  });
