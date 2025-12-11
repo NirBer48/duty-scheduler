@@ -248,6 +248,15 @@ const App: React.FC = () => {
     }
   };
 
+  const translateAuthError = (msg: string) => {
+    const lower = (msg || '').toLowerCase();
+    if (lower.includes('email exists')) return t('Email already exists');
+    if (lower.includes('missing fields')) return t('Invalid credentials');
+    if (lower.includes('invalid credentials')) return t('Invalid credentials');
+    if (lower.includes('unauthorized')) return t('Invalid credentials');
+    return t('Invalid credentials');
+  };
+
   const handleAuthSubmit = async () => {
     setAuthLoading(true);
     setAuthError('');
@@ -261,7 +270,7 @@ const App: React.FC = () => {
       }
       setAuthPassword('');
     } catch (err: any) {
-      setAuthError(err?.message || t('Invalid credentials'));
+      setAuthError(translateAuthError(err?.message || ''));
       setUser(null);
     } finally {
       setAuthLoading(false);

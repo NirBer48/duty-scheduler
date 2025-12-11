@@ -13,7 +13,17 @@ const request = async <T>(path: string, init?: RequestInit) => {
     },
   });
   if (!response.ok) {
-    const message = await response.text();
+    let message = `Request failed: ${response.status}`;
+    try {
+      const data = await response.json();
+      if (data?.error) message = data.error;
+    } catch {
+      try {
+        message = await response.text();
+      } catch {
+        // ignore
+      }
+    }
     throw new Error(message || `Request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
