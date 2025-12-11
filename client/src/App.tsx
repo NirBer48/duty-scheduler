@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ScheduleCalendar from './components/ScheduleView';
 import PeopleEditor from './components/PeopleEditor';
 import PostsEditor from './components/PostsEditor';
-import { fetchPeople, fetchPosts, generateSchedule, clearSchedule, fetchLastSchedule, fetchConstraints, addConstraint } from './api';
+import { fetchPeople, fetchPosts, generateSchedule, clearSchedule, fetchLastSchedule, fetchConstraints, addConstraint, login, register, logout, fetchMe } from './api';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
@@ -125,6 +125,12 @@ const App: React.FC = () => {
   const [constraintEnd, setConstraintEnd] = useState('');
   const [constraintError, setConstraintError] = useState('');
   const [tab, setTab] = useState(0);
+  const [user, setUser] = useState<{ id: number; email: string } | null>(null);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
 
   const refreshPeople = () => fetchPeople().then(setPeople);
   const refreshPosts = () => fetchPosts().then(data => {
@@ -133,16 +139,25 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
+    fetchMe()
+      .then(setUser)
+      .catch(() => setUser(null));
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
     refreshPeople();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
+    if (!user) return;
     refreshPosts();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
+    if (!user) return;
     fetchConstraints().then(setConstraints).catch(() => { });
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const loadLastSchedule = async () => {
@@ -159,8 +174,8 @@ const App: React.FC = () => {
         console.error('Failed to load last schedule', err);
       }
     };
-    loadLastSchedule();
-  }, []);
+    if (user) loadLastSchedule();
+  }, [user]);
 
   useEffect(() => {
     setESAssignments((prev: ESGroupAssignment[]) => {
@@ -188,6 +203,10 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem(STORAGE_KEY_SHIFT_OVERRIDES, JSON.stringify(shiftOverrides)); }, [shiftOverrides]);
 
   const handleSchedule = async () => {
+    if (!user) {
+      setError(t('Invalid credentials'));
+      return;
+    }
     const startISO = new Date(start).toISOString();
     const endISO = new Date(end).toISOString();
     setIsGenerating(true);
@@ -216,6 +235,7 @@ const App: React.FC = () => {
   };
 
   const handleClearSchedule = async () => {
+    if (!user) return;
     if (window.confirm(t('Are you sure you want to clear the schedule?'))) {
       setAssignments([]);
       setESAssignments([
@@ -226,6 +246,40 @@ const App: React.FC = () => {
       setError('');
       await clearSchedule();
     }
+  };
+
+  const handleAuthSubmit = async () => {
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      if (authMode === 'login') {
+        const u = await login(authEmail.trim(), authPassword);
+        setUser(u);
+      } else {
+        const u = await register(authEmail.trim(), authPassword);
+        setUser(u);
+      }
+      setAuthPassword('');
+    } catch (err: any) {
+      setAuthError(err?.message || t('Invalid credentials'));
+      setUser(null);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout().catch(() => {});
+    setUser(null);
+    setAssignments([]);
+    setBWAssignments([]);
+    setESAssignments([
+      { groupId: 'es1', personIds: [] },
+      { groupId: 'es2', personIds: [] },
+    ]);
+    setPeople([]);
+    setPosts([]);
+    setConstraints([]);
   };
 
   const handlePostsUpdate = (updatedPosts: Post[]) => {
@@ -241,127 +295,180 @@ const App: React.FC = () => {
       <AppBar position="static">
         <Toolbar>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>{t('Duty Scheduler')}</Typography>
+          {user && (
+            <Typography variant="body2" sx={{ mr: 2 }}>
+              {user.email}
+            </Typography>
+          )}
+          {user && (
+            <Button color="inherit" onClick={handleLogout}>
+              {t('Logout')}
+            </Button>
+          )}
           <Button color="inherit" onClick={() => setLang(lang === 'en' ? 'he' : 'en')}>
             {lang === 'en' ? 'עברית' : 'English'}
           </Button>
         </Toolbar>
       </AppBar>
-      <Container maxWidth={false} sx={{ mt: 2, px: 3 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-          <Tab label={t('Guardes')} />
-          <Tab label={t('Kitchen')} />
-        </Tabs>
-        <Box display="flex" gap={3} alignItems="flex-start">
-          <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
-            <PeopleEditor onUpdate={handlePeopleUpdate} />
-            {tab === 0 && <PostsEditor onUpdate={handlePostsUpdate} />}
-            <ConstraintsEditor people={people} />
-          </Box>
+      {!user && (
+        <Container maxWidth="sm" sx={{ mt: 6 }}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              {authMode === 'login' ? t('Login') : t('Register')}
+            </Typography>
+            <Stack spacing={2}>
+              <TextField
+                label={t('Email')}
+                type="email"
+                value={authEmail}
+                onChange={e => setAuthEmail(e.target.value)}
+                fullWidth
+                size="small"
+              />
+              <TextField
+                label={t('Password')}
+                type="password"
+                value={authPassword}
+                onChange={e => setAuthPassword(e.target.value)}
+                fullWidth
+                size="small"
+              />
+              {authError && <Typography color="error">{authError}</Typography>}
+              <Button variant="contained" onClick={handleAuthSubmit} disabled={authLoading}>
+                {authMode === 'login' ? t('Login') : t('Register')}
+              </Button>
+              <Button
+                variant="text"
+                onClick={() => {
+                  setAuthMode(authMode === 'login' ? 'register' : 'login');
+                  setAuthError('');
+                }}
+              >
+                {authMode === 'login' ? t('Need an account?') : t('Already have an account?')}
+              </Button>
+            </Stack>
+          </Paper>
+        </Container>
+      )}
 
-          <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-            {tab === 0 && (
-              <>
+      {user && (
+        <Container maxWidth={false} sx={{ mt: 2, px: 3 }}>
+          <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+            <Tab label={t('Shifts')} />
+            <Tab label={t('Kitchen')} />
+          </Tabs>
+          <Box display="flex" gap={3} alignItems="flex-start">
+            <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
+              <PeopleEditor onUpdate={handlePeopleUpdate} />
+              {tab === 0 && <PostsEditor onUpdate={handlePostsUpdate} />}
+              <ConstraintsEditor people={people} />
+            </Box>
+
+            <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+              {tab === 0 && (
+                <>
+                  <Paper sx={{ p: 2, mb: 2 }}>
+                    <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
+                    <Stack direction="row" spacing={3} flexWrap="wrap" alignItems="center">
+                      <TextField
+                        type="datetime-local"
+                        label={t('Start')}
+                        value={start}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStart(e.target.value)}
+                        InputLabelProps={{ shrink: true }}
+                        inputProps={{ step: 14400 }}
+                        size="small"
+                      />
+                      <TextField
+                        type="datetime-local"
+                        label={t('End')}
+                        value={end}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnd(e.target.value)}
+                        InputLabelProps={{ shrink: true }}
+                        inputProps={{ step: 14400 }}
+                        size="small"
+                      />
+                      <Button
+                        onClick={handleSchedule}
+                        variant="contained"
+                        disabled={isGenerating}
+                      >
+                        {isGenerating ? t('Assigning') : t('Generate')}
+                      </Button>
+                      <Button onClick={handleClearSchedule} variant="outlined" color="error" disabled={isGenerating}>
+                        {t('Clear')}
+                      </Button>
+                      <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
+                        {t('Add Constraint')}
+                      </Button>
+                    </Stack>
+                    {error && (
+                      <Typography color="error" sx={{ mt: 2 }}>{t(error)}</Typography>
+                    )}
+                  </Paper>
+                  <Paper sx={{ p: 2, overflow: 'auto' }}>
+                    <ScheduleCalendar
+                      assignments={assignments}
+                      posts={posts}
+                      people={people}
+                      start={start}
+                      end={end}
+                      isGenerating={isGenerating}
+                      onAssignmentsChange={setAssignments}
+                      shiftOverrides={shiftOverrides}
+                      onShiftOverridesChange={setShiftOverrides}
+                      esAssignments={esAssignments}
+                      onESAssignmentsChange={setESAssignments}
+                      esGroups={esGroups}
+                      onESGroupsChange={setESGroups}
+                      bwAssignments={bwAssignments}
+                      onBWAssignmentsChange={setBWAssignments}
+                      constraints={constraints}
+                    />
+                  </Paper>
+                </>
+              )}
+              {tab === 1 && (
                 <Paper sx={{ p: 2, mb: 2 }}>
-                  <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
+                  <Typography variant="h6" gutterBottom>{t('Kitchen')}</Typography>
                   <Stack direction="row" spacing={3} flexWrap="wrap" alignItems="center">
                     <TextField
                       type="datetime-local"
                       label={t('Start')}
                       value={start}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStart(e.target.value)}
                       InputLabelProps={{ shrink: true }}
                       inputProps={{ step: 14400 }}
                       size="small"
+                      onChange={() => { }}
                     />
                     <TextField
                       type="datetime-local"
                       label={t('End')}
                       value={end}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnd(e.target.value)}
                       InputLabelProps={{ shrink: true }}
                       inputProps={{ step: 14400 }}
                       size="small"
+                      onChange={() => { }}
                     />
-                    <Button
-                      onClick={handleSchedule}
-                      variant="contained"
-                      disabled={isGenerating}
-                    >
-                      {isGenerating ? t('Assigning') : t('Generate')}
+                    <Button variant="contained" onClick={() => { }}>
+                      {t('Generate')}
                     </Button>
-                    <Button onClick={handleClearSchedule} variant="outlined" color="error" disabled={isGenerating}>
+                    <Button variant="outlined" color="error" onClick={() => { }}>
                       {t('Clear')}
                     </Button>
                     <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
                       {t('Add Constraint')}
                     </Button>
                   </Stack>
-                  {error && (
-                    <Typography color="error" sx={{ mt: 2 }}>{t(error)}</Typography>
-                  )}
+                  <Typography variant="body2" color="text.secondary">
+                    {t('Coming soon')}
+                  </Typography>
                 </Paper>
-                <Paper sx={{ p: 2, overflow: 'auto' }}>
-                  <ScheduleCalendar
-                    assignments={assignments}
-                    posts={posts}
-                    people={people}
-                    start={start}
-                    end={end}
-                    isGenerating={isGenerating}
-                    onAssignmentsChange={setAssignments}
-                    shiftOverrides={shiftOverrides}
-                    onShiftOverridesChange={setShiftOverrides}
-                    esAssignments={esAssignments}
-                    onESAssignmentsChange={setESAssignments}
-                    esGroups={esGroups}
-                    onESGroupsChange={setESGroups}
-                    bwAssignments={bwAssignments}
-                    onBWAssignmentsChange={setBWAssignments}
-                    constraints={constraints}
-                  />
-                </Paper>
-              </>
-            )}
-            {tab === 1 && (
-              <Paper sx={{ p: 2, mb: 2 }}>
-                <Typography variant="h6" gutterBottom>{t('Kitchen')}</Typography>
-                <Stack direction="row" spacing={3} flexWrap="wrap" alignItems="center">
-                  <TextField
-                    type="datetime-local"
-                    label={t('Start')}
-                    value={start}
-                    InputLabelProps={{ shrink: true }}
-                    inputProps={{ step: 14400 }}
-                    size="small"
-                    onChange={() => { }}
-                  />
-                  <TextField
-                    type="datetime-local"
-                    label={t('End')}
-                    value={end}
-                    InputLabelProps={{ shrink: true }}
-                    inputProps={{ step: 14400 }}
-                    size="small"
-                    onChange={() => { }}
-                  />
-                  <Button variant="contained" onClick={() => { }}>
-                    {t('Generate')}
-                  </Button>
-                  <Button variant="outlined" color="error" onClick={() => { }}>
-                    {t('Clear')}
-                  </Button>
-                  <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
-                    {t('Add Constraint')}
-                  </Button>
-                </Stack>
-                <Typography variant="body2" color="text.secondary">
-                  {t('Coming soon')}
-                </Typography>
-              </Paper>
-            )}
+              )}
+            </Box>
           </Box>
-        </Box>
-      </Container>
+        </Container>
+      )}
       <Dialog open={constraintDialogOpen} onClose={() => setConstraintDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{t('Add Constraint')}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>

@@ -38,44 +38,44 @@ const mapEsAssignmentRows = rows => {
 const respondError = (res, message = 'not enough manpower') =>
   res.json({ assignments: [], bwAssignments: [], esAssignments: [], error: message });
 
-const clearAssignments = db => db.run('DELETE FROM assignments');
-const clearBwAssignments = db => db.run('DELETE FROM bw_assignments');
-const clearEsAssignments = db => db.run('DELETE FROM es_assignments');
+const clearAssignments = (db, userId) => db.run('DELETE FROM assignments WHERE userId = ?', userId);
+const clearBwAssignments = (db, userId) => db.run('DELETE FROM bw_assignments WHERE userId = ?', userId);
+const clearEsAssignments = (db, userId) => db.run('DELETE FROM es_assignments WHERE userId = ?', userId);
 
-const persistAssignments = async (db, assignments = []) => {
+const persistAssignments = async (db, assignments = [], userId) => {
   for (const { personId, postId, day, shiftLabel, start, end } of assignments) {
     await db.run(
-      'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO) VALUES (?,?,?,?,?,?)',
-      [personId, postId, day, shiftLabel, start || '', end || '']
+      'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO, userId) VALUES (?,?,?,?,?,?,?)',
+      [personId, postId, day, shiftLabel, start || '', end || '', userId]
     );
   }
 };
 
-const persistBwAssignments = async (db, bwAssignments = []) => {
+const persistBwAssignments = async (db, bwAssignments = [], userId) => {
   for (const { personId, day, slotId } of bwAssignments) {
     await db.run(
-      'INSERT INTO bw_assignments (personId, day, slotId) VALUES (?, ?, ?)',
-      [personId, day, slotId]
+      'INSERT INTO bw_assignments (personId, day, slotId, userId) VALUES (?, ?, ?, ?)',
+      [personId, day, slotId, userId]
     );
   }
 };
 
-const persistEsAssignments = async (db, esAssignments = []) => {
+const persistEsAssignments = async (db, esAssignments = [], userId) => {
   for (const { groupId, personIds = [] } of esAssignments) {
     for (const personId of personIds) {
       await db.run(
-        'INSERT INTO es_assignments (groupId, personId) VALUES (?, ?)',
-        [groupId, personId]
+        'INSERT INTO es_assignments (groupId, personId, userId) VALUES (?, ?, ?)',
+        [groupId, personId, userId]
       );
     }
   }
 };
 
-const persistAllAssignments = async (db, assignments = [], bwAssignments = [], esAssignments = []) => {
-  await Promise.all([clearAssignments(db), clearBwAssignments(db), clearEsAssignments(db)]);
-  await persistAssignments(db, assignments);
-  await persistBwAssignments(db, bwAssignments);
-  await persistEsAssignments(db, esAssignments);
+const persistAllAssignments = async (db, assignments = [], bwAssignments = [], esAssignments = [], userId) => {
+  await Promise.all([clearAssignments(db, userId), clearBwAssignments(db, userId), clearEsAssignments(db, userId)]);
+  await persistAssignments(db, assignments, userId);
+  await persistBwAssignments(db, bwAssignments, userId);
+  await persistEsAssignments(db, esAssignments, userId);
 };
 
 router.post('/generate', async (req, res, next) => {
@@ -92,9 +92,25 @@ router.post('/generate', async (req, res, next) => {
     } = req.body;
 
     const [peopleRows, postRows] = await Promise.all([
-      db.all('SELECT * FROM people'),
-      db.all('SELECT * FROM posts'),
+      db.all('SELECT * FROM people WHERE userId = ?', req.user.id),
+      db.all('SELECT * FROM posts WHERE userId = ?', req.user.id),
     ]);
+
+    const personIds = new Set(peopleRows.map(p => p.id));
+    const postIds = new Set(postRows.map(p => p.id));
+    const sanitizeAssignments = arr =>
+      (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
+    const sanitizeBw = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEs = arr =>
+      (arr || []).map(es => ({
+        groupId: es.groupId,
+        personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
+      }));
+
+    const sanitizedEs = sanitizeEs(esAssignments);
+    const sanitizedAssignments = sanitizeAssignments(existingAssignments);
+    const sanitizedBw = sanitizeBw(existingBwAssignments);
 
     const result = scheduleGenerator(
       peopleRows.map(mapPerson),
@@ -102,9 +118,9 @@ router.post('/generate', async (req, res, next) => {
       startISO,
       endISO,
       shiftOverrides,
-      esAssignments,
-      existingAssignments,
-      existingBwAssignments,
+      sanitizedEs,
+      sanitizedAssignments,
+      sanitizedBw,
       constraints
     );
 
@@ -116,8 +132,8 @@ router.post('/generate', async (req, res, next) => {
       return respondError(res);
     }
 
-    await persistAllAssignments(db, result.assignments, result.bwAssignments, esAssignments);
-    res.json({ assignments: result.assignments, bwAssignments: result.bwAssignments, esAssignments });
+    await persistAllAssignments(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id);
+    res.json({ assignments: result.assignments, bwAssignments: result.bwAssignments, esAssignments: sanitizedEs });
   } catch (err) {
     next(err);
   }
@@ -127,7 +143,19 @@ router.post('/save-all', async (req, res, next) => {
   try {
     const db = getDb(req);
     const { assignments = [], bwAssignments = [], esAssignments = [] } = req.body;
-    await persistAllAssignments(db, assignments, bwAssignments, esAssignments);
+    const [peopleRows, postRows] = await Promise.all([
+      db.all('SELECT id FROM people WHERE userId = ?', req.user.id),
+      db.all('SELECT id FROM posts WHERE userId = ?', req.user.id),
+    ]);
+    const personIds = new Set(peopleRows.map(p => p.id));
+    const postIds = new Set(postRows.map(p => p.id));
+    const sanitizedAssignments = assignments.filter(a => personIds.has(a.personId) && postIds.has(a.postId));
+    const sanitizedBw = bwAssignments.filter(a => personIds.has(a.personId));
+    const sanitizedEs = esAssignments.map(es => ({
+      groupId: es.groupId,
+      personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
+    }));
+    await persistAllAssignments(db, sanitizedAssignments, sanitizedBw, sanitizedEs, req.user.id);
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -138,20 +166,24 @@ router.post('/update-cell', async (req, res, next) => {
   try {
     const db = getDb(req);
     const { postId, day, shiftLabel, personIds = [] } = req.body;
-
+    const post = await db.get('SELECT id FROM posts WHERE id = ? AND userId = ?', postId, req.user.id);
+    if (!post) return res.status(400).json({ error: 'invalid post' });
+    const peopleRows = await db.all('SELECT id FROM people WHERE userId = ?', req.user.id);
+    const personSet = new Set(peopleRows.map(p => p.id));
     await db.run(
-      'DELETE FROM assignments WHERE postId = ? AND day = ? AND shiftLabel = ?',
-      [postId, day, shiftLabel]
+      'DELETE FROM assignments WHERE postId = ? AND day = ? AND shiftLabel = ? AND userId = ?',
+      [postId, day, shiftLabel, req.user.id]
     );
 
     for (const personId of personIds) {
+      if (!personSet.has(personId)) continue;
       await db.run(
-        'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO) VALUES (?,?,?,?,?,?)',
-        [personId, postId, day, shiftLabel, '', '']
+        'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO, userId) VALUES (?,?,?,?,?,?,?)',
+        [personId, postId, day, shiftLabel, '', '', req.user.id]
       );
     }
 
-    const rows = await db.all('SELECT * FROM assignments');
+    const rows = await db.all('SELECT * FROM assignments WHERE userId = ?', req.user.id);
     res.json({ ok: true, assignments: rows });
   } catch (err) {
     next(err);
@@ -162,9 +194,9 @@ router.get('/last', async (req, res, next) => {
   try {
     const db = getDb(req);
     const [regular, bw, es] = await Promise.all([
-      db.all('SELECT * FROM assignments'),
-      db.all('SELECT * FROM bw_assignments'),
-      db.all('SELECT * FROM es_assignments'),
+      db.all('SELECT * FROM assignments WHERE userId = ?', req.user.id),
+      db.all('SELECT * FROM bw_assignments WHERE userId = ?', req.user.id),
+      db.all('SELECT * FROM es_assignments WHERE userId = ?', req.user.id),
     ]);
     res.json({
       assignments: regular,
@@ -179,7 +211,7 @@ router.get('/last', async (req, res, next) => {
 router.delete('/clear', async (req, res, next) => {
   try {
     const db = getDb(req);
-    await Promise.all([clearAssignments(db), clearBwAssignments(db), clearEsAssignments(db)]);
+    await Promise.all([clearAssignments(db, req.user.id), clearBwAssignments(db, req.user.id), clearEsAssignments(db, req.user.id)]);
     res.json({ ok: true });
   } catch (err) {
     next(err);

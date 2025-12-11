@@ -8,6 +8,9 @@ import peopleRoute from './routes/people.js';
 import postsRoute from './routes/posts.js';
 import scheduleRoute from './routes/schedule.js';
 import constraintsRoute from './routes/constraints.js';
+import authRoute from './routes/auth.js';
+import cookieParser from 'cookie-parser';
+import { requireAuth, attachUserIfPresent } from './middleware/auth.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -17,8 +20,10 @@ const DB_DIR = path.dirname(DB_PATH);
 // Ensure the directory for the SQLite file exists before opening the DB
 fs.mkdirSync(DB_DIR, { recursive: true });
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+app.use(cookieParser());
+app.use(attachUserIfPresent);
 
 const initDb = async () =>
   open({
@@ -31,10 +36,11 @@ const startServer = async () => {
     const db = await initDb();
     app.locals.db = db;
 
-    app.use('/api/people', peopleRoute);
-    app.use('/api/posts', postsRoute);
-    app.use('/api/constraints', constraintsRoute);
-    app.use('/api/schedule', scheduleRoute);
+    app.use('/api/auth', authRoute);
+    app.use('/api/people', requireAuth, peopleRoute);
+    app.use('/api/posts', requireAuth, postsRoute);
+    app.use('/api/constraints', requireAuth, constraintsRoute);
+    app.use('/api/schedule', requireAuth, scheduleRoute);
     app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
     app.use((err, _req, res, _next) => {

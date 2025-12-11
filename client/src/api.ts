@@ -4,7 +4,14 @@ const BASE =
   import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? '/api' : 'http://localhost:4000/api');
 
 const request = async <T>(path: string, init?: RequestInit) => {
-  const response = await fetch(`${BASE}${path}`, init);
+  const response = await fetch(`${BASE}${path}`, {
+    credentials: 'include',
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {}),
+    },
+  });
   if (!response.ok) {
     const message = await response.text();
     throw new Error(message || `Request failed: ${response.status}`);
@@ -40,6 +47,21 @@ type ScheduleSnapshot = {
   bwAssignments: BWAssignment[];
   esAssignments: ESGroupAssignment[];
 };
+
+export const register = (email: string, password: string) =>
+  request<{ id: number; email: string }>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+
+export const login = (email: string, password: string) =>
+  request<{ id: number; email: string }>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+
+export const logout = () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' });
+export const fetchMe = () => request<{ id: number; email: string }>('/auth/me');
 
 export const fetchConstraints = () => request<Constraint[]>('/constraints');
 
