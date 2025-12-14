@@ -6,27 +6,38 @@ const getDb = req => req.app.locals.db;
 
 const mapPerson = row => ({
   ...row,
-  sameGenderPref: Boolean(row.sameGenderPref),
-  limitedAbility: Boolean(row.limitedAbility),
-  standingExemption: Boolean(row.standingExemption),
+  sameGenderPref: Boolean(row.samegenderpref),
+  limitedAbility: Boolean(row.limitedability),
+  standingExemption: Boolean(row.standingexemption),
 });
 
 const mapPost = row => ({
-  ...row,
+  id: row.id,
+  name: row.name,
+  requiredPerShift: row.requiredpershift,
   optional: Boolean(row.optional),
 });
 
-const mapBwAssignment = row => ({
-  personId: Number(row.personId),
+const mapAssignment = row => ({
+  postId: Number(row.postid),
+  personId: Number(row.personid),
+  shiftLabel: row.shiftlabel,
+  start: row.startiso,
+  end: row.endiso,
   day: row.day,
-  slotId: row.slotId,
+});
+
+const mapBwAssignment = row => ({
+  personId: Number(row.personid),
+  day: row.day,
+  slotId: row.slotid,
 });
 
 const mapEsAssignmentRows = rows => {
   const grouped = rows.reduce((acc, row) => {
-    const groupId = row.groupId;
+    const groupId = row.groupid;
     if (!acc[groupId]) acc[groupId] = [];
-    acc[groupId].push(Number(row.personId));
+    acc[groupId].push(Number(row.personid));
     return acc;
   }, {});
   return Object.entries(grouped).map(([groupId, personIds]) => ({
@@ -47,14 +58,14 @@ const shuffle = (arr = []) => {
   return copy;
 };
 
-const clearAssignments = (db, userId) => db.run('DELETE FROM assignments WHERE userId = ?', userId);
-const clearBwAssignments = (db, userId) => db.run('DELETE FROM bw_assignments WHERE userId = ?', userId);
-const clearEsAssignments = (db, userId) => db.run('DELETE FROM es_assignments WHERE userId = ?', userId);
+const clearAssignments = (db, userId) => db.run('DELETE FROM assignments WHERE userId = $1', [userId]);
+const clearBwAssignments = (db, userId) => db.run('DELETE FROM bw_assignments WHERE userId = $1', [userId]);
+const clearEsAssignments = (db, userId) => db.run('DELETE FROM es_assignments WHERE userId = $1', [userId]);
 
 const persistAssignments = async (db, assignments = [], userId) => {
   for (const { personId, postId, day, shiftLabel, start, end } of assignments) {
     await db.run(
-      'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO, userId) VALUES (?,?,?,?,?,?,?)',
+      'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO, userId) VALUES ($1, $2, $3, $4, $5, $6, $7)',
       [personId, postId, day, shiftLabel, start || '', end || '', userId]
     );
   }
@@ -63,7 +74,7 @@ const persistAssignments = async (db, assignments = [], userId) => {
 const persistBwAssignments = async (db, bwAssignments = [], userId) => {
   for (const { personId, day, slotId } of bwAssignments) {
     await db.run(
-      'INSERT INTO bw_assignments (personId, day, slotId, userId) VALUES (?, ?, ?, ?)',
+      'INSERT INTO bw_assignments (personId, day, slotId, userId) VALUES ($1, $2, $3, $4)',
       [personId, day, slotId, userId]
     );
   }
@@ -73,7 +84,7 @@ const persistEsAssignments = async (db, esAssignments = [], userId) => {
   for (const { groupId, personIds = [] } of esAssignments) {
     for (const personId of personIds) {
       await db.run(
-        'INSERT INTO es_assignments (groupId, personId, userId) VALUES (?, ?, ?)',
+        'INSERT INTO es_assignments (groupId, personId, userId) VALUES ($1, $2, $3)',
         [groupId, personId, userId]
       );
     }
@@ -101,8 +112,8 @@ router.post('/generate', async (req, res, next) => {
     } = req.body;
 
     const [peopleRows, postRows] = await Promise.all([
-      db.all('SELECT * FROM people WHERE userId = ?', req.user.id),
-      db.all('SELECT * FROM posts WHERE userId = ?', req.user.id),
+      db.all('SELECT * FROM people WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
     ]);
 
     const personIds = new Set(peopleRows.map(p => p.id));
@@ -155,8 +166,8 @@ router.post('/save-all', async (req, res, next) => {
     const db = getDb(req);
     const { assignments = [], bwAssignments = [], esAssignments = [] } = req.body;
     const [peopleRows, postRows] = await Promise.all([
-      db.all('SELECT id FROM people WHERE userId = ?', req.user.id),
-      db.all('SELECT id FROM posts WHERE userId = ?', req.user.id),
+      db.all('SELECT id FROM people WHERE userId = $1', [req.user.id]),
+      db.all('SELECT id FROM posts WHERE userId = $1', [req.user.id]),
     ]);
     const personIds = new Set(peopleRows.map(p => p.id));
     const postIds = new Set(postRows.map(p => p.id));
@@ -177,25 +188,25 @@ router.post('/update-cell', async (req, res, next) => {
   try {
     const db = getDb(req);
     const { postId, day, shiftLabel, personIds = [] } = req.body;
-    const post = await db.get('SELECT id FROM posts WHERE id = ? AND userId = ?', postId, req.user.id);
+    const post = await db.get('SELECT id FROM posts WHERE id = $1 AND userId = $2', [postId, req.user.id]);
     if (!post) return res.status(400).json({ error: 'invalid post' });
-    const peopleRows = await db.all('SELECT id FROM people WHERE userId = ?', req.user.id);
+    const peopleRows = await db.all('SELECT id FROM people WHERE userId = $1', [req.user.id]);
     const personSet = new Set(peopleRows.map(p => p.id));
     await db.run(
-      'DELETE FROM assignments WHERE postId = ? AND day = ? AND shiftLabel = ? AND userId = ?',
+      'DELETE FROM assignments WHERE postId = $1 AND day = $2 AND shiftLabel = $3 AND userId = $4',
       [postId, day, shiftLabel, req.user.id]
     );
 
     for (const personId of personIds) {
       if (!personSet.has(personId)) continue;
       await db.run(
-        'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO, userId) VALUES (?,?,?,?,?,?,?)',
+        'INSERT INTO assignments (personId, postId, day, shiftLabel, startISO, endISO, userId) VALUES ($1, $2, $3, $4, $5, $6, $7)',
         [personId, postId, day, shiftLabel, '', '', req.user.id]
       );
     }
 
-    const rows = await db.all('SELECT * FROM assignments WHERE userId = ?', req.user.id);
-    res.json({ ok: true, assignments: rows });
+    const rows = await db.all('SELECT * FROM assignments WHERE userId = $1', [req.user.id]);
+    res.json({ ok: true, assignments: rows.map(mapAssignment) });
   } catch (err) {
     next(err);
   }
@@ -205,12 +216,12 @@ router.get('/last', async (req, res, next) => {
   try {
     const db = getDb(req);
     const [regular, bw, es] = await Promise.all([
-      db.all('SELECT * FROM assignments WHERE userId = ?', req.user.id),
-      db.all('SELECT * FROM bw_assignments WHERE userId = ?', req.user.id),
-      db.all('SELECT * FROM es_assignments WHERE userId = ?', req.user.id),
+      db.all('SELECT * FROM assignments WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM bw_assignments WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM es_assignments WHERE userId = $1', [req.user.id]),
     ]);
     res.json({
-      assignments: regular,
+      assignments: regular.map(mapAssignment),
       bwAssignments: bw.map(mapBwAssignment),
       esAssignments: mapEsAssignmentRows(es),
     });

@@ -1,9 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
-import fs from 'fs';
-import path from 'path';
 import peopleRoute from './routes/people.js';
 import postsRoute from './routes/posts.js';
 import scheduleRoute from './routes/schedule.js';
@@ -11,25 +7,22 @@ import constraintsRoute from './routes/constraints.js';
 import authRoute from './routes/auth.js';
 import cookieParser from 'cookie-parser';
 import { requireAuth, attachUserIfPresent } from './middleware/auth.js';
+import { createDb } from './db.js';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-const DB_PATH = process.env.DATABASE_PATH || './data/duty.db';
-const DB_DIR = path.dirname(DB_PATH);
-
-// Ensure the directory for the SQLite file exists before opening the DB
-fs.mkdirSync(DB_DIR, { recursive: true });
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 app.use(attachUserIfPresent);
 
-const initDb = async () =>
-  open({
-    filename: DB_PATH,
-    driver: sqlite3.Database,
-  });
+const initDb = async () => {
+  const db = createDb();
+  // simple connectivity check
+  await db.query('SELECT 1');
+  return db;
+};
 
 const startServer = async () => {
   try {

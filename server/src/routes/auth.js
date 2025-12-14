@@ -24,11 +24,11 @@ router.post('/register', async (req, res, next) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'missing fields' });
     const db = getDb(req);
-    const existing = await db.get('SELECT id FROM users WHERE email = ?', email.toLowerCase());
+    const existing = await db.get('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
     if (existing) return res.status(409).json({ error: 'email exists' });
     const hash = await bcrypt.hash(password, 10);
     const result = await db.run(
-      'INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)',
+      'INSERT INTO users (email, password_hash, created_at) VALUES ($1, $2, $3) RETURNING id',
       [email.toLowerCase(), hash, new Date().toISOString()]
     );
     const token = signToken({ id: result.lastID, email: email.toLowerCase() });
@@ -44,7 +44,7 @@ router.post('/login', async (req, res, next) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'missing fields' });
     const db = getDb(req);
-    const user = await db.get('SELECT * FROM users WHERE email = ?', email.toLowerCase());
+    const user = await db.get('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
     if (!user) return res.status(401).json({ error: 'invalid credentials' });
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: 'invalid credentials' });

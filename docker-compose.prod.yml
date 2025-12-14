@@ -1,17 +1,28 @@
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: duty-scheduler-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-duty}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-duty}
+      - POSTGRES_DB=${POSTGRES_DB:-duty}
+    volumes:
+      - server-data:/var/lib/postgresql/data
+
   server:
     image: duty-scheduler-server:latest
     container_name: duty-scheduler-server
+    depends_on:
+      - postgres
     environment:
       - NODE_ENV=production
       - AUTH_SECRET=${AUTH_SECRET:-change-me}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
-      - DATABASE_PATH=/app/data/duty.db
-    volumes:
-      - server-data:/app/data
+      - DATABASE_URL=${DATABASE_URL:-postgres://duty:duty@postgres:5432/duty}
+      - PGSSLMODE=${PGSSLMODE:-disable}
     ports:
       - '4000:4000'
     restart: unless-stopped
