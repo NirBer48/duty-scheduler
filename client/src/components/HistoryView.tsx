@@ -71,108 +71,121 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
   const end = `${toISODate(next)}T00:00`;
 
   return (
-    <Paper sx={{ p: 2 }}>
-      <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-        <Box sx={{ display: "flex", gap: 1 }}>
-                  <Button
-                    onClick={() => changeDay(-1)}
-                    disabled={loading}
-                    variant="outlined"
-                    size="small"
-                    startIcon={
-                      rtl ? <ArrowForwardIosIcon /> : <ArrowBackIosIcon />
-                    }
-                    sx={{ textTransform: "none", borderRadius: 1 }}
-                  >
-                    {t("Prev")}
-                  </Button>
-                  <TextField
-                    label={t("Date")}
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    InputLabelProps={{ shrink: true }}
-                    size="small"
-                  />
-                  <Button
-                    onClick={() => changeDay(1)}
-                    disabled={loading}
-                    variant="contained"
-                    size="small"
-                    endIcon={
-                      rtl ? <ArrowBackIosIcon /> : <ArrowForwardIosIcon />
-                    }
-                    sx={{ textTransform: "none", ml: 1, borderRadius: 1 }}
-                  >
-                    {t("Next")}
-                  </Button>
-                </Box>
-        {loading && (
-          <Typography variant="body2">
-            {t("Assigning") || "Loading..."}
-          </Typography>
-        )}
-        {error && (
-          <Typography color="error" variant="body2">
-            {error}
-          </Typography>
-        )}
-      </Stack>
-
-      <Box sx={{ height: "60vh", overflow: "auto" }}>
-        {assignments.length === 0 && bwAssignments.length === 0 ? (
-          <Box sx={{ p: 4, display: "flex", justifyContent: "center" }}>
-            <Card
-              sx={{ width: "100%", maxWidth: 640, bgcolor: "background.paper" }}
+    <>
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Typography variant="h6" gutterBottom>
+          {t("History")}
+        </Typography>
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <Button
+              onClick={() => changeDay(-1)}
+              disabled={loading}
+              variant="outlined"
+              size="small"
+              startIcon={rtl ? <ArrowForwardIosIcon /> : <ArrowBackIosIcon />}
+              sx={{ textTransform: "none", borderRadius: 1 }}
             >
-              <CardContent
+              {t("Prev")}
+            </Button>
+            <TextField
+              label={t("Date")}
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              size="small"
+            />
+            <Button
+              onClick={() => changeDay(1)}
+              disabled={loading}
+              variant="contained"
+              size="small"
+              endIcon={rtl ? <ArrowBackIosIcon /> : <ArrowForwardIosIcon />}
+              sx={{ textTransform: "none", ml: 1, borderRadius: 1 }}
+            >
+              {t("Next")}
+            </Button>
+          </Box>
+          {loading && (
+            <Typography variant="body2">
+              {t("Assigning") || "Loading..."}
+            </Typography>
+          )}
+          {error && (
+            <Typography color="error" variant="body2">
+              {error}
+            </Typography>
+          )}
+        </Stack>
+        {error && (
+          <Typography color="error" sx={{ mt: 2 }}>
+            {t(error)}
+          </Typography>
+        )}
+      </Paper>
+      <Paper sx={{ p: 2 }}>
+        <Box sx={{ height: "60vh", overflow: "auto" }}>
+          {assignments.length === 0 && bwAssignments.length === 0 ? (
+            <Box sx={{ p: 4, display: "flex", justifyContent: "center" }}>
+              <Card
                 sx={{
-                  display: "flex",
-                  gap: 2,
-                  alignItems: "center",
-                  flexDirection: rtl ? "row-reverse" : "row",
+                  width: "100%",
+                  maxWidth: 640,
+                  bgcolor: "background.paper",
                 }}
               >
-                <Avatar sx={{ bgcolor: "primary.main", width: 64, height: 64 }}>
-                  <CalendarMonthIcon sx={{ fontSize: 32 }} />
-                </Avatar>
-                <Box sx={{ flex: 1, textAlign: rtl ? "right" : "left" }}>
-                  <Typography variant="h6">
-                    {t("No history for this day")}
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ mt: 1 }}
+                <CardContent
+                  sx={{
+                    display: "flex",
+                    gap: 2,
+                    alignItems: "center",
+                    flexDirection: rtl ? "row-reverse" : "row",
+                  }}
+                >
+                  <Avatar
+                    sx={{ bgcolor: "primary.main", width: 64, height: 64 }}
                   >
-                    {t("Explore other dates")}
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-          </Box>
-        ) : (
-          <ScheduleCalendar
-            assignments={assignments}
-            posts={posts}
-            people={people}
-            start={start}
-            end={end}
-            isGenerating={false}
-            onAssignmentsChange={() => {}}
-            shiftOverrides={[]}
-            onShiftOverridesChange={() => {}}
-            esAssignments={[]}
-            onESAssignmentsChange={() => {}}
-            esGroups={[]}
-            onESGroupsChange={() => {}}
-            bwAssignments={bwAssignments}
-            onBWAssignmentsChange={() => {}}
-            constraints={[]}
-          />
-        )}
-      </Box>
-    </Paper>
+                    <CalendarMonthIcon sx={{ fontSize: 32 }} />
+                  </Avatar>
+                  <Box sx={{ flex: 1, textAlign: rtl ? "right" : "left" }}>
+                    <Typography variant="h6">
+                      {t("No history for this day")}
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{ mt: 1 }}
+                    >
+                      {t("Explore other dates")}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Box>
+          ) : (
+            <ScheduleCalendar
+              assignments={assignments}
+              posts={posts}
+              people={people}
+              start={start}
+              end={end}
+              isGenerating={false}
+              onAssignmentsChange={() => {}}
+              shiftOverrides={[]}
+              onShiftOverridesChange={() => {}}
+              esAssignments={[]}
+              onESAssignmentsChange={() => {}}
+              esGroups={[]}
+              onESGroupsChange={() => {}}
+              bwAssignments={bwAssignments}
+              onBWAssignmentsChange={() => {}}
+              constraints={[]}
+            />
+          )}
+        </Box>
+      </Paper>
+    </>
   );
 };
 

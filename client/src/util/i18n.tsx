@@ -195,7 +195,7 @@ const translations: Record<Language, TranslationMap> = {
     'Kitchen': 'מטבח',
     'Coming soon': 'בקרוב',
     'Shifts': 'משמרות',
-    'Guardes': 'שמירות',
+    'Guards': 'שמירות',
     'Hours': 'שעות',
     'BW Assignments': 'עב"ס',
     'BW Slot': 'שורת עב"ס',

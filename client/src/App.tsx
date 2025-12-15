@@ -249,7 +249,7 @@ const App: React.FC = () => {
       </AppBar>
       <Container maxWidth={false} sx={{ mt: 2, px: 3 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-          <Tab label={t('Guardes')} />
+          <Tab label={t('Guards')} />
           <Tab label={t('Kitchen')} />
           <Tab label={t('History')} />
         </Tabs>
@@ -362,7 +362,7 @@ const App: React.FC = () => {
               </Paper>
             )}
               {tab === 2 && (
-                <HistoryView people={people} posts={posts} />
+                  <HistoryView people={people} posts={posts} />
               )}
           </Box>
         </Box>
