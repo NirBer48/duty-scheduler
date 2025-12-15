@@ -1,12 +1,28 @@
 import type { Assignment, BWAssignment, ESGroupAssignment, Person, Post, Constraint } from './types';
 
-const BASE =
-  import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? '/api' : 'http://localhost:4000/api');
+const BASE = '/api';
 
 const request = async <T>(path: string, init?: RequestInit) => {
-  const response = await fetch(`${BASE}${path}`, init);
+  const response = await fetch(`${BASE}${path}`, {
+    credentials: 'include',
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers || {}),
+    },
+  });
   if (!response.ok) {
-    const message = await response.text();
+    let message = `Request failed: ${response.status}`;
+    try {
+      const data = await response.json();
+      if (data?.error) message = data.error;
+    } catch {
+      try {
+        message = await response.text();
+      } catch {
+        // ignore
+      }
+    }
     throw new Error(message || `Request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
@@ -40,6 +56,21 @@ type ScheduleSnapshot = {
   bwAssignments: BWAssignment[];
   esAssignments: ESGroupAssignment[];
 };
+
+export const register = (email: string, password: string) =>
+  request<{ id: number; email: string }>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+
+export const login = (email: string, password: string) =>
+  request<{ id: number; email: string }>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+
+export const logout = () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' });
+export const fetchMe = () => request<{ id: number; email: string }>('/auth/me');
 
 export const fetchConstraints = () => request<Constraint[]>('/constraints');
 
@@ -101,3 +132,13 @@ export const generateSchedule = (
 export const clearSchedule = () => request<{ ok: boolean }>('/schedule/clear', { method: 'DELETE' });
 
 export const fetchLastSchedule = () => request<ScheduleSnapshot>('/schedule/last');
+
+export const saveAllSchedules = (
+  assignments: Assignment[],
+  bwAssignments: BWAssignment[],
+  esAssignments: ESGroupAssignment[]
+) =>
+  request<{ ok: boolean; error?: string }>('/schedule/save-all', {
+    method: 'POST',
+    body: JSON.stringify({ assignments, bwAssignments, esAssignments }),
+  });
