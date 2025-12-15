@@ -5,7 +5,7 @@ import { useI18n } from "../util/i18n";
 import { Box, Typography, Alert, Button, IconButton, Chip, CircularProgress } from "@mui/material";
 import SettingsIcon from '@mui/icons-material/Settings';
 import EditIcon from '@mui/icons-material/Edit';
-
+import { saveAllSchedules } from "../api";
 import { 
     CellEditDialog, 
     ESEditDialog, 
@@ -70,7 +70,7 @@ const ScheduleCalendar: React.FC<Props> = ({
     // ES Groups state - use external if provided
     const [localESGroups, setLocalESGroups] = useState<ESGroup[]>([
         { id: 'es1', name: lang === 'he' ? "כ\"כ א'" : "ES 1", totalPeople: 5, activePerShift: 1 },
-        { id: 'es2', name: lang === 'he' ? "כ\"כ ב'" : "ES 2", totalPeople: 4, activePerShift: 1 },
+        { id: 'es2', name: lang === 'he' ? "כ\"כ ב'" : "ES 2", totalPeople: 5, activePerShift: 1 },
     ]);
     
     const esGroups = onESGroupsChange && externalESGroups ? externalESGroups : localESGroups;
@@ -540,18 +540,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         setInvalidESGroups(new Set());
 
         try {
-            const response = await fetch('http://localhost:4000/api/schedule/save-all', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    assignments: localAssignments,
-                    overrides: shiftOverrides,
-                    esAssignments,
-                    esGroups,
-                    bwAssignments
-                })
-            });
-            const result = await response.json();
+            const result = await saveAllSchedules(localAssignments, bwAssignments, esAssignments);
 
             if (result.ok) {
                 setHasChanges(false);

@@ -5,7 +5,7 @@ A web application for scheduling people across duty shifts with support for mult
 ![React](https://img.shields.io/badge/React-18-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
 ![Node.js](https://img.shields.io/badge/Node.js-18-green)
-![SQLite](https://img.shields.io/badge/SQLite-3-lightgrey)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue)
 ![Docker](https://img.shields.io/badge/Docker-Ready-blue)
 
 ## Features
@@ -58,7 +58,7 @@ A web application for scheduling people across duty shifts with support for mult
 
 ### Backend
 - **Node.js** with Express
-- **SQLite3** for database
+- **PostgreSQL** for database
 - **ES Modules** syntax
 
 ### Infrastructure
@@ -133,6 +133,7 @@ duty_scheduler/
    npm run migrate
    npm start
    ```
+   Configure `DATABASE_URL` for your Postgres instance (defaults to local `postgres://postgres:postgres@localhost:5432/duty`).
    Server runs on http://localhost:4000
 
 3. **Start the frontend** (in a new terminal)
@@ -182,33 +183,44 @@ docker compose down
 
 ## Database Schema
 
+PostgreSQL tables (simplified):
+
 ```sql
--- People table
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE people (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   gender TEXT NOT NULL,
-  sameGenderPref INTEGER DEFAULT 0,
-  limitedAbility INTEGER DEFAULT 0
+  sameGenderPref BOOLEAN DEFAULT false,
+  limitedAbility BOOLEAN DEFAULT false,
+  standingExemption BOOLEAN DEFAULT false,
+  duelGuard BOOLEAN DEFAULT false,
+  userId INTEGER REFERENCES users(id)
 );
 
--- Posts table
 CREATE TABLE posts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   requiredPerShift INTEGER DEFAULT 1,
-  optional INTEGER DEFAULT 0
+  optional BOOLEAN DEFAULT false,
+  userId INTEGER REFERENCES users(id)
 );
 
--- Assignments table
 CREATE TABLE assignments (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   personId INTEGER NOT NULL,
   postId INTEGER NOT NULL,
   day TEXT NOT NULL,
   shiftLabel TEXT NOT NULL,
   startISO TEXT,
-  endISO TEXT
+  endISO TEXT,
+  userId INTEGER REFERENCES users(id)
 );
 ```
 

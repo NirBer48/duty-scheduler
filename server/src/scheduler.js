@@ -168,7 +168,6 @@ export const scheduleGenerator = (
   for (const ea of existingAssignments) {
     const personId = Number(ea.personId);
     const tsKey = `${ea.day}|${ea.shiftLabel}`;
-    const tsIdx = timeSlotIndex.get(tsKey);
     
     // Initialize person if not in people list (shouldn't happen but be safe)
     if (!personShifts.has(personId)) {

@@ -1,13 +1,27 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: duty-scheduler-postgres
+    environment:
+      - POSTGRES_USER=duty
+      - POSTGRES_PASSWORD=duty
+      - POSTGRES_DB=duty
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+
   server:
     build: ./server
     container_name: duty-scheduler-server
+    depends_on:
+      - postgres
     ports:
       - '4000:4000'
-    volumes:
-      - ./server/data:/app/data
     environment:
       - NODE_ENV=production
+      - DATABASE_URL=postgres://duty:duty@postgres:5432/duty
+      - PGSSLMODE=disable
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:4000/api/people"]
@@ -23,3 +37,6 @@ services:
     depends_on:
       - server
     restart: unless-stopped
+
+volumes:
+  pgdata:
