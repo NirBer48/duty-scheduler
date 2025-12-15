@@ -36,6 +36,7 @@ import {
   Tab,
 } from '@mui/material';
 import ConstraintsEditor from './components/ConstraintsEditor';
+import HistoryView from './components/HistoryView';
 
 const STORAGE_KEY_START = 'duty_scheduler_start';
 const STORAGE_KEY_END = 'duty_scheduler_end';
@@ -250,6 +251,7 @@ const App: React.FC = () => {
         <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
           <Tab label={t('Guardes')} />
           <Tab label={t('Kitchen')} />
+          <Tab label={t('History')} />
         </Tabs>
         <Box display="flex" gap={3} alignItems="flex-start">
           <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
@@ -359,6 +361,9 @@ const App: React.FC = () => {
                 </Typography>
               </Paper>
             )}
+              {tab === 2 && (
+                <HistoryView people={people} posts={posts} />
+              )}
           </Box>
         </Box>
       </Container>

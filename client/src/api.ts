@@ -101,3 +101,6 @@ export const generateSchedule = (
 export const clearSchedule = () => request<{ ok: boolean }>('/schedule/clear', { method: 'DELETE' });
 
 export const fetchLastSchedule = () => request<ScheduleSnapshot>('/schedule/last');
+
+export const fetchScheduleByDate = (date: string) =>
+  request<ScheduleSnapshot>(`/schedule/history?date=${encodeURIComponent(date)}`);
