@@ -1,7 +1,6 @@
 import type { Assignment, BWAssignment, ESGroupAssignment, Person, Post, Constraint } from './types';
 
-const BASE =
-  import.meta.env.VITE_API_BASE || (import.meta.env.PROD ? '/api' : 'http://localhost:4000/api');
+const BASE = '/api';
 
 const request = async <T>(path: string, init?: RequestInit) => {
   const response = await fetch(`${BASE}${path}`, {

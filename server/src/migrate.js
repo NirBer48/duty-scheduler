@@ -113,7 +113,7 @@ const attachRowsToAdmin = async (db, adminId) => {
 };
 
 const runMigration = async () => {
-  const db = createDb();
+  const db = await createDb();
 
   try {
     await createTables(db);

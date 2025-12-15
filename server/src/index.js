@@ -18,7 +18,7 @@ app.use(cookieParser());
 app.use(attachUserIfPresent);
 
 const initDb = async () => {
-  const db = createDb();
+  const db = await createDb();
   // simple connectivity check
   await db.query('SELECT 1');
   return db;
@@ -41,7 +41,7 @@ const startServer = async () => {
       res.status(500).json({ error: 'internal error' });
     });
 
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on port ${PORT}`);
     });
   } catch (error) {

@@ -2,19 +2,23 @@ import pkg from 'pg';
 
 const { Pool } = pkg;
 
-const buildSslConfig = () => {
-  // Allow disabling certificate verification in hosted environments such as Azure
-  if (process.env.PGSSLMODE === 'require' || process.env.PGSSLMODE === 'enable') {
-    return { rejectUnauthorized: false };
-  }
-  return undefined;
-};
+export const createDb = async () => {
+  console.log('DB: creating pool...');
 
-export const createDb = () => {
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://duty:duty@duty-scheduler-db.postgres.database.azure.com:5432/duty',
-    ssl: buildSslConfig(),
+    connectionString: process.env.DATABASE_URL || 'postgresql://duty:duty@duty-scheduler-db.postgres.database.azure.com:5432/sslmode=require',
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 5000,
   });
+
+  try {
+    console.log('DB: testing connection...');
+    await pool.query('select 1');
+    console.log('DB: connection OK');
+  } catch (err) {
+    console.error('DB: connection FAILED', err);
+    throw err; // <-- IMPORTANT
+  }
 
   const query = (text, params = []) => pool.query(text, params);
 
