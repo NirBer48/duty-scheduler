@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import { createDb } from './db.js';
 
@@ -77,6 +78,45 @@ const createTables = async db => {
       startISO TEXT NOT NULL,
       endISO TEXT NOT NULL,
       userId INTEGER REFERENCES users(id)
+    );
+  `);
+
+  // Archived tables for history lookback
+  await db.run(`DROP TABLE IF EXISTS archived_assignments`);
+  await db.run(`
+    CREATE TABLE archived_assignments (
+      archive_date DATE NOT NULL,
+      personId INTEGER NOT NULL,
+      postId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      shiftLabel TEXT NOT NULL,
+      startISO TEXT,
+      endISO TEXT,
+      userId INTEGER,
+      PRIMARY KEY (archive_date, personId, postId, day, shiftLabel)
+    );
+  `);
+
+  await db.run(`DROP TABLE IF EXISTS archived_bw_assignments`);
+  await db.run(`
+    CREATE TABLE archived_bw_assignments (
+      archive_date DATE NOT NULL,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      slotId TEXT NOT NULL,
+      userId INTEGER,
+      PRIMARY KEY (archive_date, personId, day, slotId)
+    );
+  `);
+
+  await db.run(`DROP TABLE IF EXISTS archived_es_assignments`);
+  await db.run(`
+    CREATE TABLE archived_es_assignments (
+      archive_date DATE NOT NULL,
+      groupId TEXT NOT NULL,
+      personId INTEGER NOT NULL,
+      userId INTEGER,
+      PRIMARY KEY (archive_date, groupId, personId)
     );
   `);
 };
