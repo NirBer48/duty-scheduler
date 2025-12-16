@@ -7,13 +7,14 @@
     "migrate": "node src/migrate.js"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dayjs": "^1.11.9",
+    "dotenv": "^17.2.3",
     "express": "^4.18.2",
-    "uuid": "^9.0.0",
-    "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
-    "cookie-parser": "^1.4.6",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "uuid": "^9.0.0"
   }
 }
