@@ -189,7 +189,7 @@ router.post('/generate', async (req, res, next) => {
       return respondError(res);
     }
 
-    await persistAllAssignments(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id);
+    await persistAllAssignments(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id, startISO, endISO);
     res.json({ assignments: result.assignments, bwAssignments: result.bwAssignments, esAssignments: sanitizedEs });
   } catch (err) {
     next(err);
