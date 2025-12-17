@@ -2,73 +2,95 @@ import React, { useState, useEffect } from "react";
 import Box from "@mui/material/Box";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
-import Button from "@mui/material/Button";
-import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import Avatar from "@mui/material/Avatar";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
-import ArrowBackIosIcon from "@mui/icons-material/ArrowBackIos";
-import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
 import { useI18n } from "../util/i18n";
-import { fetchScheduleByDate } from "../api";
+import { fetchHistoryPeriods, fetchScheduleByPeriod } from "../api";
 import ScheduleCalendar from "./ScheduleView";
-import type { Post, Person, Assignment, BWAssignment } from "../types";
-
+import type { Post, Person, Assignment, BWAssignment, ESGroupAssignment } from "../types";import {
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+} from "@mui/material";
 type Props = {
   people: Person[];
   posts: Post[];
 };
 
-const toISODate = (d: Date) => {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
 
 const HistoryView: React.FC<Props> = ({ people, posts }) => {
-  const [date, setDate] = useState<string>(() => toISODate(new Date()));
+  const [periods, setPeriods] = useState<{ start: string; end: string }[]>([]);
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [bwAssignments, setBWAssignments] = useState<BWAssignment[]>([]);
+  const [esAssignments, setESAssignments] = useState<ESGroupAssignment[]>([]);
   const [error, setError] = useState<string>("");
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
 
   const { t, rtl } = useI18n();
 
-  const fetchForDate = async (day: string) => {
+  useEffect(() => {
+    const loadPeriods = async () => {
+      try {
+        const data = await fetchHistoryPeriods();
+        setPeriods(data.periods);
+        if (data.periods.length > 0) {
+          setSelectedPeriod(`${data.periods[0].start} to ${data.periods[0].end}`);
+        }
+      } catch (e: any) {
+        setError(e?.message || "Failed to fetch periods");
+      }
+    };
+    loadPeriods();
+  }, []);
+
+  const fetchForPeriod = async (periodStr: string) => {
+    if (!periodStr) return;
+    const [start, , end] = periodStr.split(' ');
     setLoading(true);
     setError("");
     try {
-      const snap = await fetchScheduleByDate(day);
-      setAssignments(snap.assignments || []);
-      setBWAssignments(snap.bwAssignments || []);
+      const snap = await fetchScheduleByPeriod(start, end);
+      const fetchedAssignments = snap.assignments || [];
+      const fetchedBW = snap.bwAssignments || [];
+      const fetchedES = snap.esAssignments || [];
+      
+      setAssignments(fetchedAssignments);
+      setBWAssignments(fetchedBW);
+      setESAssignments(fetchedES);
+      
+      let minStart = '';
+      let maxEnd = '';
+      for (const a of fetchedAssignments) {
+        if (!minStart || a.start < minStart) minStart = a.start;
+        if (!maxEnd || a.end > maxEnd) maxEnd = a.end;
+      }
+
+      // Adjust for timezone offset (subtract 2 hours from start, add 2 hours to end)
+      const adjustedStart = minStart ? new Date(new Date(minStart).getTime() - 2 * 60 * 60 * 1000).toISOString() : '';
+      const adjustedEnd = maxEnd;
+
+      setDateRange({ start: adjustedStart, end: adjustedEnd });
     } catch (e: any) {
       setError(e?.message || "Failed to fetch history");
       setAssignments([]);
       setBWAssignments([]);
+      setESAssignments([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchForDate(date);
-  }, [date]);
-
-  const changeDay = (delta: number) => {
-    const parts = date.split("-").map((s) => Number(s));
-    const d = new Date(parts[0], parts[1] - 1, parts[2]);
-    d.setDate(d.getDate() + delta);
-    setDate(toISODate(d));
-  };
-
-  const start = `${date}T00:00`;
-  const parts = date.split("-").map((s) => Number(s));
-  const next = new Date(parts[0], parts[1] - 1, parts[2]);
-  next.setDate(next.getDate() + 1);
-  const end = `${toISODate(next)}T00:00`;
+    if (selectedPeriod) {
+      fetchForPeriod(selectedPeriod);
+    }
+  }, [selectedPeriod]);
 
   return (
     <>
@@ -77,44 +99,24 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
           {t("History")}
         </Typography>
         <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <Button
-              onClick={() => changeDay(-1)}
-              disabled={loading}
-              variant="outlined"
-              size="small"
-              startIcon={rtl ? <ArrowForwardIosIcon /> : <ArrowBackIosIcon />}
-              sx={{ textTransform: "none", borderRadius: 1 }}
+          <FormControl size="small">
+            <InputLabel>{t("Schedule Period")}</InputLabel>
+            <Select
+              value={selectedPeriod}
+              onChange={(e) => setSelectedPeriod(e.target.value)}
+              label={t("Schedule Period")}
+              sx={{ minWidth: 200 }}
             >
-              {t("Prev")}
-            </Button>
-            <TextField
-              label={t("Date")}
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              size="small"
-            />
-            <Button
-              onClick={() => changeDay(1)}
-              disabled={loading}
-              variant="contained"
-              size="small"
-              endIcon={rtl ? <ArrowBackIosIcon /> : <ArrowForwardIosIcon />}
-              sx={{ textTransform: "none", ml: 1, borderRadius: 1 }}
-            >
-              {t("Next")}
-            </Button>
-          </Box>
+              {periods.map((p, i) => (
+                <MenuItem key={i} value={`${p.start} to ${p.end}`}>
+                  {p.start} to {p.end}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           {loading && (
             <Typography variant="body2">
-              {t("Assigning") || "Loading..."}
-            </Typography>
-          )}
-          {error && (
-            <Typography color="error" variant="body2">
-              {error}
+              {t("Loading...")}
             </Typography>
           )}
         </Stack>
@@ -126,7 +128,7 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
       </Paper>
       <Paper sx={{ p: 2 }}>
         <Box sx={{ height: "60vh", overflow: "auto" }}>
-          {assignments.length === 0 && bwAssignments.length === 0 ? (
+          {assignments.length === 0 && bwAssignments.length === 0 && esAssignments.length === 0 ? (
             <Box sx={{ p: 4, display: "flex", justifyContent: "center" }}>
               <Card
                 sx={{
@@ -168,19 +170,15 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
               assignments={assignments}
               posts={posts}
               people={people}
-              start={start}
-              end={end}
+              start={dateRange.start}
+              end={dateRange.end}
               isGenerating={false}
-              onAssignmentsChange={() => {}}
               shiftOverrides={[]}
-              onShiftOverridesChange={() => {}}
-              esAssignments={[]}
-              onESAssignmentsChange={() => {}}
+              esAssignments={esAssignments}
               esGroups={[]}
-              onESGroupsChange={() => {}}
               bwAssignments={bwAssignments}
-              onBWAssignmentsChange={() => {}}
               constraints={[]}
+              readOnly={true}
             />
           )}
         </Box>

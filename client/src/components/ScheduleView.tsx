@@ -44,6 +44,7 @@ interface Props {
     bwAssignments?: BWAssignment[];
     onBWAssignmentsChange?: (assignments: BWAssignment[]) => void;
     constraints?: Constraint[];
+    readOnly?: boolean;
 }
 
 const ScheduleCalendar: React.FC<Props> = ({ 
@@ -63,6 +64,7 @@ const ScheduleCalendar: React.FC<Props> = ({
     onBWAssignmentsChange,
     isGenerating = false,
     constraints = [],
+    readOnly = false,
 }) => {
     const shifts = getShiftsForPeriod(start, end);
     const { t, lang } = useI18n();
@@ -203,6 +205,7 @@ const ScheduleCalendar: React.FC<Props> = ({
 
     // Event handlers
     const handleCellClick = (post: Post, day: string, shiftLabel: string) => {
+        if (readOnly) return;
         setEditDialog({
             open: true,
             post,
@@ -213,15 +216,18 @@ const ScheduleCalendar: React.FC<Props> = ({
     };
 
     const handleSettingsClick = (e: React.MouseEvent, post: Post, day: string, shiftLabel: string) => {
+        if (readOnly) return;
         e.stopPropagation();
         setSettingsDialog({ open: true, post, day, shiftLabel });
     };
 
     const handleESClick = (group: ESGroup) => {
+        if (readOnly) return;
         setESEditDialog({ open: true, group });
     };
 
     const handleBWCellClick = (day: string, slotId: string) => {
+        if (readOnly) return;
         setBWEditDialog({ open: true, day, slotId });
     };
 
@@ -540,7 +546,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         setInvalidESGroups(new Set());
 
         try {
-            const result = await saveAllSchedules(localAssignments, bwAssignments, esAssignments);
+            const result = await saveAllSchedules(localAssignments, bwAssignments, esAssignments, start, end);
 
             if (result.ok) {
                 setHasChanges(false);
@@ -661,7 +667,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                                 minWidth: 120,
                                                 verticalAlign: 'top',
                                                 padding: 4,
-                                                cursor: 'pointer',
+                                                cursor: readOnly ? 'default' : 'pointer',
                                                 backgroundColor: bgColor,
                                                 transition: 'background-color 0.2s',
                                                 position: 'relative'
@@ -703,7 +709,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                                 minWidth: 150,
                                                 verticalAlign: 'top',
                                                 padding: 8,
-                                                cursor: 'pointer',
+                                                cursor: readOnly ? 'default' : 'pointer',
                                                 backgroundColor: bgColor,
                                                 transition: 'background-color 0.2s'
                                             }}
@@ -777,7 +783,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                                     style={{
                                                         border: isInvalid && validationErrors.length > 0 ? "2px solid #f44336" : "1px solid #ccc",
                                                         padding: 8,
-                                                        cursor: 'pointer',
+                                                        cursor: readOnly ? 'default' : 'pointer',
                                                         backgroundColor: bgColor,
                                                         verticalAlign: 'top'
                                                     }}

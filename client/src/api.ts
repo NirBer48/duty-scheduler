@@ -136,12 +136,20 @@ export const fetchLastSchedule = () => request<ScheduleSnapshot>('/schedule/last
 export const fetchScheduleByDate = (date: string) =>
   request<ScheduleSnapshot>(`/schedule/history?date=${encodeURIComponent(date)}`);
 
+export const fetchHistoryPeriods = () =>
+  request<{ periods: { start: string; end: string }[] }>('/schedule/history-periods');
+
+export const fetchScheduleByPeriod = (start: string, end: string) =>
+  request<ScheduleSnapshot>(`/schedule/history?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+
 export const saveAllSchedules = (
   assignments: Assignment[],
   bwAssignments: BWAssignment[],
-  esAssignments: ESGroupAssignment[]
+  esAssignments: ESGroupAssignment[],
+  start: string,
+  end: string
 ) =>
   request<{ ok: boolean; error?: string }>('/schedule/save-all', {
     method: 'POST',
-    body: JSON.stringify({ assignments, bwAssignments, esAssignments }),
+    body: JSON.stringify({ assignments, bwAssignments, esAssignments, start, end }),
   });

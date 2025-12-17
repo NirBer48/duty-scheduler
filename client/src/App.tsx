@@ -364,21 +364,10 @@ const App: React.FC = () => {
       {user && (
         <Container maxWidth={false} sx={{ mt: 2, px: 3 }}>
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-            <Tab label={t('Shifts')} />
+            <Tab label={t('Guards')} />
             <Tab label={t('Kitchen')} />
+            <Tab label={t('History')} />
           </Tabs>
-          <Box display="flex" gap={3} alignItems="flex-start">
-            <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
-              <PeopleEditor onUpdate={handlePeopleUpdate} />
-              {tab === 0 && <PostsEditor onUpdate={handlePostsUpdate} />}
-              <ConstraintsEditor people={people} />
-            </Box>
-      <Container maxWidth={false} sx={{ mt: 2, px: 3 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-          <Tab label={t('Guards')} />
-          <Tab label={t('Kitchen')} />
-          <Tab label={t('History')} />
-        </Tabs>
         <Box display="flex" gap={3} alignItems="flex-start">
           <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
             <PeopleEditor onUpdate={handlePeopleUpdate} />

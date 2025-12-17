@@ -85,7 +85,8 @@ const createTables = async db => {
   await db.run(`DROP TABLE IF EXISTS archived_assignments`);
   await db.run(`
     CREATE TABLE archived_assignments (
-      archive_date DATE NOT NULL,
+      schedule_start DATE NOT NULL,
+      schedule_end DATE NOT NULL,
       personId INTEGER NOT NULL,
       postId INTEGER NOT NULL,
       day TEXT NOT NULL,
@@ -93,30 +94,32 @@ const createTables = async db => {
       startISO TEXT,
       endISO TEXT,
       userId INTEGER,
-      PRIMARY KEY (archive_date, personId, postId, day, shiftLabel)
+      PRIMARY KEY (schedule_start, schedule_end, personId, postId, day, shiftLabel)
     );
   `);
 
   await db.run(`DROP TABLE IF EXISTS archived_bw_assignments`);
   await db.run(`
     CREATE TABLE archived_bw_assignments (
-      archive_date DATE NOT NULL,
+      schedule_start DATE NOT NULL,
+      schedule_end DATE NOT NULL,
       personId INTEGER NOT NULL,
       day TEXT NOT NULL,
       slotId TEXT NOT NULL,
       userId INTEGER,
-      PRIMARY KEY (archive_date, personId, day, slotId)
+      PRIMARY KEY (schedule_start, schedule_end, personId, day, slotId)
     );
   `);
 
   await db.run(`DROP TABLE IF EXISTS archived_es_assignments`);
   await db.run(`
     CREATE TABLE archived_es_assignments (
-      archive_date DATE NOT NULL,
+      schedule_start DATE NOT NULL,
+      schedule_end DATE NOT NULL,
       groupId TEXT NOT NULL,
       personId INTEGER NOT NULL,
       userId INTEGER,
-      PRIMARY KEY (archive_date, groupId, personId)
+      PRIMARY KEY (schedule_start, schedule_end, groupId, personId)
     );
   `);
 };
