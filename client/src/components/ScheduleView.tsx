@@ -102,8 +102,8 @@ const ScheduleCalendar: React.FC<Props> = ({
         { groupId: 'es2', personIds: [] },
     ]);
     
-    // Use external ES assignments if provided, otherwise use local state
-    const esAssignments = onESAssignmentsChange && externalESAssignments ? externalESAssignments : localESAssignments;
+    // Use external ES assignments if provided (non-empty), otherwise use local state
+    const esAssignments = externalESAssignments && externalESAssignments.length > 0 ? externalESAssignments : localESAssignments;
 
     const [localBWAssignments, setLocalBWAssignments] = useState<BWAssignment[]>(externalBWAssignments);
     const bwAssignments = onBWAssignmentsChange ? externalBWAssignments : localBWAssignments;
