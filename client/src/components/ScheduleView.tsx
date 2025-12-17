@@ -618,19 +618,21 @@ const ScheduleCalendar: React.FC<Props> = ({
     return (
         <>
             {/* Action buttons */}
-            <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Button variant="outlined" onClick={handleExport} disabled={isSaving || isGenerating}>
-                    {t('Export to Excel')}
-                </Button>
-                <Button variant="contained" color="success" onClick={handleSaveAll} disabled={!hasChanges || isSaving || isGenerating}>
-                    {t('Save Schedule')}
-                </Button>
-                {hasChanges && !isSaving && (
-                    <Typography color="warning.main" variant="body2">
-                        {t('Unsaved changes')}
-                    </Typography>
-                )}
-            </Box>
+            {!readOnly && (
+                <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Button variant="outlined" onClick={handleExport} disabled={isSaving || isGenerating}>
+                        {t('Export to Excel')}
+                    </Button>
+                    <Button variant="contained" color="success" onClick={handleSaveAll} disabled={!hasChanges || isSaving || isGenerating}>
+                        {t('Save Schedule')}
+                    </Button>
+                    {hasChanges && !isSaving && (
+                        <Typography color="warning.main" variant="body2">
+                            {t('Unsaved changes')}
+                        </Typography>
+                    )}
+                </Box>
+            )}
 
             {/* Validation errors */}
             {validationErrors.length > 0 && (
