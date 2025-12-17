@@ -578,7 +578,11 @@ export const scheduleGenerator = (
     if (slotEnd.isAfter(scheduleEnd)) {
       slotEnd = scheduleEnd;
     }
-    
+
+    if (!slotEnd.isAfter(slotStart)) {
+      return null; // outside range; skip
+    }
+
     return { start: slotStart.toISOString(), end: slotEnd.toISOString() };
   };
 
@@ -593,6 +597,7 @@ export const scheduleGenerator = (
     bwSlotAssignments.get(key).add(Number(bw.personId));
     bwAssignmentCount[bw.personId] = (bwAssignmentCount[bw.personId] || 0) + 1;
     const times = buildSlotTimes(bw.day, slot);
+    if (!times) continue; // outside range, skip
     bwAssignments.push({
       day: bw.day,
       slotId: slot.id,
@@ -653,7 +658,9 @@ export const scheduleGenerator = (
       const assignedSet = bwSlotAssignments.get(key);
       const stillNeeded = BW_REQUIRED - assignedSet.size;
       if (stillNeeded <= 0) continue;
-      const { start, end } = buildSlotTimes(day, slot);
+      const times = buildSlotTimes(day, slot);
+      if (!times) continue; // outside range
+      const { start, end } = times;
 
       const candidates = [...people]
         .filter(person => !assignedSet.has(person.id))
