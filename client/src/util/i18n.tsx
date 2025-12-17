@@ -5,6 +5,12 @@ type Language = 'en' | 'he';
 type TranslationMap = Record<string, string>;
 const translations: Record<Language, TranslationMap> = {
   en: {
+    'History': 'History',
+    'Date': 'Date',
+    'Prev': 'Prev',
+    'Next': 'Next',
+    'No history for this day': 'No history for this day',
+    'Explore other dates': 'Try another date or generate a schedule to create history',
     'Duty Scheduler': 'Duty Scheduler',
     'People': 'People',
     'Add': 'Add',
@@ -109,6 +115,12 @@ const translations: Record<Language, TranslationMap> = {
     'in BW at this time': 'in BW at this time',
   },
   he: {
+    'History': 'היסטוריה',
+    'Date': 'תאריך',
+    'Prev': 'הקודם',
+    'Next': 'הבא',
+    'No history for this day': 'אין היסטוריה עבור היום הזה',
+    'Explore other dates': 'נסה תאריך אחר או צור סידור כדי ליצור היסטוריה',
     'Duty Scheduler': 'סידור תורנויות',
     'People': 'אנשים',
     'Add': 'הוסף',
@@ -201,7 +213,7 @@ const translations: Record<Language, TranslationMap> = {
     'Need an account?': 'צריך חשבון?',
     'Email already exists': 'האימייל כבר קיים',
     'Shifts': 'משמרות',
-    'Guardes': 'שמירות',
+    'Guards': 'שמירות',
     'Hours': 'שעות',
     'BW Assignments': 'עב"ס',
     'BW Slot': 'שורת עב"ס',

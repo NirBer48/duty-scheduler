@@ -91,11 +91,46 @@ const persistEsAssignments = async (db, esAssignments = [], userId) => {
   }
 };
 
-const persistAllAssignments = async (db, assignments = [], bwAssignments = [], esAssignments = [], userId) => {
+const archiveAssignments = async (db, assignments = [], bwAssignments = [], esAssignments = [], userId, start, end) => {
+  // Extract date part without timezone conversion: "2025-12-17T20:00" -> "2025-12-17"
+  const scheduleStart = start.substring(0, 10);
+  const scheduleEnd = end.substring(0, 10);
+  console.log('Archiving period:', scheduleStart, '-', scheduleEnd, 'assignments:', assignments.length);
+  // Clear existing archives for this schedule period
+  await db.run('DELETE FROM archived_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
+  await db.run('DELETE FROM archived_bw_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
+  await db.run('DELETE FROM archived_es_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
+  // Insert new archives
+  for (const a of assignments) {
+    await db.run(
+      'INSERT INTO archived_assignments (schedule_start, schedule_end, personId, postId, day, shiftLabel, startISO, endISO, userId) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+      [scheduleStart, scheduleEnd, a.personId, a.postId, a.day, a.shiftLabel, a.start ? a.start : null, a.end ? a.end : null, userId]
+    );
+  }
+  for (const b of bwAssignments) {
+    await db.run(
+      'INSERT INTO archived_bw_assignments (schedule_start, schedule_end, personId, day, slotId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+      [scheduleStart, scheduleEnd, b.personId, b.day, b.slotId, userId]
+    );
+  }
+  for (const es of esAssignments) {
+    for (const personId of es.personIds || []) {
+      await db.run(
+        'INSERT INTO archived_es_assignments (schedule_start, schedule_end, groupId, personId, userId) VALUES ($1, $2, $3, $4, $5)',
+        [scheduleStart, scheduleEnd, es.groupId, personId, userId]
+      );
+    }
+  }
+  console.log('Archived successfully');
+};
+
+const persistAllAssignments = async (db, assignments = [], bwAssignments = [], esAssignments = [], userId, start, end) => {
   await Promise.all([clearAssignments(db, userId), clearBwAssignments(db, userId), clearEsAssignments(db, userId)]);
   await persistAssignments(db, assignments, userId);
   await persistBwAssignments(db, bwAssignments, userId);
   await persistEsAssignments(db, esAssignments, userId);
+  // Archive the saved assignments
+  await archiveAssignments(db, assignments, bwAssignments, esAssignments, userId, start, end);
 };
 
 router.post('/generate', async (req, res, next) => {
@@ -154,7 +189,7 @@ router.post('/generate', async (req, res, next) => {
       return respondError(res);
     }
 
-    await persistAllAssignments(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id);
+    await persistAllAssignments(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id, startISO, endISO);
     res.json({ assignments: result.assignments, bwAssignments: result.bwAssignments, esAssignments: sanitizedEs });
   } catch (err) {
     next(err);
@@ -164,7 +199,7 @@ router.post('/generate', async (req, res, next) => {
 router.post('/save-all', async (req, res, next) => {
   try {
     const db = getDb(req);
-    const { assignments = [], bwAssignments = [], esAssignments = [] } = req.body;
+    const { assignments = [], bwAssignments = [], esAssignments = [], start, end } = req.body;
     const [peopleRows, postRows] = await Promise.all([
       db.all('SELECT id FROM people WHERE userId = $1', [req.user.id]),
       db.all('SELECT id FROM posts WHERE userId = $1', [req.user.id]),
@@ -177,7 +212,7 @@ router.post('/save-all', async (req, res, next) => {
       groupId: es.groupId,
       personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
     }));
-    await persistAllAssignments(db, sanitizedAssignments, sanitizedBw, sanitizedEs, req.user.id);
+    await persistAllAssignments(db, sanitizedAssignments, sanitizedBw, sanitizedEs, req.user.id, start, end);
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -235,6 +270,94 @@ router.delete('/clear', async (req, res, next) => {
     const db = getDb(req);
     await Promise.all([clearAssignments(db, req.user.id), clearBwAssignments(db, req.user.id), clearEsAssignments(db, req.user.id)]);
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/history-periods', async (req, res, next) => {
+  try {
+    const db = getDb(req);
+    // Query each table separately and combine results
+    // Cast DATE to TEXT to avoid timezone conversion issues
+    const [assignmentPeriods, bwPeriods, esPeriods] = await Promise.all([
+      db.all(`
+        SELECT DISTINCT schedule_start::TEXT, schedule_end::TEXT
+        FROM archived_assignments
+        WHERE userId = $1
+      `, [req.user.id]),
+      db.all(`
+        SELECT DISTINCT schedule_start::TEXT, schedule_end::TEXT
+        FROM archived_bw_assignments
+        WHERE userId = $1
+      `, [req.user.id]),
+      db.all(`
+        SELECT DISTINCT schedule_start::TEXT, schedule_end::TEXT
+        FROM archived_es_assignments
+        WHERE userId = $1
+      `, [req.user.id]),
+    ]);
+    
+    // Combine and deduplicate by creating a map
+    const periodMap = new Map();
+    const allPeriods = [...assignmentPeriods, ...bwPeriods, ...esPeriods];
+    for (const p of allPeriods) {
+      const key = `${p.schedule_start}|${p.schedule_end}`;
+      if (!periodMap.has(key)) {
+        periodMap.set(key, { start: p.schedule_start, end: p.schedule_end });
+      }
+    }
+    
+    // Sort by start date descending
+    const periods = Array.from(periodMap.values()).sort((a, b) => 
+      new Date(b.start) - new Date(a.start)
+    );
+    
+    res.json({ periods });
+  } catch (err) {
+    console.error('Error in history-periods:', err.message);
+    next(err);
+  }
+});
+
+router.get('/history', async (req, res, next) => {
+  try {
+    const db = getDb(req);
+    const { start, end } = req.query;
+    if (!start || !end) {
+      return res.status(400).json({ error: 'start and end query parameters required' });
+    }
+    console.log('Fetching history for period:', start, 'to', end, 'userId:', req.user.id);
+    const [regular, bw, es] = await Promise.all([
+      db.all(`SELECT * FROM archived_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3`, [start, end, req.user.id]),
+      db.all('SELECT * FROM archived_bw_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
+      db.all('SELECT * FROM archived_es_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
+    ]);
+    console.log('Found assignments:', regular.length, 'bw:', bw.length, 'es:', es.length);
+    res.json({
+      assignments: regular.map(row => ({
+        postId: Number(row.postid),
+        personId: Number(row.personid),
+        shiftLabel: row.shiftlabel,
+        start: row.startiso,
+        end: row.endiso,
+        day: row.day,
+      })),
+      bwAssignments: bw.map(row => ({
+        personId: Number(row.personid),
+        day: row.day,
+        slotId: row.slotid,
+      })),
+      esAssignments: Object.entries(es.reduce((acc, row) => {
+        const groupId = row.groupid;
+        if (!acc[groupId]) acc[groupId] = [];
+        acc[groupId].push(Number(row.personid));
+        return acc;
+      }, {})).map(([groupId, personIds]) => ({
+        groupId,
+        personIds,
+      })),
+    });
   } catch (err) {
     next(err);
   }

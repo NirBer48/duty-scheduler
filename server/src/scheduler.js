@@ -117,12 +117,18 @@ export const scheduleGenerator = (
   // Build list of all shift time slots in the date range
   const timeSlots = [];
   
-  let curr = dayjs(startISO);
+  // Parse as local time (not UTC): extract YYYY-MM-DDTHH:mm and rebuild as local
+  const parseLocalDateTime = (isoString) => {
+    // Input: "2025-12-13T20:00" - treat as local time
+    return dayjs(isoString);
+  };
+  
+  let curr = parseLocalDateTime(startISO);
   const startHour = curr.hour();
   const roundedHour = Math.floor(startHour / 4) * 4;
   curr = curr.hour(roundedHour).minute(0).second(0).millisecond(0);
   
-  const endDt = dayjs(endISO);
+  const endDt = parseLocalDateTime(endISO);
 
   while (curr.isBefore(endDt)) {
     const h = curr.hour();
