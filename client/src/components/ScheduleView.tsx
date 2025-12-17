@@ -6,10 +6,10 @@ import { Box, Typography, Alert, Button, IconButton, Chip, CircularProgress } fr
 import SettingsIcon from '@mui/icons-material/Settings';
 import EditIcon from '@mui/icons-material/Edit';
 import { saveAllSchedules } from "../api";
-import { 
-    CellEditDialog, 
-    ESEditDialog, 
-    ShiftSettingsDialog, 
+import {
+    CellEditDialog,
+    ESEditDialog,
+    ShiftSettingsDialog,
     BWEditDialog,
     exportToExcel,
     getShiftsForPeriod,
@@ -23,6 +23,7 @@ import {
     hasTimeOverlap,
     getBwSlotRangeMinutes,
     getBwDaysForRange,
+    getBwSlotsForRange,
     isNightShift,
     isStandingExemptPost
 } from "./schedule";
@@ -109,8 +110,10 @@ const ScheduleCalendar: React.FC<Props> = ({
     const bwAssignments = onBWAssignmentsChange ? externalBWAssignments : localBWAssignments;
     const setBWAssignments = onBWAssignmentsChange || setLocalBWAssignments;
     const bwDays = getBwDaysForRange(start, end, bwAssignments);
+    const bwSlotsForRange = getBwSlotsForRange(start, end);
     
     const [hasChanges, setHasChanges] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
     const [invalidCells, setInvalidCells] = useState<Set<string>>(new Set());
     const [invalidESGroups, setInvalidESGroups] = useState<Set<string>>(new Set());
@@ -165,6 +168,13 @@ const ScheduleCalendar: React.FC<Props> = ({
             setLocalShiftOverrides(externalOverrides);
         }
     }, [externalOverrides, onShiftOverridesChange]);
+
+    // Mark as changed when date range changes (if there are assignments)
+    useEffect(() => {
+        if (localAssignments.length > 0 || bwAssignments.length > 0) {
+            setHasChanges(true);
+        }
+    }, [start, end]);
 
     // Helper functions
     const getRequiredCount = (postId: number, day: string, shiftLabel: string): number => {
@@ -544,9 +554,14 @@ const ScheduleCalendar: React.FC<Props> = ({
 
         setInvalidCells(new Set());
         setInvalidESGroups(new Set());
+        setIsSaving(true);
 
         try {
-            const result = await saveAllSchedules(localAssignments, bwAssignments, esAssignments, start, end);
+            // Ensure loading indicator is visible for at least 500ms
+            const [result] = await Promise.all([
+                saveAllSchedules(localAssignments, bwAssignments, esAssignments, start, end),
+                new Promise(resolve => setTimeout(resolve, 500))
+            ]);
 
             if (result.ok) {
                 setHasChanges(false);
@@ -559,6 +574,8 @@ const ScheduleCalendar: React.FC<Props> = ({
             }
         } catch {
             setValidationErrors([t('Save failed')]);
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -582,13 +599,13 @@ const ScheduleCalendar: React.FC<Props> = ({
         <>
             {/* Action buttons */}
             <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Button variant="outlined" onClick={handleExport}>
+                <Button variant="outlined" onClick={handleExport} disabled={isSaving || isGenerating}>
                     {t('Export to Excel')}
                 </Button>
-                <Button variant="contained" color="success" onClick={handleSaveAll} disabled={!hasChanges}>
+                <Button variant="contained" color="success" onClick={handleSaveAll} disabled={!hasChanges || isSaving || isGenerating}>
                     {t('Save Schedule')}
                 </Button>
-                {hasChanges && (
+                {hasChanges && !isSaving && (
                     <Typography color="warning.main" variant="body2">
                         {t('Unsaved changes')}
                     </Typography>
@@ -613,6 +630,14 @@ const ScheduleCalendar: React.FC<Props> = ({
                 <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mb: 2 }}>
                     <CircularProgress size="2rem" />
                     <Typography variant="h5">{t('Assigning')}</Typography>
+                </Box>
+            )}
+
+            {/* Loading indicator during save */}
+            {isSaving && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mb: 2 }}>
+                    <CircularProgress size="2rem" />
+                    <Typography variant="h5">{t('Saving')}</Typography>
                 </Box>
             )}
 
@@ -756,7 +781,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                             </tr>
                         </thead>
                         <tbody>
-                            {BW_SLOT_DEFINITIONS.map(slot => {
+                            {bwSlotsForRange.map(slot => {
                                 const slotLabel = lang === 'he' ? `עב"ס ${slot.label}` : `BW ${slot.label}`;
                                 return (
                                     <tr key={slot.id}>

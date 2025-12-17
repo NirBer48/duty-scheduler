@@ -9,6 +9,7 @@ const mapPerson = row => ({
   sameGenderPref: Boolean(row.samegenderpref),
   limitedAbility: Boolean(row.limitedability),
   standingExemption: Boolean(row.standingexemption),
+  duelGuard: Boolean(row.duelguard),
 });
 
 const mapPost = row => ({
@@ -91,23 +92,71 @@ const persistEsAssignments = async (db, esAssignments = [], userId) => {
   }
 };
 
+// BW slot definitions (must match client/src/components/schedule/utils.ts)
+const BW_SLOT_DEFINITIONS = [
+  { id: 'bw_morning', startHour: 8, startMinute: 30, endHour: 11, endMinute: 30 },
+  { id: 'bw_afternoon', startHour: 13, startMinute: 30, endHour: 17, endMinute: 30 },
+  { id: 'bw_evening', startHour: 18, startMinute: 30, endHour: 20, endMinute: 0 },
+];
+
+const isBwSlotInRange = (day, slotId, rangeStart, rangeEnd) => {
+  const slot = BW_SLOT_DEFINITIONS.find(s => s.id === slotId);
+  if (!slot) return false;
+
+  const dayDate = new Date(day + 'T00:00:00.000Z');
+  const slotStart = new Date(dayDate);
+  slotStart.setUTCHours(slot.startHour, slot.startMinute, 0, 0);
+
+  const slotEnd = new Date(dayDate);
+  slotEnd.setUTCHours(slot.endHour, slot.endMinute, 0, 0);
+
+  // Handle slots that might span midnight
+  if (slotEnd <= slotStart) {
+    slotEnd.setUTCDate(slotEnd.getUTCDate() + 1);
+  }
+
+  // Check overlap: slot overlaps with range if slotEnd > rangeStart AND slotStart < rangeEnd
+  return slotEnd > rangeStart && slotStart < rangeEnd;
+};
+
 const archiveAssignments = async (db, assignments = [], bwAssignments = [], esAssignments = [], userId, start, end) => {
   // Extract date part without timezone conversion: "2025-12-17T20:00" -> "2025-12-17"
   const scheduleStart = start.substring(0, 10);
   const scheduleEnd = end.substring(0, 10);
-  console.log('Archiving period:', scheduleStart, '-', scheduleEnd, 'assignments:', assignments.length);
+  const rangeStart = new Date(start);
+  const rangeEnd = new Date(end);
+
+  // Filter assignments to only include those within the time range
+  const filteredAssignments = assignments.filter(a => {
+    if (!a.start || !a.end) return true; // Include if no times (shouldn't happen)
+    const aStart = new Date(a.start);
+    const aEnd = new Date(a.end);
+    // Check overlap: assignment overlaps with range
+    return aEnd > rangeStart && aStart < rangeEnd;
+  });
+
+  // Filter BW assignments to only include those within the time range
+  const filteredBwAssignments = bwAssignments.filter(b =>
+    isBwSlotInRange(b.day, b.slotId, rangeStart, rangeEnd)
+  );
+
+  console.log('Archiving period:', scheduleStart, '-', scheduleEnd);
+  console.log('Assignments:', assignments.length, '-> filtered:', filteredAssignments.length);
+  console.log('BW assignments:', bwAssignments.length, '-> filtered:', filteredBwAssignments.length);
+
   // Clear existing archives for this schedule period
   await db.run('DELETE FROM archived_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_bw_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_es_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
-  // Insert new archives
-  for (const a of assignments) {
+
+  // Insert new archives (filtered)
+  for (const a of filteredAssignments) {
     await db.run(
       'INSERT INTO archived_assignments (schedule_start, schedule_end, personId, postId, day, shiftLabel, startISO, endISO, userId) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
       [scheduleStart, scheduleEnd, a.personId, a.postId, a.day, a.shiftLabel, a.start ? a.start : null, a.end ? a.end : null, userId]
     );
   }
-  for (const b of bwAssignments) {
+  for (const b of filteredBwAssignments) {
     await db.run(
       'INSERT INTO archived_bw_assignments (schedule_start, schedule_end, personId, day, slotId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
       [scheduleStart, scheduleEnd, b.personId, b.day, b.slotId, userId]

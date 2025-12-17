@@ -110,15 +110,11 @@ export const hasTimeOverlap = (startA: number, endA: number, startB: number, end
 export const getBwDaysForRange = (start: string, end: string, existing: BWAssignment[] = []): string[] => {
     const startDt = dayjs(start);
     const endDt = dayjs(end);
-    const rangeStart = startDt.startOf('day');
-    const rangeEnd = endDt.endOf('day');
     const daysSet = new Set<string>();
 
     const addDayIfApplicable = (day: dayjs.Dayjs | string) => {
         const normalized = dayjs(day).startOf('day');
-        if (normalized.isBefore(rangeStart) || normalized.isAfter(rangeEnd)) {
-            return;
-        }
+        // Check if any BW slot on this day overlaps with the actual time range
         const hasSlotWithinRange = BW_SLOT_DEFINITIONS.some(slot => {
             const slotStart = normalized.add(slot.startHour, 'hour').add(slot.startMinute, 'minute');
             let slotEnd = normalized.add(slot.endHour, 'hour').add(slot.endMinute, 'minute');
@@ -134,13 +130,44 @@ export const getBwDaysForRange = (start: string, end: string, existing: BWAssign
 
     existing.forEach(bw => addDayIfApplicable(bw.day));
 
-    let cursor = rangeStart.clone();
-    while (cursor.isBefore(rangeEnd) || cursor.isSame(rangeEnd, 'day')) {
+    // Iterate through days from start to end
+    let cursor = startDt.startOf('day');
+    const lastDay = endDt.startOf('day');
+    while (cursor.isBefore(lastDay) || cursor.isSame(lastDay, 'day')) {
         addDayIfApplicable(cursor);
         cursor = cursor.add(1, 'day');
     }
 
     return Array.from(daysSet).sort();
+};
+
+export const getBwSlotsForRange = (start: string, end: string): BwSlotDefinition[] => {
+    const startDt = dayjs(start);
+    const endDt = dayjs(end);
+
+    return BW_SLOT_DEFINITIONS.filter(slot => {
+        // Check if this slot overlaps with the actual time range (not full days)
+        // Iterate through each day in the range
+        let cursor = startDt.startOf('day');
+        const lastDay = endDt.startOf('day');
+
+        while (cursor.isBefore(lastDay) || cursor.isSame(lastDay, 'day')) {
+            const slotStart = cursor.add(slot.startHour, 'hour').add(slot.startMinute, 'minute');
+            let slotEnd = cursor.add(slot.endHour, 'hour').add(slot.endMinute, 'minute');
+            if (!slotEnd.isAfter(slotStart)) {
+                slotEnd = slotEnd.add(1, 'day');
+            }
+
+            // Check if this slot instance overlaps with the actual range (not full day)
+            if (slotEnd.isAfter(startDt) && slotStart.isBefore(endDt)) {
+                return true;
+            }
+
+            cursor = cursor.add(1, 'day');
+        }
+
+        return false;
+    });
 };
 
 

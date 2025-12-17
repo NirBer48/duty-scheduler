@@ -303,6 +303,30 @@ export const scheduleGenerator = (
     return false;
   };
 
+  const hasOverlappingBWAssignment = (personId, slotStart, slotEnd) => {
+    for (const bw of existingBwAssignments) {
+      if (Number(bw.personId) !== personId) continue;
+      const slot = BW_SLOTS.find(s => s.id === bw.slotId);
+      if (!slot) continue;
+      
+      const pad = value => String(value).padStart(2, '0');
+      const bwStart = dayjs(`${bw.day}T${pad(slot.startHour)}:${pad(slot.startMinute)}:00`);
+      let bwEndDay = bw.day;
+      if (slot.endHour < slot.startHour || (slot.endHour === slot.startHour && slot.endMinute <= slot.startMinute)) {
+        bwEndDay = dayjs(bw.day).add(1, 'day').format('YYYY-MM-DD');
+      }
+      const bwEnd = dayjs(`${bwEndDay}T${pad(slot.endHour)}:${pad(slot.endMinute)}:00`);
+      
+      const shiftStart = dayjs(slotStart);
+      const shiftEnd = dayjs(slotEnd);
+      
+      if (shiftStart.isBefore(bwEnd) && bwStart.isBefore(shiftEnd)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   const canWork = (person, slot) => {
     const shiftKey = getShiftKey(slot.day, slot.shiftLabel);
     const assignedPeople = slotAssignments.get(shiftKey);
@@ -322,6 +346,10 @@ export const scheduleGenerator = (
     if (hasRestViolation(person.id, slot.index)) return false;
     if (!canESMemberWorkAtShift(person.id, slot.day, slot.shiftLabel)) return false;
     if (person.standingExemption && standingExemptPostIds.has(slot.postId)) return false;
+    
+    // Check for overlapping BW assignments
+    if (hasOverlappingBWAssignment(person.id, slot.start, slot.end)) return false;
+    
     return true;
   };
 
@@ -447,6 +475,45 @@ export const scheduleGenerator = (
   
   if (unfilledMandatory) {
     return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
+  }
+
+  // Check for duelGuard violations (duelGuard people alone in shifts)
+  const assignmentsBySlot = new Map(); // `${postId}|${day}|${shiftLabel}` -> personIds[]
+  for (const assignment of assignments) {
+    const key = `${assignment.postId}|${assignment.day}|${assignment.shiftLabel}`;
+    if (!assignmentsBySlot.has(key)) {
+      assignmentsBySlot.set(key, []);
+    }
+    assignmentsBySlot.get(key).push(assignment.personId);
+  }
+
+  for (const [slotKey, personIds] of assignmentsBySlot.entries()) {
+    if (personIds.length === 1) {
+      const person = people.find(p => p.id === personIds[0]);
+      if (person?.duelGuard) {
+        // DuelGuard person is alone in a shift
+        return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
+      }
+    }
+
+    // Check same-gender preference for night shifts
+    if (personIds.length > 1) {
+      const [postId, day, shiftLabel] = slotKey.split('|');
+      if (NIGHT_SHIFT_LABELS.has(shiftLabel)) {
+        const assignedPeople = personIds.map(pid => people.find(p => p.id === pid)).filter(Boolean);
+        for (let i = 0; i < assignedPeople.length; i++) {
+          const person = assignedPeople[i];
+          if (person.sameGenderPref) {
+            for (let j = 0; j < assignedPeople.length; j++) {
+              if (i !== j && assignedPeople[j].gender !== person.gender) {
+                // Same-gender preference violated
+                return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   const bwAssignments = [];

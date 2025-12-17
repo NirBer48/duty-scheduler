@@ -63,19 +63,16 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
       setAssignments(fetchedAssignments);
       setBWAssignments(fetchedBW);
       setESAssignments(fetchedES);
-      
+
+      // Use exact start/end from assignments without adjustments
       let minStart = '';
       let maxEnd = '';
       for (const a of fetchedAssignments) {
-        if (!minStart || a.start < minStart) minStart = a.start;
-        if (!maxEnd || a.end > maxEnd) maxEnd = a.end;
+        if (a.start && (!minStart || a.start < minStart)) minStart = a.start;
+        if (a.end && (!maxEnd || a.end > maxEnd)) maxEnd = a.end;
       }
 
-      // Adjust for timezone offset (subtract 2 hours from start, add 2 hours to end)
-      const adjustedStart = minStart ? new Date(new Date(minStart).getTime() - 2 * 60 * 60 * 1000).toISOString() : '';
-      const adjustedEnd = maxEnd;
-
-      setDateRange({ start: adjustedStart, end: adjustedEnd });
+      setDateRange({ start: minStart, end: maxEnd });
     } catch (e: any) {
       setError(e?.message || "Failed to fetch history");
       setAssignments([]);
