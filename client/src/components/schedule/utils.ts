@@ -8,34 +8,39 @@ export interface ShiftSlot {
 
 export const getShiftsForPeriod = (start: string, end: string): ShiftSlot[] => {
     const result: ShiftSlot[] = [];
-    const shifts = [
-        { label: "00:00-04:00", startH: 0 },
-        { label: "04:00-08:00", startH: 4 },
-        { label: "08:00-12:00", startH: 8 },
-        { label: "12:00-16:00", startH: 12 },
-        { label: "16:00-20:00", startH: 16 },
-        { label: "20:00-00:00", startH: 20 },
-    ];
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    startDate.setMinutes(0, 0, 0);
-    startDate.setHours(Math.floor(startDate.getHours() / 4) * 4);
+    const startDt = dayjs(start).second(0).millisecond(0);
+    const endDt = dayjs(end).second(0).millisecond(0);
 
-    const curr = new Date(startDate);
-    while (curr < endDate) {
-        const h = curr.getHours();
-        const shift = shifts.find(s => s.startH === h);
-        if (shift) {
-            const year = curr.getFullYear();
-            const month = String(curr.getMonth() + 1).padStart(2, '0');
-            const date = String(curr.getDate()).padStart(2, '0');
-            result.push({
-                day: `${year}-${month}-${date}`,
-                label: shift.label,
-            });
-        }
-        curr.setHours(curr.getHours() + 4);
+    const formatLabel = (s: dayjs.Dayjs, e: dayjs.Dayjs) =>
+        `${s.format('HH:mm')}-${e.format('HH:mm')}`;
+
+    const addShift = (s: dayjs.Dayjs, e: dayjs.Dayjs) => {
+        result.push({
+            day: s.format('YYYY-MM-DD'),
+            label: formatLabel(s, e),
+        });
+    };
+
+    // First partial if not aligned
+    const startMinutes = startDt.hour() * 60 + startDt.minute();
+    const nextBoundaryMinutes = Math.ceil(startMinutes / 240) * 240;
+    const minutesToAdd = nextBoundaryMinutes - startMinutes;
+    const firstEnd = startDt.add(minutesToAdd || 240, 'minute');
+    addShift(startDt, firstEnd.isAfter(endDt) ? endDt : firstEnd);
+
+    // Standard 4h blocks
+    let cursor = firstEnd;
+    while (cursor.add(4, 'hour').isBefore(endDt) || cursor.add(4, 'hour').isSame(endDt)) {
+        const shiftEnd = cursor.add(4, 'hour');
+        addShift(cursor, shiftEnd);
+        cursor = shiftEnd;
     }
+
+    // Last partial
+    if (cursor.isBefore(endDt)) {
+        addShift(cursor, endDt);
+    }
+
     return result;
 };
 

@@ -80,16 +80,10 @@ const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
   return defaultValue;
 };
 
-const ensureDefaultTime = (storageKey: string, calculate: () => string) => {
-  const saved = localStorage.getItem(storageKey);
-  if (saved && saved.endsWith('T20:00')) return saved;
-  const next = calculate();
-  localStorage.setItem(storageKey, next);
-  return next;
+const loadString = (key: string, fallback: string): string => {
+  const saved = localStorage.getItem(key);
+  return saved ?? fallback;
 };
-
-const ensureDefaultStart = () => ensureDefaultTime(STORAGE_KEY_START, calculateDefaultStart);
-const ensureDefaultEnd = () => ensureDefaultTime(STORAGE_KEY_END, calculateDefaultEnd);
 
 const App: React.FC = () => {
   const [assignments, setAssignments] = useState<Assignment[]>(() =>
@@ -114,8 +108,8 @@ const App: React.FC = () => {
   );
   const [bwAssignments, setBWAssignments] = useState<BWAssignment[]>([]);
   const [constraints, setConstraints] = useState<Constraint[]>([]);
-  const [start, setStart] = useState(ensureDefaultStart);
-  const [end, setEnd] = useState(ensureDefaultEnd);
+  const [start, setStart] = useState(() => loadString(STORAGE_KEY_START, calculateDefaultStart()));
+  const [end, setEnd] = useState(() => loadString(STORAGE_KEY_END, calculateDefaultEnd()));
   const { t, lang, setLang } = useI18n();
   const [error, setError] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -208,8 +202,9 @@ const App: React.FC = () => {
       setError(t('Invalid credentials'));
       return;
     }
-    const startISO = new Date(start).toISOString();
-    const endISO = new Date(end).toISOString();
+    // Send as local (no timezone shift) to keep boundaries exact
+    const startISO = start;
+    const endISO = end;
     setIsGenerating(true);
     try {
       const res = await generateSchedule(

@@ -118,41 +118,76 @@ export const scheduleGenerator = (
   const timeSlots = [];
   
   // Parse as local time (not UTC): extract YYYY-MM-DDTHH:mm and rebuild as local
-  const parseLocalDateTime = (isoString) => {
-    // Input: "2025-12-13T20:00" - treat as local time
-    return dayjs(isoString);
-  };
+  // Treat incoming strings as local times (no TZ shift)
+  const parseLocalDateTime = (isoString) => dayjs(isoString);
   
-  let curr = parseLocalDateTime(startISO);
-  const startHour = curr.hour();
-  const roundedHour = Math.floor(startHour / 4) * 4;
-  curr = curr.hour(roundedHour).minute(0).second(0).millisecond(0);
-  
-  const endDt = parseLocalDateTime(endISO);
+  const startDt = parseLocalDateTime(startISO).second(0).millisecond(0);
+  const endDt = parseLocalDateTime(endISO).second(0).millisecond(0);
 
-  while (curr.isBefore(endDt)) {
-    const h = curr.hour();
-    const sh = shiftDefinitions.find(s => s.startOffset === h);
-    if (sh) {
-      const year = curr.year();
-      const month = String(curr.month() + 1).padStart(2, '0');
-      const date = String(curr.date()).padStart(2, '0');
-      const day = `${year}-${month}-${date}`;
-      
-      const shiftStart = curr.toISOString();
-      const shiftEndDt = curr.add(4, 'hour');
-      const shiftEnd = shiftEndDt.toISOString();
-      
+  const formatShiftLabel = (start, end) => `${start.format('HH:mm')}-${end.format('HH:mm')}`;
+
+  // Add the first partial shift (from custom start to next 4-hour boundary)
+  const addFirstShift = () => {
+    const startMinutes = startDt.hour() * 60 + startDt.minute();
+    const nextBoundaryMinutes = Math.ceil(startMinutes / 240) * 240;
+    const minutesToAdd = nextBoundaryMinutes - startMinutes;
+    const tentativeEnd = startDt.add(minutesToAdd || 240, 'minute'); // if exactly on boundary, make 4h
+    const firstEnd = tentativeEnd.isAfter(endDt) ? endDt : tentativeEnd;
+    timeSlots.push({
+      day: startDt.format('YYYY-MM-DD'),
+      shiftLabel: formatShiftLabel(startDt, firstEnd),
+      start: startDt.toISOString(),
+      end: firstEnd.toISOString(),
+      index: timeSlots.length,
+    });
+    return firstEnd;
+  };
+
+  // Add middle standard 4-hour shifts until the last boundary
+  const addStandardShifts = (cursor, lastBoundary) => {
+    let curr = cursor;
+    while (curr.add(4, 'hour').isBefore(lastBoundary) || curr.add(4, 'hour').isSame(lastBoundary)) {
+      const shiftEnd = curr.add(4, 'hour');
       timeSlots.push({
-        day,
-        shiftLabel: sh.label,
-        start: shiftStart,
-        end: shiftEnd,
+        day: curr.format('YYYY-MM-DD'),
+        shiftLabel: formatShiftLabel(curr, shiftEnd),
+        start: curr.toISOString(),
+        end: shiftEnd.toISOString(),
+        index: timeSlots.length,
+      });
+      curr = shiftEnd;
+    }
+    return curr;
+  };
+
+  // Add the last partial shift (from last boundary to custom end)
+  const addLastShift = (cursor) => {
+    if (cursor.isBefore(endDt)) {
+      timeSlots.push({
+        day: cursor.format('YYYY-MM-DD'),
+        shiftLabel: formatShiftLabel(cursor, endDt),
+        start: cursor.toISOString(),
+        end: endDt.toISOString(),
         index: timeSlots.length,
       });
     }
-    curr = curr.add(4, 'hour');
+  };
+
+  // Compute boundaries
+  const endMinutes = endDt.hour() * 60 + endDt.minute();
+  let lastBoundaryMinutes = Math.floor(endMinutes / 240) * 240;
+  let lastBoundary = endDt.startOf('day').add(lastBoundaryMinutes, 'minute');
+  if (lastBoundary.isAfter(endDt)) {
+    lastBoundary = lastBoundary.subtract(4, 'hour');
   }
+
+  const afterFirst = addFirstShift();
+  // Ensure last boundary is not before we start standard shifts
+  if (lastBoundary.isBefore(afterFirst)) {
+    lastBoundary = afterFirst;
+  }
+  const afterStandards = addStandardShifts(afterFirst, lastBoundary);
+  addLastShift(afterStandards);
 
   // Create a lookup for time slot index by day+shiftLabel
   const timeSlotIndex = new Map();
@@ -522,8 +557,11 @@ export const scheduleGenerator = (
   const bwSlotAssignments = new Map(); // key -> Set of personIds
 
   const pad = value => String(value).padStart(2, '0');
+  const scheduleStart = parseLocalDateTime(startISO);
+  const scheduleEnd = parseLocalDateTime(endISO);
+  
   const buildSlotTimes = (day, slot) => {
-    const start = dayjs(`${day}T${pad(slot.startHour)}:${pad(slot.startMinute)}:00`).toISOString();
+    let slotStart = dayjs(`${day}T${pad(slot.startHour)}:${pad(slot.startMinute)}:00`);
     let endDay = day;
     let endHour = slot.endHour;
     let endMinute = slot.endMinute;
@@ -531,8 +569,17 @@ export const scheduleGenerator = (
       // crosses midnight
       endDay = dayjs(day).add(1, 'day').format('YYYY-MM-DD');
     }
-    const end = dayjs(`${endDay}T${pad(endHour)}:${pad(endMinute)}:00`).toISOString();
-    return { start, end };
+    let slotEnd = dayjs(`${endDay}T${pad(endHour)}:${pad(endMinute)}:00`);
+    
+    // Clip to schedule boundaries
+    if (slotStart.isBefore(scheduleStart)) {
+      slotStart = scheduleStart;
+    }
+    if (slotEnd.isAfter(scheduleEnd)) {
+      slotEnd = scheduleEnd;
+    }
+    
+    return { start: slotStart.toISOString(), end: slotEnd.toISOString() };
   };
 
   // Seed with existing BW assignments

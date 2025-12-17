@@ -176,6 +176,26 @@ const ScheduleCalendar: React.FC<Props> = ({
         }
     }, [start, end]);
 
+    // Determine if first/last shifts are partial based on custom start/end
+    const startDt = dayjs(start);
+    const endDt = dayjs(end);
+    const startMinutes = startDt.hour() * 60 + startDt.minute();
+    const endMinutes = endDt.hour() * 60 + endDt.minute();
+    const firstIsPartial = (startMinutes % 240) !== 0;
+    const lastIsPartial = (endMinutes % 240) !== 0;
+    const firstShiftEnd = startDt.clone().add((240 - (startMinutes % 240)) % 240 || 240, 'minute');
+    const lastShiftStart = endDt.clone().subtract(endMinutes % 240 || 240, 'minute');
+
+    const displayShiftLabel = (shiftIdx: number) => {
+        if (shiftIdx === 0 && firstIsPartial) {
+            return `${startDt.format('HH:mm')}-${firstShiftEnd.format('HH:mm')}`;
+        }
+        if (shiftIdx === shifts.length - 1 && lastIsPartial) {
+            return `${lastShiftStart.format('HH:mm')}-${endDt.format('HH:mm')}`;
+        }
+        return shifts[shiftIdx].label;
+    };
+
     // Helper functions
     const getRequiredCount = (postId: number, day: string, shiftLabel: string): number => {
         const override = shiftOverrides.find(o =>
@@ -641,6 +661,18 @@ const ScheduleCalendar: React.FC<Props> = ({
                 </Box>
             )}
 
+            {/* Custom shift boundary notice */}
+            {(firstIsPartial || lastIsPartial) && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                        {t('Custom shift times applied')}:{" "}
+                        {firstIsPartial && `${t('First shift')}: ${startDt.format('HH:mm')} - ${firstShiftEnd.format('HH:mm')}`}
+                        {firstIsPartial && lastIsPartial && ' | '}
+                        {lastIsPartial && `${t('Last shift')}: ${lastShiftStart.format('HH:mm')} - ${endDt.format('HH:mm')}`}
+                    </Typography>
+                </Alert>
+            )}
+
             {/* Schedule table */}
             <Typography variant="h6" align="center" sx={{ mb: 1 }}>
                 {t('Shifts')}
@@ -665,11 +697,14 @@ const ScheduleCalendar: React.FC<Props> = ({
                         </tr>
                     </thead>
                     <tbody>
-                        {shifts.map((shift, shiftIdx) => (
-                            <tr key={shift.day + shift.label}>
-                                <td style={{ border: "1px solid #888", fontWeight: "bold", minWidth: 140, padding: "4px 8px", background: "#fafafa", position: "sticky", left: 0, zIndex: 1 }}>
-                                    {shift.day} {shift.label}
-                                </td>
+                        {shifts.map((shift, shiftIdx) => {
+                            const isPartialRow = (shiftIdx === 0 && firstIsPartial) || (shiftIdx === shifts.length - 1 && lastIsPartial);
+                            const hoursBg = isPartialRow ? '#f7f9ff' : '#fafafa';
+                            return (
+                                <tr key={shift.day + shift.label} style={{ background: isPartialRow ? '#fbfcff' : undefined }}>
+                                    <td style={{ border: "1px solid #888", fontWeight: "bold", minWidth: 140, padding: "4px 8px", background: hoursBg, position: "sticky", left: 0, zIndex: 1 }}>
+                                        {shift.day} {displayShiftLabel(shiftIdx)}
+                                    </td>
                                 {posts.map(post => {
                                     const names = getPeopleNames(post.id, shift.label, shift.day);
                                     const required = getRequiredCount(post.id, shift.day, shift.label);
@@ -714,51 +749,52 @@ const ScheduleCalendar: React.FC<Props> = ({
                                         </td>
                                     );
                                 })}
-                                {shiftIdx === 0 && esGroups.map(group => {
-                                    const esAssignment = esAssignments.find(es => es.groupId === group.id);
-                                    const assignedCount = esAssignment?.personIds.length || 0;
-                                    const isInvalid = isESInvalid(group.id);
+                                    {shiftIdx === 0 && esGroups.map(group => {
+                                        const esAssignment = esAssignments.find(es => es.groupId === group.id);
+                                        const assignedCount = esAssignment?.personIds.length || 0;
+                                        const isInvalid = isESInvalid(group.id);
 
-                                    let bgColor = '#e3f2fd';
-                                    if (isInvalid && validationErrors.length > 0) bgColor = '#ffcdd2';
-                                    else if (assignedCount === 0) bgColor = '#ffebee';
-                                    else if (assignedCount >= group.totalPeople) bgColor = '#c8e6c9';
+                                        let bgColor = '#e3f2fd';
+                                        if (isInvalid && validationErrors.length > 0) bgColor = '#ffcdd2';
+                                        else if (assignedCount === 0) bgColor = '#ffebee';
+                                        else if (assignedCount >= group.totalPeople) bgColor = '#c8e6c9';
 
-                                    return (
-                                        <td
-                                            key={group.id}
-                                            rowSpan={shifts.length}
-                                            onClick={() => handleESClick(group)}
-                                            style={{
-                                                border: isInvalid && validationErrors.length > 0 ? "2px solid #f44336" : "1px solid #888",
-                                                minWidth: 150,
-                                                verticalAlign: 'top',
-                                                padding: 8,
-                                                cursor: readOnly ? 'default' : 'pointer',
-                                                backgroundColor: bgColor,
-                                                transition: 'background-color 0.2s'
-                                            }}
-                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#bbdefb'}
-                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = bgColor}
-                                        >
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                                                <Typography variant="caption" color="textSecondary">
-                                                    {t('Active')}: {group.activePerShift} | {t('Resting')}: {group.totalPeople - group.activePerShift}
-                                                </Typography>
-                                                <EditIcon fontSize="small" color="action" />
-                                            </Box>
-                                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                                                {esAssignment?.personIds.map(personId => {
-                                                    const person = people.find(p => p.id === personId);
-                                                    return person ? <Chip key={personId} label={person.name} size="small" variant="outlined" /> : null;
-                                                })}
-                                                {assignedCount === 0 && <Typography variant="body2" color="text.secondary">—</Typography>}
-                                            </Box>
-                                        </td>
-                                    );
-                                })}
-                            </tr>
-                        ))}
+                                        return (
+                                            <td
+                                                key={group.id}
+                                                rowSpan={shifts.length}
+                                                onClick={() => handleESClick(group)}
+                                                style={{
+                                                    border: isInvalid && validationErrors.length > 0 ? "2px solid #f44336" : "1px solid #888",
+                                                    minWidth: 150,
+                                                    verticalAlign: 'top',
+                                                    padding: 8,
+                                                    cursor: readOnly ? 'default' : 'pointer',
+                                                    backgroundColor: bgColor,
+                                                    transition: 'background-color 0.2s'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#bbdefb'}
+                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = bgColor}
+                                            >
+                                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                                    <Typography variant="caption" color="textSecondary">
+                                                        {t('Active')}: {group.activePerShift} | {t('Resting')}: {group.totalPeople - group.activePerShift}
+                                                    </Typography>
+                                                    <EditIcon fontSize="small" color="action" />
+                                                </Box>
+                                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                                    {esAssignment?.personIds.map(personId => {
+                                                        const person = people.find(p => p.id === personId);
+                                                        return person ? <Chip key={personId} label={person.name} size="small" variant="outlined" /> : null;
+                                                    })}
+                                                    {assignedCount === 0 && <Typography variant="body2" color="text.secondary">—</Typography>}
+                                                </Box>
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </Box>

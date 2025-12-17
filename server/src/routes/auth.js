@@ -17,6 +17,29 @@ const COOKIE_OPTS = {
 const signToken = payload =>
   jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
 
+const DEFAULT_POSTS = [
+  { name: 'שג רכוב קדמי', requiredPerShift: 2 },
+  { name: 'שג רכוב אחורי', requiredPerShift: 2 },
+  { name: 'שג רגלי', requiredPerShift: 1 },
+  { name: 'פטל', requiredPerShift: 1 },
+  { name: 'ימח', requiredPerShift: 2 },
+  { name: 'בונקר', requiredPerShift: 2 },
+  { name: 'נשקייה', requiredPerShift: 1 },
+  { name: 'תצפיתן', requiredPerShift: 1 },
+  { name: 'עתודה', requiredPerShift: 1 },
+];
+
+const seedDefaultPostsForUser = async (db, userId) => {
+  const existing = await db.get('SELECT COUNT(1) as count FROM posts WHERE userId = $1', [userId]);
+  if (existing?.count > 0) return;
+  for (const p of DEFAULT_POSTS) {
+    await db.run(
+      'INSERT INTO posts (name, requiredPerShift, optional, userId) VALUES ($1, $2, $3, $4)',
+      [p.name, p.requiredPerShift, false, userId]
+    );
+  }
+};
+
 router.use(cookieParser());
 
 router.post('/register', async (req, res, next) => {
@@ -31,6 +54,7 @@ router.post('/register', async (req, res, next) => {
       'INSERT INTO users (email, password_hash, created_at) VALUES ($1, $2, $3) RETURNING id',
       [email.toLowerCase(), hash, new Date().toISOString()]
     );
+    await seedDefaultPostsForUser(db, result.lastID);
     const token = signToken({ id: result.lastID, email: email.toLowerCase() });
     res.cookie(COOKIE_NAME, token, COOKIE_OPTS);
     res.json({ id: result.lastID, email: email.toLowerCase() });
@@ -48,6 +72,7 @@ router.post('/login', async (req, res, next) => {
     if (!user) return res.status(401).json({ error: 'invalid credentials' });
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: 'invalid credentials' });
+    await seedDefaultPostsForUser(db, user.id);
     const token = signToken({ id: user.id, email: user.email });
     res.cookie(COOKIE_NAME, token, COOKIE_OPTS);
     res.json({ id: user.id, email: user.email });

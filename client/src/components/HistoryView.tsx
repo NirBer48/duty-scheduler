@@ -64,13 +64,15 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
       setBWAssignments(fetchedBW);
       setESAssignments(fetchedES);
 
-      // Use exact start/end from assignments without adjustments
+      // Use exact start/end from assignments; fallback to selected period bounds if missing
       let minStart = '';
       let maxEnd = '';
       for (const a of fetchedAssignments) {
         if (a.start && (!minStart || a.start < minStart)) minStart = a.start;
         if (a.end && (!maxEnd || a.end > maxEnd)) maxEnd = a.end;
       }
+      if (!minStart) minStart = `${start}T00:00:00`;
+      if (!maxEnd) maxEnd = `${end}T23:59:59`;
 
       setDateRange({ start: minStart, end: maxEnd });
     } catch (e: any) {
