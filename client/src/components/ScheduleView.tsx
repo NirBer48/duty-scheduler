@@ -186,15 +186,26 @@ const ScheduleCalendar: React.FC<Props> = ({
     const firstShiftEnd = startDt.clone().add((240 - (startMinutes % 240)) % 240 || 240, 'minute');
     const lastShiftStart = endDt.clone().subtract(endMinutes % 240 || 240, 'minute');
 
-    const displayShiftLabel = (shiftIdx: number) => {
+    const displayShiftLabel = (shiftIdx: number, total: number, shiftLabel: string) => {
         if (shiftIdx === 0 && firstIsPartial) {
             return `${startDt.format('HH:mm')}-${firstShiftEnd.format('HH:mm')}`;
         }
-        if (shiftIdx === shifts.length - 1 && lastIsPartial) {
+        if (shiftIdx === total - 1 && lastIsPartial) {
             return `${lastShiftStart.format('HH:mm')}-${endDt.format('HH:mm')}`;
         }
-        return shifts[shiftIdx].label;
+        return shiftLabel;
     };
+
+    // Filter out shifts that do not overlap the selected range
+    const filteredShifts = shifts.filter(shift => {
+        const [s, e] = shift.label.split('-');
+        const startTime = dayjs(`${shift.day}T${s}:00`);
+        let endTime = dayjs(`${shift.day}T${e}:00`);
+        if (!endTime.isAfter(startTime)) {
+            endTime = endTime.add(1, 'day');
+        }
+        return startTime.isBefore(endDt) && endTime.isAfter(startDt);
+    });
 
     // Helper functions
     const getRequiredCount = (postId: number, day: string, shiftLabel: string): number => {
@@ -615,6 +626,12 @@ const ScheduleCalendar: React.FC<Props> = ({
         });
     };
 
+    const filteredBwDays = bwDays.filter(day => {
+        const dayStart = dayjs(`${day}T00:00`);
+        const dayEnd = dayjs(`${day}T23:59`);
+        return dayEnd.isAfter(startDt) && dayStart.isBefore(endDt);
+    });
+
     return (
         <>
             {/* Action buttons */}
@@ -699,13 +716,13 @@ const ScheduleCalendar: React.FC<Props> = ({
                         </tr>
                     </thead>
                     <tbody>
-                        {shifts.map((shift, shiftIdx) => {
-                            const isPartialRow = (shiftIdx === 0 && firstIsPartial) || (shiftIdx === shifts.length - 1 && lastIsPartial);
+                        {filteredShifts.map((shift, shiftIdx) => {
+                            const isPartialRow = (shiftIdx === 0 && firstIsPartial) || (shiftIdx === filteredShifts.length - 1 && lastIsPartial);
                             const hoursBg = isPartialRow ? '#f7f9ff' : '#fafafa';
                             return (
                                 <tr key={shift.day + shift.label} style={{ background: isPartialRow ? '#fbfcff' : undefined }}>
                                     <td style={{ border: "1px solid #888", fontWeight: "bold", minWidth: 140, padding: "4px 8px", background: hoursBg, position: "sticky", left: 0, zIndex: 1 }}>
-                                        {shift.day} {displayShiftLabel(shiftIdx)}
+                                        {shift.day} {displayShiftLabel(shiftIdx, filteredShifts.length, shift.label)}
                                     </td>
                                 {posts.map(post => {
                                     const names = getPeopleNames(post.id, shift.label, shift.day);
@@ -764,7 +781,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                         return (
                                             <td
                                                 key={group.id}
-                                                rowSpan={shifts.length}
+                                                rowSpan={filteredShifts.length}
                                                 onClick={() => handleESClick(group)}
                                                 style={{
                                                     border: isInvalid && validationErrors.length > 0 ? "2px solid #f44336" : "1px solid #888",
@@ -802,7 +819,7 @@ const ScheduleCalendar: React.FC<Props> = ({
             </Box>
 
             {/* BW table */}
-            {bwDays.length > 0 && (
+            {filteredBwDays.length > 0 && (
                 <Box sx={{ mt: 4, overflowX: 'auto' }}>
                     <Typography variant="h6" align="center" sx={{ mb: 1 }}>{t('BW Assignments')}</Typography>
                     <table style={{ borderCollapse: 'collapse', minWidth: '100%', tableLayout: 'fixed' }}>
@@ -811,22 +828,60 @@ const ScheduleCalendar: React.FC<Props> = ({
                                 <th style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: 160, padding: "8px 4px" }}>
                                     {t('Hours')}
                                 </th>
-                                {bwDays.map(day => (
-                                    <th key={day} style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: 160, padding: "8px 4px" }}>
-                                        {day}
-                                    </th>
-                                ))}
+                                {filteredBwDays.map(day => {
+                                    // Calculate the maximum number of people assigned to any slot on this day
+                                    const maxPeopleForDay = Math.max(
+                                        ...bwSlotsForRange.map(slot => getBWPersonIds(day, slot.id).length),
+                                        0
+                                    );
+                                    const baseWidth = 160;
+                                    const widthPerPerson = 40;
+                                    const dynamicWidth = Math.max(baseWidth, baseWidth + (maxPeopleForDay - 1) * widthPerPerson);
+
+                                    return (
+                                        <th key={day} style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: dynamicWidth, width: dynamicWidth, padding: "8px 4px" }}>
+                                            {day}
+                                        </th>
+                                    );
+                                })}
                             </tr>
                         </thead>
                         <tbody>
                             {bwSlotsForRange.map(slot => {
                                 const slotLabel = lang === 'he' ? `עב"ס ${slot.label}` : `BW ${slot.label}`;
+                                // Filter days to only those where this specific slot overlaps with the date range
+                                const daysForThisSlot = filteredBwDays.filter(day => {
+                                    const slotStart = dayjs(`${day}T${String(slot.startHour).padStart(2, '0')}:${String(slot.startMinute).padStart(2, '0')}:00`);
+                                    let slotEnd = dayjs(`${day}T${String(slot.endHour).padStart(2, '0')}:${String(slot.endMinute).padStart(2, '0')}:00`);
+                                    if (!slotEnd.isAfter(slotStart)) {
+                                        slotEnd = slotEnd.add(1, 'day');
+                                    }
+                                    // Check if this slot instance overlaps with the actual date range
+                                    return slotEnd.isAfter(startDt) && slotStart.isBefore(endDt);
+                                });
+                                
+                                // Only render the row if there are days where this slot overlaps
+                                if (daysForThisSlot.length === 0) return null;
+                                
                                 return (
                                     <tr key={slot.id}>
                                         <td style={{ border: "1px solid #888", padding: "6px 8px", background: "#fafafa", fontWeight: 600 }}>
                                             {slotLabel}
                                         </td>
-                                        {bwDays.map(day => {
+                                    {filteredBwDays.map(day => {
+                                        // Check if this specific slot on this day overlaps with the date range
+                                        const slotStart = dayjs(`${day}T${String(slot.startHour).padStart(2, '0')}:${String(slot.startMinute).padStart(2, '0')}:00`);
+                                        let slotEnd = dayjs(`${day}T${String(slot.endHour).padStart(2, '0')}:${String(slot.endMinute).padStart(2, '0')}:00`);
+                                        if (!slotEnd.isAfter(slotStart)) {
+                                            slotEnd = slotEnd.add(1, 'day');
+                                        }
+                                        const slotOverlaps = slotEnd.isAfter(startDt) && slotStart.isBefore(endDt);
+                                        
+                                        // Don't render cell if slot doesn't overlap with date range
+                                        if (!slotOverlaps) {
+                                            return <td key={getBwSlotKey(day, slot.id)} style={{ padding: 0, border: 'none', width: 0, visibility: 'hidden' }} />;
+                                        }
+                                        
                                             const personIds = getBWPersonIds(day, slot.id);
                                             const key = getBwSlotKey(day, slot.id);
                                             const isInvalid = isInvalidBWSlot(day, slot.id);
@@ -839,6 +894,11 @@ const ScheduleCalendar: React.FC<Props> = ({
                                             else if (personIds.length === 0) bgColor = '#ffebee';
                                             else if (personIds.length >= BW_REQUIRED_PER_SLOT) bgColor = '#e8f5e9';
 
+                                            // Calculate dynamic width based on number of people
+                                            const baseWidth = 160;
+                                            const widthPerPerson = 40;
+                                            const dynamicWidth = Math.max(baseWidth, baseWidth + (personIds.length - 1) * widthPerPerson);
+
                                             return (
                                                 <td
                                                     key={key}
@@ -848,7 +908,9 @@ const ScheduleCalendar: React.FC<Props> = ({
                                                         padding: 8,
                                                         cursor: readOnly ? 'default' : 'pointer',
                                                         backgroundColor: bgColor,
-                                                        verticalAlign: 'top'
+                                                        verticalAlign: 'top',
+                                                        minWidth: dynamicWidth,
+                                                        width: dynamicWidth
                                                     }}
                                                 >
                                                     <Typography variant="body2" sx={{ minHeight: 24 }}>
