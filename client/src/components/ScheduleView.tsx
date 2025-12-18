@@ -5,11 +5,11 @@ import { useI18n } from "../util/i18n";
 import { Box, Typography, Alert, Button, IconButton, Chip, CircularProgress } from "@mui/material";
 import SettingsIcon from '@mui/icons-material/Settings';
 import EditIcon from '@mui/icons-material/Edit';
-
-import { 
-    CellEditDialog, 
-    ESEditDialog, 
-    ShiftSettingsDialog, 
+import { saveAllSchedules } from "../api";
+import {
+    CellEditDialog,
+    ESEditDialog,
+    ShiftSettingsDialog,
     BWEditDialog,
     exportToExcel,
     getShiftsForPeriod,
@@ -23,6 +23,7 @@ import {
     hasTimeOverlap,
     getBwSlotRangeMinutes,
     getBwDaysForRange,
+    getBwSlotsForRange,
     isNightShift,
     isStandingExemptPost
 } from "./schedule";
@@ -44,6 +45,7 @@ interface Props {
     bwAssignments?: BWAssignment[];
     onBWAssignmentsChange?: (assignments: BWAssignment[]) => void;
     constraints?: Constraint[];
+    readOnly?: boolean;
 }
 
 const ScheduleCalendar: React.FC<Props> = ({ 
@@ -63,6 +65,7 @@ const ScheduleCalendar: React.FC<Props> = ({
     onBWAssignmentsChange,
     isGenerating = false,
     constraints = [],
+    readOnly = false,
 }) => {
     const shifts = getShiftsForPeriod(start, end);
     const { t, lang } = useI18n();
@@ -70,7 +73,7 @@ const ScheduleCalendar: React.FC<Props> = ({
     // ES Groups state - use external if provided
     const [localESGroups, setLocalESGroups] = useState<ESGroup[]>([
         { id: 'es1', name: lang === 'he' ? "כ\"כ א'" : "ES 1", totalPeople: 5, activePerShift: 1 },
-        { id: 'es2', name: lang === 'he' ? "כ\"כ ב'" : "ES 2", totalPeople: 4, activePerShift: 1 },
+        { id: 'es2', name: lang === 'he' ? "כ\"כ ב'" : "ES 2", totalPeople: 5, activePerShift: 1 },
     ]);
     
     const esGroups = onESGroupsChange && externalESGroups ? externalESGroups : localESGroups;
@@ -100,15 +103,17 @@ const ScheduleCalendar: React.FC<Props> = ({
         { groupId: 'es2', personIds: [] },
     ]);
     
-    // Use external ES assignments if provided, otherwise use local state
-    const esAssignments = onESAssignmentsChange && externalESAssignments ? externalESAssignments : localESAssignments;
+    // Use external ES assignments if provided (non-empty), otherwise use local state
+    const esAssignments = externalESAssignments && externalESAssignments.length > 0 ? externalESAssignments : localESAssignments;
 
     const [localBWAssignments, setLocalBWAssignments] = useState<BWAssignment[]>(externalBWAssignments);
     const bwAssignments = onBWAssignmentsChange ? externalBWAssignments : localBWAssignments;
     const setBWAssignments = onBWAssignmentsChange || setLocalBWAssignments;
     const bwDays = getBwDaysForRange(start, end, bwAssignments);
+    const bwSlotsForRange = getBwSlotsForRange(start, end);
     
     const [hasChanges, setHasChanges] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
     const [invalidCells, setInvalidCells] = useState<Set<string>>(new Set());
     const [invalidESGroups, setInvalidESGroups] = useState<Set<string>>(new Set());
@@ -164,6 +169,44 @@ const ScheduleCalendar: React.FC<Props> = ({
         }
     }, [externalOverrides, onShiftOverridesChange]);
 
+    // Mark as changed when date range changes (if there are assignments)
+    useEffect(() => {
+        if (localAssignments.length > 0 || bwAssignments.length > 0) {
+            setHasChanges(true);
+        }
+    }, [start, end]);
+
+    // Determine if first/last shifts are partial based on custom start/end
+    const startDt = dayjs(start);
+    const endDt = dayjs(end);
+    const startMinutes = startDt.hour() * 60 + startDt.minute();
+    const endMinutes = endDt.hour() * 60 + endDt.minute();
+    const firstIsPartial = (startMinutes % 240) !== 0;
+    const lastIsPartial = (endMinutes % 240) !== 0;
+    const firstShiftEnd = startDt.clone().add((240 - (startMinutes % 240)) % 240 || 240, 'minute');
+    const lastShiftStart = endDt.clone().subtract(endMinutes % 240 || 240, 'minute');
+
+    const displayShiftLabel = (shiftIdx: number, total: number, shiftLabel: string) => {
+        if (shiftIdx === 0 && firstIsPartial) {
+            return `${startDt.format('HH:mm')}-${firstShiftEnd.format('HH:mm')}`;
+        }
+        if (shiftIdx === total - 1 && lastIsPartial) {
+            return `${lastShiftStart.format('HH:mm')}-${endDt.format('HH:mm')}`;
+        }
+        return shiftLabel;
+    };
+
+    // Filter out shifts that do not overlap the selected range
+    const filteredShifts = shifts.filter(shift => {
+        const [s, e] = shift.label.split('-');
+        const startTime = dayjs(`${shift.day}T${s}:00`);
+        let endTime = dayjs(`${shift.day}T${e}:00`);
+        if (!endTime.isAfter(startTime)) {
+            endTime = endTime.add(1, 'day');
+        }
+        return startTime.isBefore(endDt) && endTime.isAfter(startDt);
+    });
+
     // Helper functions
     const getRequiredCount = (postId: number, day: string, shiftLabel: string): number => {
         const override = shiftOverrides.find(o =>
@@ -203,6 +246,7 @@ const ScheduleCalendar: React.FC<Props> = ({
 
     // Event handlers
     const handleCellClick = (post: Post, day: string, shiftLabel: string) => {
+        if (readOnly) return;
         setEditDialog({
             open: true,
             post,
@@ -213,15 +257,18 @@ const ScheduleCalendar: React.FC<Props> = ({
     };
 
     const handleSettingsClick = (e: React.MouseEvent, post: Post, day: string, shiftLabel: string) => {
+        if (readOnly) return;
         e.stopPropagation();
         setSettingsDialog({ open: true, post, day, shiftLabel });
     };
 
     const handleESClick = (group: ESGroup) => {
+        if (readOnly) return;
         setESEditDialog({ open: true, group });
     };
 
     const handleBWCellClick = (day: string, slotId: string) => {
+        if (readOnly) return;
         setBWEditDialog({ open: true, day, slotId });
     };
 
@@ -538,20 +585,14 @@ const ScheduleCalendar: React.FC<Props> = ({
 
         setInvalidCells(new Set());
         setInvalidESGroups(new Set());
+        setIsSaving(true);
 
         try {
-            const response = await fetch('http://localhost:4000/api/schedule/save-all', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    assignments: localAssignments,
-                    overrides: shiftOverrides,
-                    esAssignments,
-                    esGroups,
-                    bwAssignments
-                })
-            });
-            const result = await response.json();
+            // Ensure loading indicator is visible for at least 500ms
+            const [result] = await Promise.all([
+                saveAllSchedules(localAssignments, bwAssignments, esAssignments, start, end),
+                new Promise(resolve => setTimeout(resolve, 500))
+            ]);
 
             if (result.ok) {
                 setHasChanges(false);
@@ -564,6 +605,8 @@ const ScheduleCalendar: React.FC<Props> = ({
             }
         } catch {
             setValidationErrors([t('Save failed')]);
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -583,22 +626,30 @@ const ScheduleCalendar: React.FC<Props> = ({
         });
     };
 
+    const filteredBwDays = bwDays.filter(day => {
+        const dayStart = dayjs(`${day}T00:00`);
+        const dayEnd = dayjs(`${day}T23:59`);
+        return dayEnd.isAfter(startDt) && dayStart.isBefore(endDt);
+    });
+
     return (
         <>
             {/* Action buttons */}
-            <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Button variant="outlined" onClick={handleExport}>
-                    {t('Export to Excel')}
-                </Button>
-                <Button variant="contained" color="success" onClick={handleSaveAll} disabled={!hasChanges}>
-                    {t('Save Schedule')}
-                </Button>
-                {hasChanges && (
-                    <Typography color="warning.main" variant="body2">
-                        {t('Unsaved changes')}
-                    </Typography>
-                )}
-            </Box>
+            {!readOnly && (
+                <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Button variant="outlined" onClick={handleExport} disabled={isSaving || isGenerating}>
+                        {t('Export to Excel')}
+                    </Button>
+                    <Button variant="contained" color="success" onClick={handleSaveAll} disabled={!hasChanges || isSaving || isGenerating}>
+                        {t('Save Schedule')}
+                    </Button>
+                    {hasChanges && !isSaving && (
+                        <Typography color="warning.main" variant="body2">
+                            {t('Unsaved changes')}
+                        </Typography>
+                    )}
+                </Box>
+            )}
 
             {/* Validation errors */}
             {validationErrors.length > 0 && (
@@ -619,6 +670,26 @@ const ScheduleCalendar: React.FC<Props> = ({
                     <CircularProgress size="2rem" />
                     <Typography variant="h5">{t('Assigning')}</Typography>
                 </Box>
+            )}
+
+            {/* Loading indicator during save */}
+            {isSaving && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mb: 2 }}>
+                    <CircularProgress size="2rem" />
+                    <Typography variant="h5">{t('Saving')}</Typography>
+                </Box>
+            )}
+
+            {/* Custom shift boundary notice */}
+            {(firstIsPartial || lastIsPartial) && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                        {t('Custom shift times applied')}:{" "}
+                        {firstIsPartial && `${t('First shift')}: ${startDt.format('HH:mm')} - ${firstShiftEnd.format('HH:mm')}`}
+                        {firstIsPartial && lastIsPartial && ' | '}
+                        {lastIsPartial && `${t('Last shift')}: ${lastShiftStart.format('HH:mm')} - ${endDt.format('HH:mm')}`}
+                    </Typography>
+                </Alert>
             )}
 
             {/* Schedule table */}
@@ -645,11 +716,14 @@ const ScheduleCalendar: React.FC<Props> = ({
                         </tr>
                     </thead>
                     <tbody>
-                        {shifts.map((shift, shiftIdx) => (
-                            <tr key={shift.day + shift.label}>
-                                <td style={{ border: "1px solid #888", fontWeight: "bold", minWidth: 140, padding: "4px 8px", background: "#fafafa", position: "sticky", left: 0, zIndex: 1 }}>
-                                    {shift.day} {shift.label}
-                                </td>
+                        {filteredShifts.map((shift, shiftIdx) => {
+                            const isPartialRow = (shiftIdx === 0 && firstIsPartial) || (shiftIdx === filteredShifts.length - 1 && lastIsPartial);
+                            const hoursBg = isPartialRow ? '#f7f9ff' : '#fafafa';
+                            return (
+                                <tr key={shift.day + shift.label} style={{ background: isPartialRow ? '#fbfcff' : undefined }}>
+                                    <td style={{ border: "1px solid #888", fontWeight: "bold", minWidth: 140, padding: "4px 8px", background: hoursBg, position: "sticky", left: 0, zIndex: 1 }}>
+                                        {shift.day} {displayShiftLabel(shiftIdx, filteredShifts.length, shift.label)}
+                                    </td>
                                 {posts.map(post => {
                                     const names = getPeopleNames(post.id, shift.label, shift.day);
                                     const required = getRequiredCount(post.id, shift.day, shift.label);
@@ -672,7 +746,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                                 minWidth: 120,
                                                 verticalAlign: 'top',
                                                 padding: 4,
-                                                cursor: 'pointer',
+                                                cursor: readOnly ? 'default' : 'pointer',
                                                 backgroundColor: bgColor,
                                                 transition: 'background-color 0.2s',
                                                 position: 'relative'
@@ -694,57 +768,58 @@ const ScheduleCalendar: React.FC<Props> = ({
                                         </td>
                                     );
                                 })}
-                                {shiftIdx === 0 && esGroups.map(group => {
-                                    const esAssignment = esAssignments.find(es => es.groupId === group.id);
-                                    const assignedCount = esAssignment?.personIds.length || 0;
-                                    const isInvalid = isESInvalid(group.id);
+                                    {shiftIdx === 0 && esGroups.map(group => {
+                                        const esAssignment = esAssignments.find(es => es.groupId === group.id);
+                                        const assignedCount = esAssignment?.personIds.length || 0;
+                                        const isInvalid = isESInvalid(group.id);
 
-                                    let bgColor = '#e3f2fd';
-                                    if (isInvalid && validationErrors.length > 0) bgColor = '#ffcdd2';
-                                    else if (assignedCount === 0) bgColor = '#ffebee';
-                                    else if (assignedCount >= group.totalPeople) bgColor = '#c8e6c9';
+                                        let bgColor = '#e3f2fd';
+                                        if (isInvalid && validationErrors.length > 0) bgColor = '#ffcdd2';
+                                        else if (assignedCount === 0) bgColor = '#ffebee';
+                                        else if (assignedCount >= group.totalPeople) bgColor = '#c8e6c9';
 
-                                    return (
-                                        <td
-                                            key={group.id}
-                                            rowSpan={shifts.length}
-                                            onClick={() => handleESClick(group)}
-                                            style={{
-                                                border: isInvalid && validationErrors.length > 0 ? "2px solid #f44336" : "1px solid #888",
-                                                minWidth: 150,
-                                                verticalAlign: 'top',
-                                                padding: 8,
-                                                cursor: 'pointer',
-                                                backgroundColor: bgColor,
-                                                transition: 'background-color 0.2s'
-                                            }}
-                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#bbdefb'}
-                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = bgColor}
-                                        >
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                                                <Typography variant="caption" color="textSecondary">
-                                                    {t('Active')}: {group.activePerShift} | {t('Resting')}: {group.totalPeople - group.activePerShift}
-                                                </Typography>
-                                                <EditIcon fontSize="small" color="action" />
-                                            </Box>
-                                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                                                {esAssignment?.personIds.map(personId => {
-                                                    const person = people.find(p => p.id === personId);
-                                                    return person ? <Chip key={personId} label={person.name} size="small" variant="outlined" /> : null;
-                                                })}
-                                                {assignedCount === 0 && <Typography variant="body2" color="text.secondary">—</Typography>}
-                                            </Box>
-                                        </td>
-                                    );
-                                })}
-                            </tr>
-                        ))}
+                                        return (
+                                            <td
+                                                key={group.id}
+                                                rowSpan={filteredShifts.length}
+                                                onClick={() => handleESClick(group)}
+                                                style={{
+                                                    border: isInvalid && validationErrors.length > 0 ? "2px solid #f44336" : "1px solid #888",
+                                                    minWidth: 150,
+                                                    verticalAlign: 'top',
+                                                    padding: 8,
+                                                    cursor: readOnly ? 'default' : 'pointer',
+                                                    backgroundColor: bgColor,
+                                                    transition: 'background-color 0.2s'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#bbdefb'}
+                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = bgColor}
+                                            >
+                                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                                    <Typography variant="caption" color="textSecondary">
+                                                        {t('Active')}: {group.activePerShift} | {t('Resting')}: {group.totalPeople - group.activePerShift}
+                                                    </Typography>
+                                                    <EditIcon fontSize="small" color="action" />
+                                                </Box>
+                                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                                    {esAssignment?.personIds.map(personId => {
+                                                        const person = people.find(p => p.id === personId);
+                                                        return person ? <Chip key={personId} label={person.name} size="small" variant="outlined" /> : null;
+                                                    })}
+                                                    {assignedCount === 0 && <Typography variant="body2" color="text.secondary">—</Typography>}
+                                                </Box>
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </Box>
 
             {/* BW table */}
-            {bwDays.length > 0 && (
+            {filteredBwDays.length > 0 && (
                 <Box sx={{ mt: 4, overflowX: 'auto' }}>
                     <Typography variant="h6" align="center" sx={{ mb: 1 }}>{t('BW Assignments')}</Typography>
                     <table style={{ borderCollapse: 'collapse', minWidth: '100%', tableLayout: 'fixed' }}>
@@ -753,22 +828,60 @@ const ScheduleCalendar: React.FC<Props> = ({
                                 <th style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: 160, padding: "8px 4px" }}>
                                     {t('Hours')}
                                 </th>
-                                {bwDays.map(day => (
-                                    <th key={day} style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: 160, padding: "8px 4px" }}>
-                                        {day}
-                                    </th>
-                                ))}
+                                {filteredBwDays.map(day => {
+                                    // Calculate the maximum number of people assigned to any slot on this day
+                                    const maxPeopleForDay = Math.max(
+                                        ...bwSlotsForRange.map(slot => getBWPersonIds(day, slot.id).length),
+                                        0
+                                    );
+                                    const baseWidth = 160;
+                                    const widthPerPerson = 40;
+                                    const dynamicWidth = Math.max(baseWidth, baseWidth + (maxPeopleForDay - 1) * widthPerPerson);
+
+                                    return (
+                                        <th key={day} style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: dynamicWidth, width: dynamicWidth, padding: "8px 4px" }}>
+                                            {day}
+                                        </th>
+                                    );
+                                })}
                             </tr>
                         </thead>
                         <tbody>
-                            {BW_SLOT_DEFINITIONS.map(slot => {
+                            {bwSlotsForRange.map(slot => {
                                 const slotLabel = lang === 'he' ? `עב"ס ${slot.label}` : `BW ${slot.label}`;
+                                // Filter days to only those where this specific slot overlaps with the date range
+                                const daysForThisSlot = filteredBwDays.filter(day => {
+                                    const slotStart = dayjs(`${day}T${String(slot.startHour).padStart(2, '0')}:${String(slot.startMinute).padStart(2, '0')}:00`);
+                                    let slotEnd = dayjs(`${day}T${String(slot.endHour).padStart(2, '0')}:${String(slot.endMinute).padStart(2, '0')}:00`);
+                                    if (!slotEnd.isAfter(slotStart)) {
+                                        slotEnd = slotEnd.add(1, 'day');
+                                    }
+                                    // Check if this slot instance overlaps with the actual date range
+                                    return slotEnd.isAfter(startDt) && slotStart.isBefore(endDt);
+                                });
+                                
+                                // Only render the row if there are days where this slot overlaps
+                                if (daysForThisSlot.length === 0) return null;
+                                
                                 return (
                                     <tr key={slot.id}>
                                         <td style={{ border: "1px solid #888", padding: "6px 8px", background: "#fafafa", fontWeight: 600 }}>
                                             {slotLabel}
                                         </td>
-                                        {bwDays.map(day => {
+                                    {filteredBwDays.map(day => {
+                                        // Check if this specific slot on this day overlaps with the date range
+                                        const slotStart = dayjs(`${day}T${String(slot.startHour).padStart(2, '0')}:${String(slot.startMinute).padStart(2, '0')}:00`);
+                                        let slotEnd = dayjs(`${day}T${String(slot.endHour).padStart(2, '0')}:${String(slot.endMinute).padStart(2, '0')}:00`);
+                                        if (!slotEnd.isAfter(slotStart)) {
+                                            slotEnd = slotEnd.add(1, 'day');
+                                        }
+                                        const slotOverlaps = slotEnd.isAfter(startDt) && slotStart.isBefore(endDt);
+                                        
+                                        // Don't render cell if slot doesn't overlap with date range
+                                        if (!slotOverlaps) {
+                                            return <td key={getBwSlotKey(day, slot.id)} style={{ padding: 0, border: 'none', width: 0, visibility: 'hidden' }} />;
+                                        }
+                                        
                                             const personIds = getBWPersonIds(day, slot.id);
                                             const key = getBwSlotKey(day, slot.id);
                                             const isInvalid = isInvalidBWSlot(day, slot.id);
@@ -781,6 +894,11 @@ const ScheduleCalendar: React.FC<Props> = ({
                                             else if (personIds.length === 0) bgColor = '#ffebee';
                                             else if (personIds.length >= BW_REQUIRED_PER_SLOT) bgColor = '#e8f5e9';
 
+                                            // Calculate dynamic width based on number of people
+                                            const baseWidth = 160;
+                                            const widthPerPerson = 40;
+                                            const dynamicWidth = Math.max(baseWidth, baseWidth + (personIds.length - 1) * widthPerPerson);
+
                                             return (
                                                 <td
                                                     key={key}
@@ -788,9 +906,11 @@ const ScheduleCalendar: React.FC<Props> = ({
                                                     style={{
                                                         border: isInvalid && validationErrors.length > 0 ? "2px solid #f44336" : "1px solid #ccc",
                                                         padding: 8,
-                                                        cursor: 'pointer',
+                                                        cursor: readOnly ? 'default' : 'pointer',
                                                         backgroundColor: bgColor,
-                                                        verticalAlign: 'top'
+                                                        verticalAlign: 'top',
+                                                        minWidth: dynamicWidth,
+                                                        width: dynamicWidth
                                                     }}
                                                 >
                                                     <Typography variant="body2" sx={{ minHeight: 24 }}>

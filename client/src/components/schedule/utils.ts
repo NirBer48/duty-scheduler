@@ -8,34 +8,39 @@ export interface ShiftSlot {
 
 export const getShiftsForPeriod = (start: string, end: string): ShiftSlot[] => {
     const result: ShiftSlot[] = [];
-    const shifts = [
-        { label: "00:00-04:00", startH: 0 },
-        { label: "04:00-08:00", startH: 4 },
-        { label: "08:00-12:00", startH: 8 },
-        { label: "12:00-16:00", startH: 12 },
-        { label: "16:00-20:00", startH: 16 },
-        { label: "20:00-00:00", startH: 20 },
-    ];
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    startDate.setMinutes(0, 0, 0);
-    startDate.setHours(Math.floor(startDate.getHours() / 4) * 4);
+    const startDt = dayjs(start).second(0).millisecond(0);
+    const endDt = dayjs(end).second(0).millisecond(0);
 
-    const curr = new Date(startDate);
-    while (curr < endDate) {
-        const h = curr.getHours();
-        const shift = shifts.find(s => s.startH === h);
-        if (shift) {
-            const year = curr.getFullYear();
-            const month = String(curr.getMonth() + 1).padStart(2, '0');
-            const date = String(curr.getDate()).padStart(2, '0');
-            result.push({
-                day: `${year}-${month}-${date}`,
-                label: shift.label,
-            });
-        }
-        curr.setHours(curr.getHours() + 4);
+    const formatLabel = (s: dayjs.Dayjs, e: dayjs.Dayjs) =>
+        `${s.format('HH:mm')}-${e.format('HH:mm')}`;
+
+    const addShift = (s: dayjs.Dayjs, e: dayjs.Dayjs) => {
+        result.push({
+            day: s.format('YYYY-MM-DD'),
+            label: formatLabel(s, e),
+        });
+    };
+
+    // First partial if not aligned
+    const startMinutes = startDt.hour() * 60 + startDt.minute();
+    const nextBoundaryMinutes = Math.ceil(startMinutes / 240) * 240;
+    const minutesToAdd = nextBoundaryMinutes - startMinutes;
+    const firstEnd = startDt.add(minutesToAdd || 240, 'minute');
+    addShift(startDt, firstEnd.isAfter(endDt) ? endDt : firstEnd);
+
+    // Standard 4h blocks
+    let cursor = firstEnd;
+    while (cursor.add(4, 'hour').isBefore(endDt) || cursor.add(4, 'hour').isSame(endDt)) {
+        const shiftEnd = cursor.add(4, 'hour');
+        addShift(cursor, shiftEnd);
+        cursor = shiftEnd;
     }
+
+    // Last partial
+    if (cursor.isBefore(endDt)) {
+        addShift(cursor, endDt);
+    }
+
     return result;
 };
 
@@ -110,15 +115,11 @@ export const hasTimeOverlap = (startA: number, endA: number, startB: number, end
 export const getBwDaysForRange = (start: string, end: string, existing: BWAssignment[] = []): string[] => {
     const startDt = dayjs(start);
     const endDt = dayjs(end);
-    const rangeStart = startDt.startOf('day');
-    const rangeEnd = endDt.endOf('day');
     const daysSet = new Set<string>();
 
     const addDayIfApplicable = (day: dayjs.Dayjs | string) => {
         const normalized = dayjs(day).startOf('day');
-        if (normalized.isBefore(rangeStart) || normalized.isAfter(rangeEnd)) {
-            return;
-        }
+        // Check if any BW slot on this day overlaps with the actual time range
         const hasSlotWithinRange = BW_SLOT_DEFINITIONS.some(slot => {
             const slotStart = normalized.add(slot.startHour, 'hour').add(slot.startMinute, 'minute');
             let slotEnd = normalized.add(slot.endHour, 'hour').add(slot.endMinute, 'minute');
@@ -134,13 +135,44 @@ export const getBwDaysForRange = (start: string, end: string, existing: BWAssign
 
     existing.forEach(bw => addDayIfApplicable(bw.day));
 
-    let cursor = rangeStart.clone();
-    while (cursor.isBefore(rangeEnd) || cursor.isSame(rangeEnd, 'day')) {
+    // Iterate through days from start to end
+    let cursor = startDt.startOf('day');
+    const lastDay = endDt.startOf('day');
+    while (cursor.isBefore(lastDay) || cursor.isSame(lastDay, 'day')) {
         addDayIfApplicable(cursor);
         cursor = cursor.add(1, 'day');
     }
 
     return Array.from(daysSet).sort();
+};
+
+export const getBwSlotsForRange = (start: string, end: string): BwSlotDefinition[] => {
+    const startDt = dayjs(start);
+    const endDt = dayjs(end);
+
+    return BW_SLOT_DEFINITIONS.filter(slot => {
+        // Check if this slot overlaps with the actual time range (not full days)
+        // Iterate through each day in the range
+        let cursor = startDt.startOf('day');
+        const lastDay = endDt.startOf('day');
+
+        while (cursor.isBefore(lastDay) || cursor.isSame(lastDay, 'day')) {
+            const slotStart = cursor.add(slot.startHour, 'hour').add(slot.startMinute, 'minute');
+            let slotEnd = cursor.add(slot.endHour, 'hour').add(slot.endMinute, 'minute');
+            if (!slotEnd.isAfter(slotStart)) {
+                slotEnd = slotEnd.add(1, 'day');
+            }
+
+            // Check if this slot instance overlaps with the actual range (not full day)
+            if (slotEnd.isAfter(startDt) && slotStart.isBefore(endDt)) {
+                return true;
+            }
+
+            cursor = cursor.add(1, 'day');
+        }
+
+        return false;
+    });
 };
 
 

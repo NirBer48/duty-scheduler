@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ScheduleCalendar from './components/ScheduleView';
 import PeopleEditor from './components/PeopleEditor';
 import PostsEditor from './components/PostsEditor';
-import { fetchPeople, fetchPosts, generateSchedule, clearSchedule, fetchLastSchedule, fetchConstraints, addConstraint } from './api';
+import { fetchPeople, fetchPosts, generateSchedule, clearSchedule, fetchLastSchedule, fetchConstraints, addConstraint, login, register, logout, fetchMe } from './api';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
@@ -32,8 +32,11 @@ import {
   Select,
   InputLabel,
   FormControl,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import ConstraintsEditor from './components/ConstraintsEditor';
+import HistoryView from './components/HistoryView';
 
 const STORAGE_KEY_START = 'duty_scheduler_start';
 const STORAGE_KEY_END = 'duty_scheduler_end';
@@ -77,19 +80,13 @@ const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
   return defaultValue;
 };
 
-const ensureDefaultTime = (storageKey: string, calculate: () => string) => {
-  const saved = localStorage.getItem(storageKey);
-  if (saved && saved.endsWith('T20:00')) return saved;
-  const next = calculate();
-  localStorage.setItem(storageKey, next);
-  return next;
+const loadString = (key: string, fallback: string): string => {
+  const saved = localStorage.getItem(key);
+  return saved ?? fallback;
 };
 
-const ensureDefaultStart = () => ensureDefaultTime(STORAGE_KEY_START, calculateDefaultStart);
-const ensureDefaultEnd = () => ensureDefaultTime(STORAGE_KEY_END, calculateDefaultEnd);
-
 const App: React.FC = () => {
-  const [assignments, setAssignments] = useState<Assignment[]>(() => 
+  const [assignments, setAssignments] = useState<Assignment[]>(() =>
     loadFromStorage(STORAGE_KEY_ASSIGNMENTS, [])
   );
   const [people, setPeople] = useState<Person[]>([]);
@@ -111,8 +108,8 @@ const App: React.FC = () => {
   );
   const [bwAssignments, setBWAssignments] = useState<BWAssignment[]>([]);
   const [constraints, setConstraints] = useState<Constraint[]>([]);
-  const [start, setStart] = useState(ensureDefaultStart);
-  const [end, setEnd] = useState(ensureDefaultEnd);
+  const [start, setStart] = useState(() => loadString(STORAGE_KEY_START, calculateDefaultStart()));
+  const [end, setEnd] = useState(() => loadString(STORAGE_KEY_END, calculateDefaultEnd()));
   const { t, lang, setLang } = useI18n();
   const [error, setError] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -122,6 +119,13 @@ const App: React.FC = () => {
   const [constraintStart, setConstraintStart] = useState('');
   const [constraintEnd, setConstraintEnd] = useState('');
   const [constraintError, setConstraintError] = useState('');
+  const [tab, setTab] = useState(0);
+  const [user, setUser] = useState<{ id: number; email: string } | null>(null);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
 
   const refreshPeople = () => fetchPeople().then(setPeople);
   const refreshPosts = () => fetchPosts().then(data => {
@@ -130,16 +134,25 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
+    fetchMe()
+      .then(setUser)
+      .catch(() => setUser(null));
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
     refreshPeople();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
+    if (!user) return;
     refreshPosts();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
-    fetchConstraints().then(setConstraints).catch(() => {});
-  }, []);
+    if (!user) return;
+    fetchConstraints().then(setConstraints).catch(() => { });
+  }, [user]);
 
   useEffect(() => {
     const loadLastSchedule = async () => {
@@ -156,8 +169,8 @@ const App: React.FC = () => {
         console.error('Failed to load last schedule', err);
       }
     };
-    loadLastSchedule();
-  }, []);
+    if (user) loadLastSchedule();
+  }, [user]);
 
   useEffect(() => {
     setESAssignments((prev: ESGroupAssignment[]) => {
@@ -185,8 +198,13 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem(STORAGE_KEY_SHIFT_OVERRIDES, JSON.stringify(shiftOverrides)); }, [shiftOverrides]);
 
   const handleSchedule = async () => {
-    const startISO = new Date(start).toISOString();
-    const endISO = new Date(end).toISOString();
+    if (!user) {
+      setError(t('Invalid credentials'));
+      return;
+    }
+    // Send as local (no timezone shift) to keep boundaries exact
+    const startISO = start;
+    const endISO = end;
     setIsGenerating(true);
     try {
       const res = await generateSchedule(
@@ -195,8 +213,8 @@ const App: React.FC = () => {
         shiftOverrides,
         esAssignments,
         assignments,
-      bwAssignments,
-      constraints
+        bwAssignments,
+        constraints
       );
       setAssignments(res.assignments || []);
       setBWAssignments(res.bwAssignments || []);
@@ -213,6 +231,7 @@ const App: React.FC = () => {
   };
 
   const handleClearSchedule = async () => {
+    if (!user) return;
     if (window.confirm(t('Are you sure you want to clear the schedule?'))) {
       setAssignments([]);
       setESAssignments([
@@ -223,6 +242,49 @@ const App: React.FC = () => {
       setError('');
       await clearSchedule();
     }
+  };
+
+  const translateAuthError = (msg: string) => {
+    const lower = (msg || '').toLowerCase();
+    if (lower.includes('email exists')) return t('Email already exists');
+    if (lower.includes('missing fields')) return t('Invalid credentials');
+    if (lower.includes('invalid credentials')) return t('Invalid credentials');
+    if (lower.includes('unauthorized')) return t('Invalid credentials');
+    return t('Invalid credentials');
+  };
+
+  const handleAuthSubmit = async () => {
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      if (authMode === 'login') {
+        const u = await login(authEmail.trim(), authPassword);
+        setUser(u);
+      } else {
+        const u = await register(authEmail.trim(), authPassword);
+        setUser(u);
+      }
+      setAuthPassword('');
+    } catch (err: any) {
+      setAuthError(translateAuthError(err?.message || ''));
+      setUser(null);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout().catch(() => {});
+    setUser(null);
+    setAssignments([]);
+    setBWAssignments([]);
+    setESAssignments([
+      { groupId: 'es1', personIds: [] },
+      { groupId: 'es2', personIds: [] },
+    ]);
+    setPeople([]);
+    setPosts([]);
+    setConstraints([]);
   };
 
   const handlePostsUpdate = (updatedPosts: Post[]) => {
@@ -238,82 +300,184 @@ const App: React.FC = () => {
       <AppBar position="static">
         <Toolbar>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>{t('Duty Scheduler')}</Typography>
+          {user && (
+            <Typography variant="body2" sx={{ mr: 2 }}>
+              {user.email}
+            </Typography>
+          )}
+          {user && (
+            <Button color="inherit" onClick={handleLogout}>
+              {t('Logout')}
+            </Button>
+          )}
           <Button color="inherit" onClick={() => setLang(lang === 'en' ? 'he' : 'en')}>
             {lang === 'en' ? 'עברית' : 'English'}
           </Button>
         </Toolbar>
       </AppBar>
-      <Container maxWidth={false} sx={{ mt: 4, px: 3 }}>
+      {!user && (
+        <Container maxWidth="sm" sx={{ mt: 6 }}>
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              {authMode === 'login' ? t('Login') : t('Register')}
+            </Typography>
+            <Stack spacing={2}>
+              <TextField
+                label={t('Email')}
+                type="email"
+                value={authEmail}
+                onChange={e => setAuthEmail(e.target.value)}
+                fullWidth
+                size="small"
+              />
+              <TextField
+                label={t('Password')}
+                type="password"
+                value={authPassword}
+                onChange={e => setAuthPassword(e.target.value)}
+                fullWidth
+                size="small"
+              />
+              {authError && <Typography color="error">{authError}</Typography>}
+              <Button variant="contained" onClick={handleAuthSubmit} disabled={authLoading}>
+                {authMode === 'login' ? t('Login') : t('Register')}
+              </Button>
+              <Button
+                variant="text"
+                onClick={() => {
+                  setAuthMode(authMode === 'login' ? 'register' : 'login');
+                  setAuthError('');
+                }}
+              >
+                {authMode === 'login' ? t('Need an account?') : t('Already have an account?')}
+              </Button>
+            </Stack>
+          </Paper>
+        </Container>
+      )}
+
+      {user && (
+        <Container maxWidth={false} sx={{ mt: 2, px: 3 }}>
+          <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
+            <Tab label={t('Guards')} />
+            <Tab label={t('Kitchen')} />
+            <Tab label={t('History')} />
+          </Tabs>
         <Box display="flex" gap={3} alignItems="flex-start">
           <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
             <PeopleEditor onUpdate={handlePeopleUpdate} />
-            <PostsEditor onUpdate={handlePostsUpdate} />
+            {tab === 0 && <PostsEditor onUpdate={handlePostsUpdate} />}
             <ConstraintsEditor people={people} />
           </Box>
-          
-          <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-            <Paper sx={{ p: 2, mb: 2 }}>
-              <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
-              <Stack direction="row" spacing={3} flexWrap="wrap" alignItems="center">
-                <TextField
-                  type="datetime-local"
-                  label={t('Start')}
-                  value={start}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStart(e.target.value)}
-                  InputLabelProps={{ shrink: true }}
-                  inputProps={{ step: 14400 }}
-                  size="small"
-                />
-                <TextField
-                  type="datetime-local"
-                  label={t('End')}
-                  value={end}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnd(e.target.value)}
-                  InputLabelProps={{ shrink: true }}
-                  inputProps={{ step: 14400 }}
-                  size="small"
-                />
-                <Button
-                  onClick={handleSchedule}
-                  variant="contained"
-                  disabled={isGenerating}
-                >
-                  {isGenerating ? t('Assigning') : t('Generate')}
-                </Button>
-                <Button onClick={handleClearSchedule} variant="outlined" color="error" disabled={isGenerating}>
-                  {t('Clear')}
-                </Button>
-                <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
-                  {t('Add Constraint')}
-                </Button>
-              </Stack>
-              {error && (
-                <Typography color="error" sx={{ mt: 2 }}>{t(error)}</Typography>
+
+            <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+              {tab === 0 && (
+                <>
+                  <Paper sx={{ p: 2, mb: 2 }}>
+                    <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
+                    <Stack direction="row" spacing={3} flexWrap="wrap" alignItems="center">
+                      <TextField
+                        type="datetime-local"
+                        label={t('Start')}
+                        value={start}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStart(e.target.value)}
+                        InputLabelProps={{ shrink: true }}
+                        inputProps={{ step: 14400 }}
+                        size="small"
+                      />
+                      <TextField
+                        type="datetime-local"
+                        label={t('End')}
+                        value={end}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnd(e.target.value)}
+                        InputLabelProps={{ shrink: true }}
+                        inputProps={{ step: 14400 }}
+                        size="small"
+                      />
+                      <Button
+                        onClick={handleSchedule}
+                        variant="contained"
+                        disabled={isGenerating}
+                      >
+                        {isGenerating ? t('Assigning') : t('Generate')}
+                      </Button>
+                      <Button onClick={handleClearSchedule} variant="outlined" color="error" disabled={isGenerating}>
+                        {t('Clear')}
+                      </Button>
+                      <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
+                        {t('Add Constraint')}
+                      </Button>
+                    </Stack>
+                    {error && (
+                      <Typography color="error" sx={{ mt: 2 }}>{t(error)}</Typography>
+                    )}
+                  </Paper>
+                  <Paper sx={{ p: 2, overflow: 'auto' }}>
+                    <ScheduleCalendar
+                      assignments={assignments}
+                      posts={posts}
+                      people={people}
+                      start={start}
+                      end={end}
+                      isGenerating={isGenerating}
+                      onAssignmentsChange={setAssignments}
+                      shiftOverrides={shiftOverrides}
+                      onShiftOverridesChange={setShiftOverrides}
+                      esAssignments={esAssignments}
+                      onESAssignmentsChange={setESAssignments}
+                      esGroups={esGroups}
+                      onESGroupsChange={setESGroups}
+                      bwAssignments={bwAssignments}
+                      onBWAssignmentsChange={setBWAssignments}
+                      constraints={constraints}
+                    />
+                  </Paper>
+                </>
               )}
-            </Paper>
-            <Paper sx={{ p: 2, overflow: 'auto' }}>
-              <ScheduleCalendar 
-                assignments={assignments} 
-                posts={posts} 
-                people={people} 
-                start={start} 
-                end={end}
-                isGenerating={isGenerating}
-                onAssignmentsChange={setAssignments}
-                shiftOverrides={shiftOverrides}
-                onShiftOverridesChange={setShiftOverrides}
-                esAssignments={esAssignments}
-                onESAssignmentsChange={setESAssignments}
-                esGroups={esGroups}
-                onESGroupsChange={setESGroups}
-                bwAssignments={bwAssignments}
-                onBWAssignmentsChange={setBWAssignments}
-                constraints={constraints}
-              />
-            </Paper>
+              {tab === 1 && (
+                <Paper sx={{ p: 2, mb: 2 }}>
+                  <Typography variant="h6" gutterBottom>{t('Kitchen')}</Typography>
+                  <Stack direction="row" spacing={3} flexWrap="wrap" alignItems="center">
+                    <TextField
+                      type="datetime-local"
+                      label={t('Start')}
+                      value={start}
+                      InputLabelProps={{ shrink: true }}
+                      inputProps={{ step: 14400 }}
+                      size="small"
+                      onChange={() => { }}
+                    />
+                    <TextField
+                      type="datetime-local"
+                      label={t('End')}
+                      value={end}
+                      InputLabelProps={{ shrink: true }}
+                      inputProps={{ step: 14400 }}
+                      size="small"
+                      onChange={() => { }}
+                    />
+                    <Button variant="contained" onClick={() => { }}>
+                      {t('Generate')}
+                    </Button>
+                    <Button variant="outlined" color="error" onClick={() => { }}>
+                      {t('Clear')}
+                    </Button>
+                    <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
+                      {t('Add Constraint')}
+                    </Button>
+                  </Stack>
+                  <Typography variant="body2" color="text.secondary">
+                    {t('Coming soon')}
+                  </Typography>
+                </Paper>
+            )}
+              {tab === 2 && (
+                  <HistoryView people={people} posts={posts} />
+                )}
+            </Box>
           </Box>
-        </Box>
-      </Container>
+        </Container>
+      )}
       <Dialog open={constraintDialogOpen} onClose={() => setConstraintDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{t('Add Constraint')}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
@@ -359,43 +523,43 @@ const App: React.FC = () => {
           )}
         </DialogContent>
         <DialogActions>
-            <Button onClick={() => setConstraintDialogOpen(false)}>{t('Cancel')}</Button>
-            <Button
-              variant="contained"
-              onClick={async () => {
-                const titleMissing = !constraintTitle.trim();
-                const missingFields = !constraintPersonId || !constraintStart || !constraintEnd;
-                let err = '';
-                if (titleMissing) err = t('Activity name is required');
-                else {
-                  const startVal = constraintStart;
-                  const endVal = constraintEnd;
-                  if (startVal && endVal && endVal <= startVal) {
-                    err = t('End must be after start');
-                  }
+          <Button onClick={() => setConstraintDialogOpen(false)}>{t('Cancel')}</Button>
+          <Button
+            variant="contained"
+            onClick={async () => {
+              const titleMissing = !constraintTitle.trim();
+              const missingFields = !constraintPersonId || !constraintStart || !constraintEnd;
+              let err = '';
+              if (titleMissing) err = t('Activity name is required');
+              else {
+                const startVal = constraintStart;
+                const endVal = constraintEnd;
+                if (startVal && endVal && endVal <= startVal) {
+                  err = t('End must be after start');
                 }
-                setConstraintError(err);
-                if (err || missingFields) return;
-                await addConstraint({
-                  personId: Number(constraintPersonId),
-                  title: constraintTitle,
-                  startISO: constraintStart,
-                  endISO: constraintEnd,
-                  id: 0,
-                } as any);
-                const fresh = await fetchConstraints();
-                setConstraints(fresh);
-                setConstraintDialogOpen(false);
-                setConstraintPersonId('');
-                setConstraintTitle('');
-                setConstraintStart('');
-                setConstraintEnd('');
-                setConstraintError('');
-              }}
-            >
-              {t('Add')}
-            </Button>
-          </DialogActions>
+              }
+              setConstraintError(err);
+              if (err || missingFields) return;
+              await addConstraint({
+                personId: Number(constraintPersonId),
+                title: constraintTitle,
+                startISO: constraintStart,
+                endISO: constraintEnd,
+                id: 0,
+              } as any);
+              const fresh = await fetchConstraints();
+              setConstraints(fresh);
+              setConstraintDialogOpen(false);
+              setConstraintPersonId('');
+              setConstraintTitle('');
+              setConstraintStart('');
+              setConstraintEnd('');
+              setConstraintError('');
+            }}
+          >
+            {t('Add')}
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

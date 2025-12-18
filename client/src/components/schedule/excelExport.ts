@@ -1,7 +1,7 @@
 import XLSX from 'xlsx-js-style';
 import dayjs from "dayjs";
 import { Person, Post, Assignment, ESGroup, ESGroupAssignment, ShiftOverride, BWAssignment } from "../../types";
-import { ShiftSlot, getPersonIds, BW_SLOT_DEFINITIONS, BW_REQUIRED_PER_SLOT, getBwDaysForRange, getShiftTimeWindow } from "./utils";
+import { ShiftSlot, getPersonIds, BW_SLOT_DEFINITIONS, BW_REQUIRED_PER_SLOT, getBwDaysForRange, getBwSlotsForRange, getShiftTimeWindow } from "./utils";
 
 interface ExportParams {
     shifts: ShiftSlot[];
@@ -32,6 +32,7 @@ export const exportToExcel = ({
 }: ExportParams) => {
     const headers = [t('Day'), t('Shift'), ...posts.map(p => p.name), ...esGroups.map(g => g.name)];
     const bwDays = getBwDaysForRange(start, end, bwAssignments);
+    const bwSlots = getBwSlotsForRange(start, end);
 
     const wb = XLSX.utils.book_new();
     const wsData: XLSX.CellObject[][] = [];
@@ -256,7 +257,7 @@ export const exportToExcel = ({
         });
         wsData.push(bwHeader);
 
-        BW_SLOT_DEFINITIONS.forEach((slot, slotIdx) => {
+        bwSlots.forEach((slot, slotIdx) => {
             const dataRowIdx = wsData.length;
             const row: XLSX.CellObject[] = [{
                 v: slot.label,
