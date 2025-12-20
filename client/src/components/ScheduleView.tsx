@@ -834,12 +834,14 @@ const ScheduleCalendar: React.FC<Props> = ({
                                         ...bwSlotsForRange.map(slot => getBWPersonIds(day, slot.id).length),
                                         0
                                     );
+
+                                    const minWidth = 900;
                                     const baseWidth = 160;
                                     const widthPerPerson = 40;
                                     const dynamicWidth = Math.max(baseWidth, baseWidth + (maxPeopleForDay - 1) * widthPerPerson);
 
                                     return (
-                                        <th key={day} style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: dynamicWidth, width: dynamicWidth, padding: "8px 4px" }}>
+                                        <th key={day} style={{ border: "1px solid #888", background: "#f0f0f0", minWidth, width: dynamicWidth, padding: "8px 4px" }}>
                                             {day}
                                         </th>
                                     );
