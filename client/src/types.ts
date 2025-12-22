@@ -61,3 +61,28 @@ export interface ESGroup {
   totalPeople: number;
   activePerShift: number;
 }
+
+export interface KitchenSettings {
+  requiredPerShift: number; // default 36
+  shift2Start: string; // "HH:mm" start time of the 2nd shift (also end of 1st)
+}
+
+export interface KitchenAssignment {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // kitchen_1 | kitchen_2
+  personId: number;
+  start?: string;
+  end?: string;
+}
+
+export interface EscortSettings {
+  requiredPerShift: number; // default 4
+}
+
+export interface EscortAssignment {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // escort_1..escort_4
+  personId: number;
+  start?: string;
+  end?: string;
+}

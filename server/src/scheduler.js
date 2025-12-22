@@ -57,8 +57,14 @@ export const scheduleGenerator = (
   esAssignments = [],
   existingAssignments = [],
   existingBwAssignments = [],
-  constraints = []
+  existingKitchenAssignments = [],
+  existingEscortAssignments = [],
+  kitchenSettings,
+  escortSettings,
+  constraints = [],
+  options = {}
 ) => {
+  const mode = options?.mode || 'all'; // 'all' | 'guards' | 'kitchen'
   // Build all 4-hour shift time slots between start and end
   const shiftDefinitions = [
     { label: '00:00-04:00', startOffset: 0, endOffset: 4 },
@@ -96,10 +102,14 @@ export const scheduleGenerator = (
   const personShifts = new Map(); // personId -> array of { start, end, day, shiftLabel }
   const shiftCountByPerson = {};
   const bwAssignmentCount = {};
+  const kitchenAssignmentCount = {};
+  const escortAssignmentCount = {};
   people.forEach(p => {
     personShifts.set(p.id, []);
     shiftCountByPerson[p.id] = 0;
     bwAssignmentCount[p.id] = 0;
+    kitchenAssignmentCount[p.id] = 0;
+    escortAssignmentCount[p.id] = 0;
   });
 
   // Constraints map: personId -> [{start,end,title}]
@@ -256,26 +266,28 @@ export const scheduleGenerator = (
 
   // Build all slots that need to be filled
   const slotsToFill = [];
-  for (const ts of timeSlots) {
-    for (const post of posts) {
-      const required = getRequiredCount(post.id, ts.day, ts.shiftLabel, post.requiredPerShift);
-      const slotKey = `${post.id}|${ts.day}|${ts.shiftLabel}`;
-      const existingCount = (existingBySlot.get(slotKey) || []).length;
-      const stillNeeded = required - existingCount;
-      
-      if (stillNeeded > 0) {
-        slotsToFill.push({
-          day: ts.day,
-          shiftLabel: ts.shiftLabel,
-          start: ts.start,
-          end: ts.end,
-          index: ts.index,
-          postId: post.id,
-          postName: post.name,
-          required: required,
-          stillNeeded: stillNeeded,
-          optional: !!post.optional || required === 0,
-        });
+  if (mode !== 'kitchen') {
+    for (const ts of timeSlots) {
+      for (const post of posts) {
+        const required = getRequiredCount(post.id, ts.day, ts.shiftLabel, post.requiredPerShift);
+        const slotKey = `${post.id}|${ts.day}|${ts.shiftLabel}`;
+        const existingCount = (existingBySlot.get(slotKey) || []).length;
+        const stillNeeded = required - existingCount;
+        
+        if (stillNeeded > 0) {
+          slotsToFill.push({
+            day: ts.day,
+            shiftLabel: ts.shiftLabel,
+            start: ts.start,
+            end: ts.end,
+            index: ts.index,
+            postId: post.id,
+            postName: post.name,
+            required: required,
+            stillNeeded: stillNeeded,
+            optional: !!post.optional || required === 0,
+          });
+        }
       }
     }
   }
@@ -454,38 +466,19 @@ export const scheduleGenerator = (
   const esMembers = people.filter(p => personToESGroup.has(p.id));
 
   // Combined assignment loop - prioritize non-ES members but use ES when needed
-  let madeProgress = true;
-  while (madeProgress) {
-    madeProgress = false;
-    
-    // Check if there are any unfilled slots
-    const unfilledSlots = slotsToFill.filter(s => s.stillNeeded > 0);
-    if (unfilledSlots.length === 0) break;
-    
-    // For each unfilled slot, try to find a candidate
-    for (const slot of unfilledSlots) {
-      // First, try non-ES members sorted by shift count
-      const nonESCandidates = nonESMembers
-        .filter(p => canWork(p, slot))
-        .filter(p => {
-          const slotKey = `${slot.postId}|${slot.day}|${slot.shiftLabel}`;
-          const existingInSlot = existingBySlot.get(slotKey) || [];
-          return !existingInSlot.includes(p.id);
-        })
-        .sort((a, b) => shiftCountByPerson[a.id] - shiftCountByPerson[b.id]);
+  if (mode !== 'kitchen') {
+    let madeProgress = true;
+    while (madeProgress) {
+      madeProgress = false;
       
-      let assigned = false;
-      for (const candidate of nonESCandidates) {
-        if (tryAssignToSlot(candidate, slot)) {
-          madeProgress = true;
-          assigned = true;
-          break;
-        }
-      }
+      // Check if there are any unfilled slots
+      const unfilledSlots = slotsToFill.filter(s => s.stillNeeded > 0);
+      if (unfilledSlots.length === 0) break;
       
-      // If no non-ES member could be assigned, try ES members
-      if (!assigned) {
-        const esCandidates = esMembers
+      // For each unfilled slot, try to find a candidate
+      for (const slot of unfilledSlots) {
+        // First, try non-ES members sorted by shift count
+        const nonESCandidates = nonESMembers
           .filter(p => canWork(p, slot))
           .filter(p => {
             const slotKey = `${slot.postId}|${slot.day}|${slot.shiftLabel}`;
@@ -494,11 +487,32 @@ export const scheduleGenerator = (
           })
           .sort((a, b) => shiftCountByPerson[a.id] - shiftCountByPerson[b.id]);
         
-        for (const candidate of esCandidates) {
+        let assigned = false;
+        for (const candidate of nonESCandidates) {
           if (tryAssignToSlot(candidate, slot)) {
             madeProgress = true;
             assigned = true;
             break;
+          }
+        }
+        
+        // If no non-ES member could be assigned, try ES members
+        if (!assigned) {
+          const esCandidates = esMembers
+            .filter(p => canWork(p, slot))
+            .filter(p => {
+              const slotKey = `${slot.postId}|${slot.day}|${slot.shiftLabel}`;
+              const existingInSlot = existingBySlot.get(slotKey) || [];
+              return !existingInSlot.includes(p.id);
+            })
+            .sort((a, b) => shiftCountByPerson[a.id] - shiftCountByPerson[b.id]);
+          
+          for (const candidate of esCandidates) {
+            if (tryAssignToSlot(candidate, slot)) {
+              madeProgress = true;
+              assigned = true;
+              break;
+            }
           }
         }
       }
@@ -506,7 +520,7 @@ export const scheduleGenerator = (
   }
 
   // Check for unfilled mandatory slots
-  const unfilledMandatory = slotsToFill.some(slot => slot.stillNeeded > 0 && !slot.optional);
+  const unfilledMandatory = mode !== 'kitchen' && slotsToFill.some(slot => slot.stillNeeded > 0 && !slot.optional);
   
   if (unfilledMandatory) {
     return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
@@ -522,27 +536,29 @@ export const scheduleGenerator = (
     assignmentsBySlot.get(key).push(assignment.personId);
   }
 
-  for (const [slotKey, personIds] of assignmentsBySlot.entries()) {
-    if (personIds.length === 1) {
-      const person = people.find(p => p.id === personIds[0]);
-      if (person?.duelGuard) {
-        // DuelGuard person is alone in a shift
-        return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
+  if (mode !== 'kitchen') {
+    for (const [slotKey, personIds] of assignmentsBySlot.entries()) {
+      if (personIds.length === 1) {
+        const person = people.find(p => p.id === personIds[0]);
+        if (person?.duelGuard) {
+          // DuelGuard person is alone in a shift
+          return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
+        }
       }
-    }
 
-    // Check same-gender preference for night shifts
-    if (personIds.length > 1) {
-      const [postId, day, shiftLabel] = slotKey.split('|');
-      if (NIGHT_SHIFT_LABELS.has(shiftLabel)) {
-        const assignedPeople = personIds.map(pid => people.find(p => p.id === pid)).filter(Boolean);
-        for (let i = 0; i < assignedPeople.length; i++) {
-          const person = assignedPeople[i];
-          if (person.sameGenderPref) {
-            for (let j = 0; j < assignedPeople.length; j++) {
-              if (i !== j && assignedPeople[j].gender !== person.gender) {
-                // Same-gender preference violated
-                return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
+      // Check same-gender preference for night shifts
+      if (personIds.length > 1) {
+        const [postId, day, shiftLabel] = slotKey.split('|');
+        if (NIGHT_SHIFT_LABELS.has(shiftLabel)) {
+          const assignedPeople = personIds.map(pid => people.find(p => p.id === pid)).filter(Boolean);
+          for (let i = 0; i < assignedPeople.length; i++) {
+            const person = assignedPeople[i];
+            if (person.sameGenderPref) {
+              for (let j = 0; j < assignedPeople.length; j++) {
+                if (i !== j && assignedPeople[j].gender !== person.gender) {
+                  // Same-gender preference violated
+                  return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
+                }
               }
             }
           }
@@ -552,7 +568,7 @@ export const scheduleGenerator = (
   }
 
   const bwAssignments = [];
-  const bwDays = computeBWDays(startISO, endISO, existingBwAssignments);
+  const bwDays = mode === 'kitchen' ? [] : computeBWDays(startISO, endISO, existingBwAssignments);
   const bwSlotKey = (day, slotId) => `${day}|${slotId}`;
   const bwSlotAssignments = new Map(); // key -> Set of personIds
 
@@ -607,6 +623,16 @@ export const scheduleGenerator = (
     });
   }
 
+  // Track non-guard duty intervals per person for overlap checks (BW + kitchen + escort)
+  const extraDutyIntervals = new Map(); // personId -> [{start,end,type}]
+  const addExtraInterval = (personId, start, end, type) => {
+    if (!extraDutyIntervals.has(personId)) extraDutyIntervals.set(personId, []);
+    extraDutyIntervals.get(personId).push({ start, end, type });
+  };
+  for (const bw of bwAssignments) {
+    addExtraInterval(Number(bw.personId), bw.start, bw.end, 'bw');
+  }
+
   const overlapsWithShift = (personId, slotStartISO, slotEndISO) => {
     const shifts = personShifts.get(personId) || [];
     const slotStart = dayjs(slotStartISO);
@@ -620,6 +646,21 @@ export const scheduleGenerator = (
     }
     return false;
   };
+
+  const overlapsWithExtraDuties = (personId, slotStartISO, slotEndISO) => {
+    const list = extraDutyIntervals.get(personId) || [];
+    const slotStart = dayjs(slotStartISO);
+    const slotEnd = dayjs(slotEndISO);
+    for (const interval of list) {
+      const aStart = dayjs(interval.start);
+      const aEnd = dayjs(interval.end);
+      if (aStart.isBefore(slotEnd) && slotStart.isBefore(aEnd)) return true;
+    }
+    return false;
+  };
+
+  const overlapsWithAnyDuty = (personId, slotStartISO, slotEndISO) =>
+    overlapsWithShift(personId, slotStartISO, slotEndISO) || overlapsWithExtraDuties(personId, slotStartISO, slotEndISO);
 
   const canESMemberWorkBW = (personId, key) => {
     const groupId = personToESGroup.get(personId);
@@ -649,45 +690,219 @@ export const scheduleGenerator = (
     return false;
   };
 
-  for (const day of bwDays) {
-    for (const slot of BW_SLOTS) {
-      const key = bwSlotKey(day, slot.id);
-      if (!bwSlotAssignments.has(key)) {
-        bwSlotAssignments.set(key, new Set());
-      }
-      const assignedSet = bwSlotAssignments.get(key);
-      const stillNeeded = BW_REQUIRED - assignedSet.size;
-      if (stillNeeded <= 0) continue;
-      const times = buildSlotTimes(day, slot);
-      if (!times) continue; // outside range
-      const { start, end } = times;
+  if (mode !== 'kitchen') {
+    for (const day of bwDays) {
+      for (const slot of BW_SLOTS) {
+        const key = bwSlotKey(day, slot.id);
+        if (!bwSlotAssignments.has(key)) {
+          bwSlotAssignments.set(key, new Set());
+        }
+        const assignedSet = bwSlotAssignments.get(key);
+        const stillNeeded = BW_REQUIRED - assignedSet.size;
+        if (stillNeeded <= 0) continue;
+        const times = buildSlotTimes(day, slot);
+        if (!times) continue; // outside range
+        const { start, end } = times;
 
-      const candidates = [...people]
-        .filter(person => !assignedSet.has(person.id))
-        .filter(person => !overlapsWithShift(person.id, start, end))
-        .sort((a, b) => {
-          const workA = shiftCountByPerson[a.id] + (bwAssignmentCount[a.id] || 0);
-          const workB = shiftCountByPerson[b.id] + (bwAssignmentCount[b.id] || 0);
-          return workA - workB;
-        });
+        const candidates = [...people]
+          .filter(person => !assignedSet.has(person.id))
+          .filter(person => !overlapsWithShift(person.id, start, end))
+          .sort((a, b) => {
+            const workA =
+              shiftCountByPerson[a.id] +
+              (bwAssignmentCount[a.id] || 0) +
+              (kitchenAssignmentCount[a.id] || 0) +
+              (escortAssignmentCount[a.id] || 0);
+            const workB =
+              shiftCountByPerson[b.id] +
+              (bwAssignmentCount[b.id] || 0) +
+              (kitchenAssignmentCount[b.id] || 0) +
+              (escortAssignmentCount[b.id] || 0);
+            return workA - workB;
+          });
 
-      for (const candidate of candidates) {
-        if (assignedSet.size >= BW_REQUIRED) break;
-        if (!canESMemberWorkBW(candidate.id, key)) continue;
-        const candidateGroup = personToESGroup.get(candidate.id);
-        if (esShiftOverlapExists(candidateGroup, start, end, candidate.id)) continue;
-        assignedSet.add(candidate.id);
-        bwAssignmentCount[candidate.id] = (bwAssignmentCount[candidate.id] || 0) + 1;
-        bwAssignments.push({
-          day,
-          slotId: slot.id,
-          personId: candidate.id,
-          start,
-          end,
-        });
+        for (const candidate of candidates) {
+          if (assignedSet.size >= BW_REQUIRED) break;
+          if (!canESMemberWorkBW(candidate.id, key)) continue;
+          const candidateGroup = personToESGroup.get(candidate.id);
+          if (esShiftOverlapExists(candidateGroup, start, end, candidate.id)) continue;
+          assignedSet.add(candidate.id);
+          bwAssignmentCount[candidate.id] = (bwAssignmentCount[candidate.id] || 0) + 1;
+          bwAssignments.push({
+            day,
+            slotId: slot.id,
+            personId: candidate.id,
+            start,
+            end,
+          });
+          addExtraInterval(candidate.id, start, end, 'bw');
+        }
       }
     }
   }
 
-  return { assignments, bwAssignments };
+  // ---- Kitchen Duty + Escort Duty ----
+  const parseHHmm = (value, fallback) => {
+    const str = (value || fallback || '').toString();
+    const m = str.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return { hour: 13, minute: 0, str: '13:00' };
+    let hour = Number(m[1]);
+    let minute = Number(m[2]);
+    if (Number.isNaN(hour) || Number.isNaN(minute)) return { hour: 13, minute: 0, str: '13:00' };
+    hour = Math.min(23, Math.max(0, hour));
+    minute = Math.min(59, Math.max(0, minute));
+    const out = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    return { hour, minute, str: out };
+  };
+
+  const kitchenRequired = Number(kitchenSettings?.requiredPerShift ?? 36);
+  const kitchenShift2Start = parseHHmm(kitchenSettings?.shift2Start, '13:00');
+  const kitchenSettingsOut = { requiredPerShift: kitchenRequired, shift2Start: kitchenShift2Start.str };
+
+  const escortRequired = Number(escortSettings?.requiredPerShift ?? 4);
+  const escortSettingsOut = { requiredPerShift: escortRequired };
+
+  const kitchenShifts = [
+    { id: 'kitchen_1', startHour: 6, startMinute: 0, endHour: kitchenShift2Start.hour, endMinute: kitchenShift2Start.minute, label: `06:00-${kitchenShift2Start.str}` },
+    { id: 'kitchen_2', startHour: kitchenShift2Start.hour, startMinute: kitchenShift2Start.minute, endHour: 21, endMinute: 0, label: `${kitchenShift2Start.str}-21:00` },
+  ].filter(s => (s.startHour * 60 + s.startMinute) < (s.endHour * 60 + s.endMinute)); // ignore invalid split
+
+  const escortShifts = [
+    { id: 'escort_1', startHour: 7, startMinute: 0, endHour: 10, endMinute: 30, label: '07:00-10:30' },
+    { id: 'escort_2', startHour: 10, startMinute: 30, endHour: 14, endMinute: 0, label: '10:30-14:00' },
+    { id: 'escort_3', startHour: 14, startMinute: 0, endHour: 17, endMinute: 0, label: '14:00-17:00' },
+    { id: 'escort_4', startHour: 17, startMinute: 0, endHour: 19, endMinute: 0, label: '17:00-19:00' },
+  ];
+
+  const kitchenStartISO = options?.kitchenStartISO || startISO;
+  const kitchenEndISO = options?.kitchenEndISO || endISO;
+  const kitchenRangeStart = parseLocalDateTime(kitchenStartISO);
+  const kitchenRangeEnd = parseLocalDateTime(kitchenEndISO);
+
+  const buildDutySlotTimes = (day, def) => {
+    let slotStart = dayjs(`${day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
+    let slotEnd = dayjs(`${day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
+    if (!slotEnd.isAfter(slotStart)) return null;
+
+    // Clip to schedule boundaries
+    if (slotStart.isBefore(kitchenRangeStart)) slotStart = kitchenRangeStart;
+    if (slotEnd.isAfter(kitchenRangeEnd)) slotEnd = kitchenRangeEnd;
+    if (!slotEnd.isAfter(slotStart)) return null;
+
+    return { start: slotStart.toISOString(), end: slotEnd.toISOString() };
+  };
+
+  const dutyDaysForRange = (defs) => {
+    const daysSet = new Set();
+    let cursor = kitchenRangeStart.startOf('day');
+    const lastDay = kitchenRangeEnd.startOf('day');
+    while (cursor.isBefore(lastDay) || cursor.isSame(lastDay, 'day')) {
+      const day = cursor.format('YYYY-MM-DD');
+      const hasOverlap = defs.some(def => {
+        const times = buildDutySlotTimes(day, def);
+        return !!times;
+      });
+      if (hasOverlap) daysSet.add(day);
+      cursor = cursor.add(1, 'day');
+    }
+    return Array.from(daysSet).sort();
+  };
+
+  const kitchenAssignments = [];
+  const escortAssignments = [];
+
+  const kitchenSlotAssigned = new Map(); // `${day}|${shiftId}` -> Set(personId)
+  const escortSlotAssigned = new Map(); // `${day}|${shiftId}` -> Set(personId)
+
+  const ensureSet = (map, key) => {
+    if (!map.has(key)) map.set(key, new Set());
+    return map.get(key);
+  };
+
+  const seedDutyAssignments = (existing, defs, slotMap, outArr, type) => {
+    for (const a of existing || []) {
+      const def = defs.find(d => d.id === a.shiftId);
+      if (!def) continue;
+      const times = buildDutySlotTimes(a.day, def);
+      if (!times) continue;
+      const key = `${a.day}|${def.id}`;
+      const set = ensureSet(slotMap, key);
+      const pid = Number(a.personId);
+      if (set.has(pid)) continue;
+      set.add(pid);
+      outArr.push({ day: a.day, shiftId: def.id, personId: pid, start: times.start, end: times.end });
+      addExtraInterval(pid, times.start, times.end, type);
+      if (type === 'kitchen') kitchenAssignmentCount[pid] = (kitchenAssignmentCount[pid] || 0) + 1;
+      if (type === 'escort') escortAssignmentCount[pid] = (escortAssignmentCount[pid] || 0) + 1;
+    }
+  };
+
+  seedDutyAssignments(existingKitchenAssignments, kitchenShifts, kitchenSlotAssigned, kitchenAssignments, 'kitchen');
+  seedDutyAssignments(existingEscortAssignments, escortShifts, escortSlotAssigned, escortAssignments, 'escort');
+
+  const violatesConstraint = (personId, slotStartISO, slotEndISO) => {
+    const cList = constraintsByPerson.get(personId) || [];
+    if (cList.length === 0) return false;
+    const slotStart = dayjs(slotStartISO);
+    const slotEnd = dayjs(slotEndISO);
+    for (const c of cList) {
+      if (slotStart.isBefore(c.end) && c.start.isBefore(slotEnd)) return true;
+    }
+    return false;
+  };
+
+  const fillDuty = (defs, requiredPerShift, slotMap, outArr, type) => {
+    const days = dutyDaysForRange(defs);
+    for (const day of days) {
+      for (const def of defs) {
+        const times = buildDutySlotTimes(day, def);
+        if (!times) continue;
+        const key = `${day}|${def.id}`;
+        const set = ensureSet(slotMap, key);
+        const stillNeeded = requiredPerShift - set.size;
+        if (stillNeeded <= 0) continue;
+
+        const candidates = [...people]
+          .filter(p => !set.has(p.id))
+          .filter(p => !violatesConstraint(p.id, times.start, times.end))
+          .filter(p => !overlapsWithAnyDuty(p.id, times.start, times.end))
+          .sort((a, b) => {
+            const workA =
+              (shiftCountByPerson[a.id] || 0) +
+              (bwAssignmentCount[a.id] || 0) +
+              (kitchenAssignmentCount[a.id] || 0) +
+              (escortAssignmentCount[a.id] || 0);
+            const workB =
+              (shiftCountByPerson[b.id] || 0) +
+              (bwAssignmentCount[b.id] || 0) +
+              (kitchenAssignmentCount[b.id] || 0) +
+              (escortAssignmentCount[b.id] || 0);
+            return workA - workB;
+          });
+
+        for (const candidate of candidates) {
+          if (set.size >= requiredPerShift) break;
+          set.add(candidate.id);
+          outArr.push({ day, shiftId: def.id, personId: candidate.id, start: times.start, end: times.end });
+          addExtraInterval(candidate.id, times.start, times.end, type);
+          if (type === 'kitchen') kitchenAssignmentCount[candidate.id] = (kitchenAssignmentCount[candidate.id] || 0) + 1;
+          if (type === 'escort') escortAssignmentCount[candidate.id] = (escortAssignmentCount[candidate.id] || 0) + 1;
+        }
+      }
+    }
+  };
+
+  if (mode !== 'guards') {
+    fillDuty(kitchenShifts, kitchenRequired, kitchenSlotAssigned, kitchenAssignments, 'kitchen');
+    fillDuty(escortShifts, escortRequired, escortSlotAssigned, escortAssignments, 'escort');
+  }
+
+  return {
+    assignments,
+    bwAssignments,
+    kitchenAssignments,
+    escortAssignments,
+    kitchenSettings: kitchenSettingsOut,
+    escortSettings: escortSettingsOut,
+  };
 };

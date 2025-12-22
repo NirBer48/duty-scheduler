@@ -81,6 +81,45 @@ const createTables = async db => {
     );
   `);
 
+  // Kitchen duty settings + assignments
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS kitchen_settings (
+      id SERIAL PRIMARY KEY,
+      requiredPerShift INTEGER NOT NULL DEFAULT 36,
+      shift2Start TEXT NOT NULL DEFAULT '13:00',
+      userId INTEGER REFERENCES users(id)
+    );
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS kitchen_assignments (
+      id SERIAL PRIMARY KEY,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      shiftId TEXT NOT NULL,
+      userId INTEGER REFERENCES users(id)
+    );
+  `);
+
+  // Contractor escort duty ("ליווי קבלנים") settings + assignments
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS escort_settings (
+      id SERIAL PRIMARY KEY,
+      requiredPerShift INTEGER NOT NULL DEFAULT 4,
+      userId INTEGER REFERENCES users(id)
+    );
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS escort_assignments (
+      id SERIAL PRIMARY KEY,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      shiftId TEXT NOT NULL,
+      userId INTEGER REFERENCES users(id)
+    );
+  `);
+
   // Archived tables for history lookback
   await db.run(`DROP TABLE IF EXISTS archived_assignments`);
   await db.run(`
@@ -122,6 +161,55 @@ const createTables = async db => {
       PRIMARY KEY (schedule_start, schedule_end, groupId, personId)
     );
   `);
+
+  await db.run(`DROP TABLE IF EXISTS archived_kitchen_settings`);
+  await db.run(`
+    CREATE TABLE archived_kitchen_settings (
+      schedule_start DATE NOT NULL,
+      schedule_end DATE NOT NULL,
+      requiredPerShift INTEGER NOT NULL,
+      shift2Start TEXT NOT NULL,
+      userId INTEGER,
+      PRIMARY KEY (schedule_start, schedule_end, userId)
+    );
+  `);
+
+  await db.run(`DROP TABLE IF EXISTS archived_kitchen_assignments`);
+  await db.run(`
+    CREATE TABLE archived_kitchen_assignments (
+      schedule_start DATE NOT NULL,
+      schedule_end DATE NOT NULL,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      shiftId TEXT NOT NULL,
+      userId INTEGER,
+      PRIMARY KEY (schedule_start, schedule_end, personId, day, shiftId)
+    );
+  `);
+
+  await db.run(`DROP TABLE IF EXISTS archived_escort_settings`);
+  await db.run(`
+    CREATE TABLE archived_escort_settings (
+      schedule_start DATE NOT NULL,
+      schedule_end DATE NOT NULL,
+      requiredPerShift INTEGER NOT NULL,
+      userId INTEGER,
+      PRIMARY KEY (schedule_start, schedule_end, userId)
+    );
+  `);
+
+  await db.run(`DROP TABLE IF EXISTS archived_escort_assignments`);
+  await db.run(`
+    CREATE TABLE archived_escort_assignments (
+      schedule_start DATE NOT NULL,
+      schedule_end DATE NOT NULL,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      shiftId TEXT NOT NULL,
+      userId INTEGER,
+      PRIMARY KEY (schedule_start, schedule_end, personId, day, shiftId)
+    );
+  `);
 };
 
 const ensureBooleanColumns = async db => {
@@ -149,7 +237,18 @@ const seedAdmin = async db => {
 };
 
 const attachRowsToAdmin = async (db, adminId) => {
-  const tables = ['people', 'posts', 'assignments', 'bw_assignments', 'es_assignments', 'constraints'];
+  const tables = [
+    'people',
+    'posts',
+    'assignments',
+    'bw_assignments',
+    'es_assignments',
+    'constraints',
+    'kitchen_settings',
+    'kitchen_assignments',
+    'escort_settings',
+    'escort_assignments',
+  ];
   for (const table of tables) {
     await db.run(`UPDATE ${table} SET userId = $1 WHERE userId IS NULL`, [adminId]);
   }
@@ -167,6 +266,10 @@ const runMigration = async () => {
     await ensureUserIdColumn(db, 'bw_assignments');
     await ensureUserIdColumn(db, 'es_assignments');
     await ensureUserIdColumn(db, 'constraints');
+    await ensureUserIdColumn(db, 'kitchen_settings');
+    await ensureUserIdColumn(db, 'kitchen_assignments');
+    await ensureUserIdColumn(db, 'escort_settings');
+    await ensureUserIdColumn(db, 'escort_assignments');
     const adminId = await seedAdmin(db);
     await attachRowsToAdmin(db, adminId);
     console.log('Migration applied.');

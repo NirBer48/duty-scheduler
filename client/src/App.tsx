@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import ScheduleCalendar from './components/ScheduleView';
+import KitchenDutyView from './components/KitchenDutyView';
 import PeopleEditor from './components/PeopleEditor';
 import PostsEditor from './components/PostsEditor';
-import { fetchPeople, fetchPosts, generateSchedule, clearSchedule, fetchLastSchedule, fetchConstraints, addConstraint, login, register, logout, fetchMe } from './api';
+import { fetchPeople, fetchPosts, generateGuardsSchedule, generateKitchenSchedule, clearSchedule, fetchLastSchedule, fetchConstraints, addConstraint, login, register, logout, fetchMe } from './api';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
@@ -22,6 +23,10 @@ import type {
   ESGroup,
   BWAssignment,
   Constraint,
+  KitchenAssignment,
+  EscortAssignment,
+  KitchenSettings,
+  EscortSettings,
 } from './types';
 import {
   Dialog,
@@ -44,6 +49,12 @@ const STORAGE_KEY_ASSIGNMENTS = 'duty_scheduler_assignments';
 const STORAGE_KEY_ES_ASSIGNMENTS = 'duty_scheduler_es_assignments';
 const STORAGE_KEY_ES_GROUPS = 'duty_scheduler_es_groups';
 const STORAGE_KEY_SHIFT_OVERRIDES = 'duty_scheduler_shift_overrides';
+const STORAGE_KEY_KITCHEN_ASSIGNMENTS = 'duty_scheduler_kitchen_assignments';
+const STORAGE_KEY_ESCORT_ASSIGNMENTS = 'duty_scheduler_escort_assignments';
+const STORAGE_KEY_KITCHEN_SETTINGS = 'duty_scheduler_kitchen_settings';
+const STORAGE_KEY_ESCORT_SETTINGS = 'duty_scheduler_escort_settings';
+const STORAGE_KEY_KITCHEN_START = 'duty_scheduler_kitchen_start';
+const STORAGE_KEY_KITCHEN_END = 'duty_scheduler_kitchen_end';
 
 const formatLocalDateTime = (date: Date) => {
   const year = date.getFullYear();
@@ -107,9 +118,23 @@ const App: React.FC = () => {
     ])
   );
   const [bwAssignments, setBWAssignments] = useState<BWAssignment[]>([]);
+  const [kitchenAssignments, setKitchenAssignments] = useState<KitchenAssignment[]>(() =>
+    loadFromStorage(STORAGE_KEY_KITCHEN_ASSIGNMENTS, [])
+  );
+  const [escortAssignments, setEscortAssignments] = useState<EscortAssignment[]>(() =>
+    loadFromStorage(STORAGE_KEY_ESCORT_ASSIGNMENTS, [])
+  );
+  const [kitchenSettings, setKitchenSettings] = useState<KitchenSettings>(() =>
+    loadFromStorage(STORAGE_KEY_KITCHEN_SETTINGS, { requiredPerShift: 36, shift2Start: '13:00' })
+  );
+  const [escortSettings, setEscortSettings] = useState<EscortSettings>(() =>
+    loadFromStorage(STORAGE_KEY_ESCORT_SETTINGS, { requiredPerShift: 4 })
+  );
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [start, setStart] = useState(() => loadString(STORAGE_KEY_START, calculateDefaultStart()));
   const [end, setEnd] = useState(() => loadString(STORAGE_KEY_END, calculateDefaultEnd()));
+  const [kitchenStart, setKitchenStart] = useState(() => loadString(STORAGE_KEY_KITCHEN_START, calculateDefaultStart()));
+  const [kitchenEnd, setKitchenEnd] = useState(() => loadString(STORAGE_KEY_KITCHEN_END, calculateDefaultEnd()));
   const { t, lang, setLang } = useI18n();
   const [error, setError] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -162,6 +187,10 @@ const App: React.FC = () => {
           setAssignments(snapshot.assignments);
         }
         setBWAssignments(snapshot.bwAssignments || []);
+        setKitchenAssignments(snapshot.kitchenAssignments || []);
+        setEscortAssignments(snapshot.escortAssignments || []);
+        if (snapshot.kitchenSettings) setKitchenSettings(snapshot.kitchenSettings);
+        if (snapshot.escortSettings) setEscortSettings(snapshot.escortSettings);
         if (snapshot.esAssignments?.length) {
           setESAssignments(snapshot.esAssignments);
         }
@@ -192,12 +221,18 @@ const App: React.FC = () => {
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY_START, start); }, [start]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_END, end); }, [end]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_START, kitchenStart); }, [kitchenStart]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_END, kitchenEnd); }, [kitchenEnd]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ASSIGNMENTS, JSON.stringify(assignments)); }, [assignments]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ES_ASSIGNMENTS, JSON.stringify(esAssignments)); }, [esAssignments]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ES_GROUPS, JSON.stringify(esGroups)); }, [esGroups]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_SHIFT_OVERRIDES, JSON.stringify(shiftOverrides)); }, [shiftOverrides]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_ASSIGNMENTS, JSON.stringify(kitchenAssignments)); }, [kitchenAssignments]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_ESCORT_ASSIGNMENTS, JSON.stringify(escortAssignments)); }, [escortAssignments]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_SETTINGS, JSON.stringify(kitchenSettings)); }, [kitchenSettings]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_ESCORT_SETTINGS, JSON.stringify(escortSettings)); }, [escortSettings]);
 
-  const handleSchedule = async () => {
+  const handleScheduleGuards = async () => {
     if (!user) {
       setError(t('Invalid credentials'));
       return;
@@ -207,17 +242,25 @@ const App: React.FC = () => {
     const endISO = end;
     setIsGenerating(true);
     try {
-      const res = await generateSchedule(
+      const res = await generateGuardsSchedule(
         startISO,
         endISO,
         shiftOverrides,
         esAssignments,
         assignments,
         bwAssignments,
+        kitchenAssignments,
+        escortAssignments,
+        kitchenSettings,
+        escortSettings,
         constraints
       );
       setAssignments(res.assignments || []);
       setBWAssignments(res.bwAssignments || []);
+      setKitchenAssignments(res.kitchenAssignments || []);
+      setEscortAssignments(res.escortAssignments || []);
+      if (res.kitchenSettings) setKitchenSettings(res.kitchenSettings);
+      if (res.escortSettings) setEscortSettings(res.escortSettings);
       if (res.esAssignments) {
         setESAssignments(res.esAssignments);
       }
@@ -230,7 +273,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleClearSchedule = async () => {
+  const handleClearGuards = async () => {
     if (!user) return;
     if (window.confirm(t('Are you sure you want to clear the schedule?'))) {
       setAssignments([]);
@@ -240,7 +283,53 @@ const App: React.FC = () => {
       ]);
       setBWAssignments([]);
       setError('');
-      await clearSchedule();
+      await clearSchedule('guards');
+    }
+  };
+
+  const handleGenerateKitchen = async () => {
+    if (!user) {
+      setError(t('Invalid credentials'));
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const res = await generateKitchenSchedule(
+        start,
+        end,
+        kitchenStart,
+        kitchenEnd,
+        esAssignments,
+        assignments,
+        bwAssignments,
+        kitchenAssignments,
+        escortAssignments,
+        kitchenSettings,
+        escortSettings,
+        constraints
+      );
+      // Only kitchen-related state should change, but we keep everything in sync with server response.
+      setAssignments(res.assignments || assignments);
+      setBWAssignments(res.bwAssignments || bwAssignments);
+      setKitchenAssignments(res.kitchenAssignments || []);
+      setEscortAssignments(res.escortAssignments || []);
+      if (res.kitchenSettings) setKitchenSettings(res.kitchenSettings);
+      if (res.escortSettings) setEscortSettings(res.escortSettings);
+      setError(res.error || '');
+    } catch (e) {
+      setError(t('Save failed'));
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleClearKitchen = async () => {
+    if (!user) return;
+    if (window.confirm(t('Are you sure you want to clear the schedule?'))) {
+      setKitchenAssignments([]);
+      setEscortAssignments([]);
+      setError('');
+      await clearSchedule('kitchen');
     }
   };
 
@@ -278,6 +367,8 @@ const App: React.FC = () => {
     setUser(null);
     setAssignments([]);
     setBWAssignments([]);
+    setKitchenAssignments([]);
+    setEscortAssignments([]);
     setESAssignments([
       { groupId: 'es1', personIds: [] },
       { groupId: 'es2', personIds: [] },
@@ -395,13 +486,13 @@ const App: React.FC = () => {
                         size="small"
                       />
                       <Button
-                        onClick={handleSchedule}
+                        onClick={handleScheduleGuards}
                         variant="contained"
                         disabled={isGenerating}
                       >
                         {isGenerating ? t('Assigning') : t('Generate')}
                       </Button>
-                      <Button onClick={handleClearSchedule} variant="outlined" color="error" disabled={isGenerating}>
+                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating}>
                         {t('Clear')}
                       </Button>
                       <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
@@ -429,46 +520,41 @@ const App: React.FC = () => {
                       onESGroupsChange={setESGroups}
                       bwAssignments={bwAssignments}
                       onBWAssignmentsChange={setBWAssignments}
+                      kitchenAssignments={kitchenAssignments}
+                      escortAssignments={escortAssignments}
+                      kitchenSettings={kitchenSettings}
+                      escortSettings={escortSettings}
                       constraints={constraints}
                     />
                   </Paper>
                 </>
               )}
               {tab === 1 && (
-                <Paper sx={{ p: 2, mb: 2 }}>
-                  <Typography variant="h6" gutterBottom>{t('Kitchen')}</Typography>
-                  <Stack direction="row" spacing={3} flexWrap="wrap" alignItems="center">
-                    <TextField
-                      type="datetime-local"
-                      label={t('Start')}
-                      value={start}
-                      InputLabelProps={{ shrink: true }}
-                      inputProps={{ step: 14400 }}
-                      size="small"
-                      onChange={() => { }}
-                    />
-                    <TextField
-                      type="datetime-local"
-                      label={t('End')}
-                      value={end}
-                      InputLabelProps={{ shrink: true }}
-                      inputProps={{ step: 14400 }}
-                      size="small"
-                      onChange={() => { }}
-                    />
-                    <Button variant="contained" onClick={() => { }}>
-                      {t('Generate')}
-                    </Button>
-                    <Button variant="outlined" color="error" onClick={() => { }}>
-                      {t('Clear')}
-                    </Button>
-                    <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
-                      {t('Add Constraint')}
-                    </Button>
-                  </Stack>
-                  <Typography variant="body2" color="text.secondary">
-                    {t('Coming soon')}
-                  </Typography>
+                <Paper sx={{ p: 2, overflow: 'auto' }}>
+                  <KitchenDutyView
+                    people={people}
+                    start={kitchenStart}
+                    end={kitchenEnd}
+                    onStartChange={setKitchenStart}
+                    onEndChange={setKitchenEnd}
+                    archiveStart={start}
+                    archiveEnd={end}
+                    assignments={assignments}
+                    bwAssignments={bwAssignments}
+                    esAssignments={esAssignments}
+                    kitchenAssignments={kitchenAssignments}
+                    onKitchenAssignmentsChange={setKitchenAssignments}
+                    escortAssignments={escortAssignments}
+                    onEscortAssignmentsChange={setEscortAssignments}
+                    kitchenSettings={kitchenSettings}
+                    onKitchenSettingsChange={setKitchenSettings}
+                    escortSettings={escortSettings}
+                    onEscortSettingsChange={setEscortSettings}
+                    constraints={constraints}
+                    onGenerate={handleGenerateKitchen}
+                    onClear={handleClearKitchen}
+                    onAddConstraint={() => setConstraintDialogOpen(true)}
+                  />
                 </Paper>
             )}
               {tab === 2 && (

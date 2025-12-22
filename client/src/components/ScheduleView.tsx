@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from "react";
 import dayjs from "dayjs";
-import { Assignment, Person, Post, ShiftOverride, ESGroup, ESGroupAssignment, ESGroupId, BWAssignment, Constraint } from "../types";
+import {
+    Assignment,
+    Person,
+    Post,
+    ShiftOverride,
+    ESGroup,
+    ESGroupAssignment,
+    ESGroupId,
+    BWAssignment,
+    Constraint,
+    KitchenAssignment,
+    EscortAssignment,
+    KitchenSettings,
+    EscortSettings,
+} from "../types";
 import { useI18n } from "../util/i18n";
 import { Box, Typography, Alert, Button, IconButton, Chip, CircularProgress } from "@mui/material";
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -44,6 +58,10 @@ interface Props {
     onESGroupsChange?: (esGroups: ESGroup[]) => void;
     bwAssignments?: BWAssignment[];
     onBWAssignmentsChange?: (assignments: BWAssignment[]) => void;
+    kitchenAssignments?: KitchenAssignment[];
+    escortAssignments?: EscortAssignment[];
+    kitchenSettings?: KitchenSettings;
+    escortSettings?: EscortSettings;
     constraints?: Constraint[];
     readOnly?: boolean;
 }
@@ -63,6 +81,10 @@ const ScheduleCalendar: React.FC<Props> = ({
     onESGroupsChange,
     bwAssignments: externalBWAssignments = [],
     onBWAssignmentsChange,
+    kitchenAssignments: externalKitchenAssignments = [],
+    escortAssignments: externalEscortAssignments = [],
+    kitchenSettings = { requiredPerShift: 36, shift2Start: '13:00' },
+    escortSettings = { requiredPerShift: 4 },
     isGenerating = false,
     constraints = [],
     readOnly = false,
@@ -590,7 +612,17 @@ const ScheduleCalendar: React.FC<Props> = ({
         try {
             // Ensure loading indicator is visible for at least 500ms
             const [result] = await Promise.all([
-                saveAllSchedules(localAssignments, bwAssignments, esAssignments, start, end),
+                saveAllSchedules(
+                    localAssignments,
+                    bwAssignments,
+                    esAssignments,
+                    externalKitchenAssignments,
+                    externalEscortAssignments,
+                    kitchenSettings,
+                    escortSettings,
+                    start,
+                    end
+                ),
                 new Promise(resolve => setTimeout(resolve, 500))
             ]);
 
