@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS constraints (
 CREATE TABLE IF NOT EXISTS kitchen_settings (
   id SERIAL PRIMARY KEY,
   requiredPerShift INTEGER NOT NULL DEFAULT 36,
+  requiredShift1 INTEGER NOT NULL DEFAULT 36,
+  requiredShift2 INTEGER NOT NULL DEFAULT 36,
   shift2Start TEXT NOT NULL DEFAULT '13:00',
   userId INTEGER REFERENCES users(id)
 );
@@ -79,6 +81,10 @@ CREATE TABLE IF NOT EXISTS kitchen_assignments (
 CREATE TABLE IF NOT EXISTS escort_settings (
   id SERIAL PRIMARY KEY,
   requiredPerShift INTEGER NOT NULL DEFAULT 4,
+  requiredShift1 INTEGER NOT NULL DEFAULT 4,
+  requiredShift2 INTEGER NOT NULL DEFAULT 4,
+  requiredShift3 INTEGER NOT NULL DEFAULT 4,
+  requiredShift4 INTEGER NOT NULL DEFAULT 4,
   userId INTEGER REFERENCES users(id)
 );
 

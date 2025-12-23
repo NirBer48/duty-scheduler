@@ -7,9 +7,12 @@ import {
   Typography,
   Alert,
   Stack,
+  IconButton,
 } from '@mui/material';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { useI18n } from '../util/i18n';
 import { saveAllSchedules } from '../api';
+import { exportKitchenToExcel } from './schedule';
 import type {
   Assignment,
   BWAssignment,
@@ -22,6 +25,7 @@ import type {
   ESGroupAssignment,
 } from '../types';
 import DutyEditDialog from './schedule/DutyEditDialog';
+import { DutyShiftSettingsDialog } from './schedule/DutyShiftSettingsDialog';
 
 type Props = {
   people: Person[];
@@ -55,6 +59,23 @@ const parseHHmm = (s: string, fallback: string) => {
   if (!m) return fallback;
   const hh = Math.min(23, Math.max(0, Number(m[1])));
   const mm = Math.min(59, Math.max(0, Number(m[2])));
+  return `${pad2(hh)}:${pad2(mm)}`;
+};
+
+const hhmmToMinutes = (hhmm: string) => {
+  const m = (hhmm || '').match(/^(\d{2}):(\d{2})$/);
+  if (!m) return 0;
+  return Number(m[1]) * 60 + Number(m[2]);
+};
+
+const clampShift2Start = (hhmm: string) => {
+  // keep inside 06:00..20:59 so we still have a non-empty second shift ending at 21:00
+  const min = 6 * 60;
+  const max = 20 * 60 + 59;
+  const mins = hhmmToMinutes(hhmm);
+  const clamped = Math.min(max, Math.max(min, mins));
+  const hh = Math.floor(clamped / 60);
+  const mm = clamped % 60;
   return `${pad2(hh)}:${pad2(mm)}`;
 };
 
@@ -97,7 +118,7 @@ const KitchenDutyView: React.FC<Props> = ({
   const scheduleStart = useMemo(() => dayjs(start), [start]);
   const scheduleEnd = useMemo(() => dayjs(end), [end]);
 
-  const kitchenShift2Start = parseHHmm(kitchenSettings.shift2Start, '13:00');
+  const kitchenShift2Start = clampShift2Start(parseHHmm(kitchenSettings.shift2Start, '13:00'));
   const kitchenShifts = useMemo(() => ([
     { id: 'kitchen_1', label: `06:00-${kitchenShift2Start}`, start: '06:00', end: kitchenShift2Start },
     { id: 'kitchen_2', label: `${kitchenShift2Start}-21:00`, start: kitchenShift2Start, end: '21:00' },
@@ -109,6 +130,20 @@ const KitchenDutyView: React.FC<Props> = ({
     { id: 'escort_3', label: '14:00-17:00', start: '14:00', end: '17:00' },
     { id: 'escort_4', label: '17:00-19:00', start: '17:00', end: '19:00' },
   ]), []);
+
+  const requiredForKitchenShift = (shiftId: string) => {
+    if (shiftId === 'kitchen_1') return Math.max(0, Number(kitchenSettings.requiredShift1 ?? 36));
+    if (shiftId === 'kitchen_2') return Math.max(0, Number(kitchenSettings.requiredShift2 ?? 36));
+    return 0;
+  };
+
+  const requiredForEscortShift = (shiftId: string) => {
+    if (shiftId === 'escort_1') return Math.max(0, Number(escortSettings.requiredShift1 ?? 4));
+    if (shiftId === 'escort_2') return Math.max(0, Number(escortSettings.requiredShift2 ?? 4));
+    if (shiftId === 'escort_3') return Math.max(0, Number(escortSettings.requiredShift3 ?? 4));
+    if (shiftId === 'escort_4') return Math.max(0, Number(escortSettings.requiredShift4 ?? 4));
+    return 0;
+  };
 
   const daysInRange = useMemo(() => {
     const out: string[] = [];
@@ -160,6 +195,13 @@ const KitchenDutyView: React.FC<Props> = ({
 
   const [saveError, setSaveError] = useState<string>('');
   const [saving, setSaving] = useState(false);
+
+  const [shiftSettingsDialog, setShiftSettingsDialog] = useState<{
+    open: boolean;
+    type: 'kitchen' | 'escort';
+    shiftId: string;
+    shiftLabel: string;
+  }>({ open: false, type: 'kitchen', shiftId: '', shiftLabel: '' });
 
   const openKitchenDialog = (day: string, shiftId: string) => {
     const def = kitchenShifts.find(s => s.id === shiftId);
@@ -223,6 +265,9 @@ const KitchenDutyView: React.FC<Props> = ({
   const kitchenTitle = lang === 'he' ? 'מטבח' : t('Kitchen');
   const escortTitle = 'ליווי קבלנים';
 
+  const cellHeightKitchen = 120;
+  const cellHeightEscort = 65;
+
   return (
     <Box>
       {!readOnly && (
@@ -245,29 +290,15 @@ const KitchenDutyView: React.FC<Props> = ({
             inputProps={{ step: 60 }}
             size="small"
           />
-          <TextField
-            label={lang === 'he' ? 'נדרשים למשמרת (מטבח)' : 'Kitchen required/shift'}
-            type="number"
-            size="small"
-            value={kitchenSettings.requiredPerShift}
-            onChange={e => onKitchenSettingsChange({ ...kitchenSettings, requiredPerShift: Math.max(0, Number(e.target.value || 0)) })}
-            inputProps={{ min: 0 }}
-          />
+          {/* Per-shift required counts are editable in the Hours column for each row */}
           <TextField
             label={lang === 'he' ? 'תחילת משמרת שנייה (מטבח)' : 'Kitchen shift 2 start'}
             type="time"
             size="small"
             value={kitchenShift2Start}
-            onChange={e => onKitchenSettingsChange({ ...kitchenSettings, shift2Start: e.target.value })}
+            inputProps={{ min: '06:00', max: '20:59', step: 60 }}
+            onChange={e => onKitchenSettingsChange({ ...kitchenSettings, shift2Start: clampShift2Start(e.target.value) })}
             InputLabelProps={{ shrink: true }}
-          />
-          <TextField
-            label={lang === 'he' ? 'נדרשים למשמרת (ליווי קבלנים)' : 'Escort required/shift'}
-            type="number"
-            size="small"
-            value={escortSettings.requiredPerShift}
-            onChange={e => onEscortSettingsChange({ ...escortSettings, requiredPerShift: Math.max(0, Number(e.target.value || 0)) })}
-            inputProps={{ min: 0 }}
           />
           <Button variant="contained" onClick={onGenerate} disabled={saving}>
             {t('Generate')}
@@ -277,6 +308,22 @@ const KitchenDutyView: React.FC<Props> = ({
           </Button>
           <Button variant="outlined" onClick={onAddConstraint} disabled={saving}>
             {t('Add Constraint')}
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => exportKitchenToExcel({
+              people,
+              kitchenAssignments,
+              escortAssignments,
+              kitchenSettings: { ...kitchenSettings, shift2Start: kitchenShift2Start },
+              escortSettings,
+              kitchenStart: start,
+              kitchenEnd: end,
+              t
+            })}
+            disabled={saving}
+          >
+            {t('Export to Excel')}
           </Button>
           <Button variant="contained" color="success" onClick={handleSave} disabled={saving}>
             {t('Save Schedule')}
@@ -295,7 +342,7 @@ const KitchenDutyView: React.FC<Props> = ({
         {kitchenTitle}
       </Typography>
       <Box sx={{ overflowX: 'auto', width: '100%' }}>
-        <table style={{ borderCollapse: 'collapse', minWidth: '100%', tableLayout: 'fixed' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }}>
           <thead>
             <tr>
               {rtl && (
@@ -319,7 +366,7 @@ const KitchenDutyView: React.FC<Props> = ({
             {kitchenShifts.map(shift => (
               <tr key={shift.id}>
                 {rtl && (
-                  <td style={{ border: '1px solid #888', padding: '6px 8px', background: '#fafafa', fontWeight: 600 }}>
+                  <td style={{ border: '1px solid #888', padding: '6px 8px', background: '#fafafa', fontWeight: 600, verticalAlign: 'top', height: cellHeightKitchen }}>
                     {shift.label}
                   </td>
                 )}
@@ -330,7 +377,7 @@ const KitchenDutyView: React.FC<Props> = ({
                   }
                   const personIds = getKitchenPersonIds(day, shift.id);
                   const names = getNames(personIds);
-                  const required = kitchenSettings.requiredPerShift;
+                  const required = requiredForKitchenShift(shift.id);
                   const bg = personIds.length >= required ? '#e8f5e9' : personIds.length === 0 ? '#ffebee' : '#fff3e0';
                   return (
                     <td
@@ -342,11 +389,33 @@ const KitchenDutyView: React.FC<Props> = ({
                         cursor: readOnly ? 'default' : 'pointer',
                         backgroundColor: bg,
                         verticalAlign: 'top',
+                        height: cellHeightKitchen,
                       }}
                     >
-                      <Typography variant="body2" sx={{ minHeight: 24 }}>
-                        {names || <span style={{ color: '#999' }}>—</span>}
-                      </Typography>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            lineHeight: 1.4,
+                            whiteSpace: 'normal',
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          {names || <span style={{ color: '#999' }}>—</span>}
+                        </Typography>
+                        {!readOnly && (
+                          <IconButton
+                            size="small"
+                            sx={{ p: 0.25, flexShrink: 0 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShiftSettingsDialog({ open: true, type: 'kitchen', shiftId: shift.id, shiftLabel: shift.label });
+                            }}
+                          >
+                            <SettingsIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                      </Box>
                       <Typography variant="caption" color="text.secondary">
                         {personIds.length} / {required}
                       </Typography>
@@ -354,7 +423,7 @@ const KitchenDutyView: React.FC<Props> = ({
                   );
                 })}
                 {!rtl && (
-                  <td style={{ border: '1px solid #888', padding: '6px 8px', background: '#fafafa', fontWeight: 600 }}>
+                  <td style={{ border: '1px solid #888', padding: '6px 8px', background: '#fafafa', fontWeight: 600, verticalAlign: 'top', height: cellHeightKitchen }}>
                     {shift.label}
                   </td>
                 )}
@@ -369,7 +438,7 @@ const KitchenDutyView: React.FC<Props> = ({
         {escortTitle}
       </Typography>
       <Box sx={{ overflowX: 'auto', width: '100%' }}>
-        <table style={{ borderCollapse: 'collapse', minWidth: '100%', tableLayout: 'fixed' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }}>
           <thead>
             <tr>
               {rtl && (
@@ -393,7 +462,7 @@ const KitchenDutyView: React.FC<Props> = ({
             {escortShifts.map(shift => (
               <tr key={shift.id}>
                 {rtl && (
-                  <td style={{ border: '1px solid #888', padding: '6px 8px', background: '#fafafa', fontWeight: 600 }}>
+                  <td style={{ border: '1px solid #888', padding: '6px 8px', background: '#fafafa', fontWeight: 600, verticalAlign: 'top', height: cellHeightEscort }}>
                     {shift.label}
                   </td>
                 )}
@@ -404,7 +473,7 @@ const KitchenDutyView: React.FC<Props> = ({
                   }
                   const personIds = getEscortPersonIds(day, shift.id);
                   const names = getNames(personIds);
-                  const required = escortSettings.requiredPerShift;
+                  const required = requiredForEscortShift(shift.id);
                   const bg = personIds.length >= required ? '#e8f5e9' : personIds.length === 0 ? '#ffebee' : '#fff3e0';
                   return (
                     <td
@@ -416,11 +485,33 @@ const KitchenDutyView: React.FC<Props> = ({
                         cursor: readOnly ? 'default' : 'pointer',
                         backgroundColor: bg,
                         verticalAlign: 'top',
+                        height: cellHeightEscort,
                       }}
                     >
-                      <Typography variant="body2" sx={{ minHeight: 24 }}>
-                        {names || <span style={{ color: '#999' }}>—</span>}
-                      </Typography>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            lineHeight: 1.4,
+                            whiteSpace: 'normal',
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          {names || <span style={{ color: '#999' }}>—</span>}
+                        </Typography>
+                        {!readOnly && (
+                          <IconButton
+                            size="small"
+                            sx={{ p: 0.25, flexShrink: 0 }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShiftSettingsDialog({ open: true, type: 'escort', shiftId: shift.id, shiftLabel: shift.label });
+                            }}
+                          >
+                            <SettingsIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                      </Box>
                       <Typography variant="caption" color="text.secondary">
                         {personIds.length} / {required}
                       </Typography>
@@ -428,7 +519,7 @@ const KitchenDutyView: React.FC<Props> = ({
                   );
                 })}
                 {!rtl && (
-                  <td style={{ border: '1px solid #888', padding: '6px 8px', background: '#fafafa', fontWeight: 600 }}>
+                  <td style={{ border: '1px solid #888', padding: '6px 8px', background: '#fafafa', fontWeight: 600, verticalAlign: 'top', height: cellHeightEscort }}>
                     {shift.label}
                   </td>
                 )}
@@ -438,13 +529,38 @@ const KitchenDutyView: React.FC<Props> = ({
         </table>
       </Box>
 
+      {!readOnly && (
+        <DutyShiftSettingsDialog
+          open={shiftSettingsDialog.open}
+          onClose={() => setShiftSettingsDialog(prev => ({ ...prev, open: false }))}
+          title={shiftSettingsDialog.type === 'kitchen' ? kitchenTitle : escortTitle}
+          shiftLabel={shiftSettingsDialog.shiftLabel}
+          currentRequired={
+            shiftSettingsDialog.type === 'kitchen'
+              ? requiredForKitchenShift(shiftSettingsDialog.shiftId)
+              : requiredForEscortShift(shiftSettingsDialog.shiftId)
+          }
+          onSave={(required) => {
+            if (shiftSettingsDialog.type === 'kitchen') {
+              if (shiftSettingsDialog.shiftId === 'kitchen_1') onKitchenSettingsChange({ ...kitchenSettings, requiredShift1: required });
+              if (shiftSettingsDialog.shiftId === 'kitchen_2') onKitchenSettingsChange({ ...kitchenSettings, requiredShift2: required });
+            } else {
+              if (shiftSettingsDialog.shiftId === 'escort_1') onEscortSettingsChange({ ...escortSettings, requiredShift1: required });
+              if (shiftSettingsDialog.shiftId === 'escort_2') onEscortSettingsChange({ ...escortSettings, requiredShift2: required });
+              if (shiftSettingsDialog.shiftId === 'escort_3') onEscortSettingsChange({ ...escortSettings, requiredShift3: required });
+              if (shiftSettingsDialog.shiftId === 'escort_4') onEscortSettingsChange({ ...escortSettings, requiredShift4: required });
+            }
+          }}
+        />
+      )}
+
       {dialog.open && dialog.range && (
         <DutyEditDialog
           open={dialog.open}
           onClose={() => setDialog(prev => ({ ...prev, open: false }))}
           title={`${dialog.type === 'kitchen' ? kitchenTitle : escortTitle}: ${dialog.day}`}
           subtitle={`${t('Shift')}: ${dialog.label}`}
-          requiredCount={dialog.type === 'kitchen' ? kitchenSettings.requiredPerShift : escortSettings.requiredPerShift}
+          requiredCount={dialog.type === 'kitchen' ? requiredForKitchenShift(dialog.shiftId) : requiredForEscortShift(dialog.shiftId)}
           timeRange={dialog.range}
           people={people}
           currentPersonIds={
@@ -469,5 +585,6 @@ const KitchenDutyView: React.FC<Props> = ({
 };
 
 export default KitchenDutyView;
+
 
 

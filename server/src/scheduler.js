@@ -755,12 +755,21 @@ export const scheduleGenerator = (
     return { hour, minute, str: out };
   };
 
-  const kitchenRequired = Number(kitchenSettings?.requiredPerShift ?? 36);
   const kitchenShift2Start = parseHHmm(kitchenSettings?.shift2Start, '13:00');
-  const kitchenSettingsOut = { requiredPerShift: kitchenRequired, shift2Start: kitchenShift2Start.str };
+  const kitchenRequiredShift1 = Number(kitchenSettings?.requiredShift1 ?? kitchenSettings?.requiredPerShift ?? 36);
+  const kitchenRequiredShift2 = Number(kitchenSettings?.requiredShift2 ?? kitchenSettings?.requiredPerShift ?? 36);
+  const kitchenSettingsOut = { requiredShift1: kitchenRequiredShift1, requiredShift2: kitchenRequiredShift2, shift2Start: kitchenShift2Start.str };
 
-  const escortRequired = Number(escortSettings?.requiredPerShift ?? 4);
-  const escortSettingsOut = { requiredPerShift: escortRequired };
+  const escortRequiredShift1 = Number(escortSettings?.requiredShift1 ?? escortSettings?.requiredPerShift ?? 4);
+  const escortRequiredShift2 = Number(escortSettings?.requiredShift2 ?? escortSettings?.requiredPerShift ?? 4);
+  const escortRequiredShift3 = Number(escortSettings?.requiredShift3 ?? escortSettings?.requiredPerShift ?? 4);
+  const escortRequiredShift4 = Number(escortSettings?.requiredShift4 ?? escortSettings?.requiredPerShift ?? 4);
+  const escortSettingsOut = {
+    requiredShift1: escortRequiredShift1,
+    requiredShift2: escortRequiredShift2,
+    requiredShift3: escortRequiredShift3,
+    requiredShift4: escortRequiredShift4,
+  };
 
   const kitchenShifts = [
     { id: 'kitchen_1', startHour: 6, startMinute: 0, endHour: kitchenShift2Start.hour, endMinute: kitchenShift2Start.minute, label: `06:00-${kitchenShift2Start.str}` },
@@ -851,7 +860,23 @@ export const scheduleGenerator = (
     return false;
   };
 
-  const fillDuty = (defs, requiredPerShift, slotMap, outArr, type) => {
+  const requiredForDuty = (type, shiftId) => {
+    if (type === 'kitchen') {
+      if (shiftId === 'kitchen_1') return Math.max(0, kitchenRequiredShift1);
+      if (shiftId === 'kitchen_2') return Math.max(0, kitchenRequiredShift2);
+      return 0;
+    }
+    if (type === 'escort') {
+      if (shiftId === 'escort_1') return Math.max(0, escortRequiredShift1);
+      if (shiftId === 'escort_2') return Math.max(0, escortRequiredShift2);
+      if (shiftId === 'escort_3') return Math.max(0, escortRequiredShift3);
+      if (shiftId === 'escort_4') return Math.max(0, escortRequiredShift4);
+      return 0;
+    }
+    return 0;
+  };
+
+  const fillDuty = (defs, slotMap, outArr, type) => {
     const days = dutyDaysForRange(defs);
     for (const day of days) {
       for (const def of defs) {
@@ -859,6 +884,7 @@ export const scheduleGenerator = (
         if (!times) continue;
         const key = `${day}|${def.id}`;
         const set = ensureSet(slotMap, key);
+        const requiredPerShift = requiredForDuty(type, def.id);
         const stillNeeded = requiredPerShift - set.size;
         if (stillNeeded <= 0) continue;
 
@@ -893,8 +919,8 @@ export const scheduleGenerator = (
   };
 
   if (mode !== 'guards') {
-    fillDuty(kitchenShifts, kitchenRequired, kitchenSlotAssigned, kitchenAssignments, 'kitchen');
-    fillDuty(escortShifts, escortRequired, escortSlotAssigned, escortAssignments, 'escort');
+    fillDuty(kitchenShifts, kitchenSlotAssigned, kitchenAssignments, 'kitchen');
+    fillDuty(escortShifts, escortSlotAssigned, escortAssignments, 'escort');
   }
 
   return {

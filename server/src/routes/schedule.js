@@ -66,8 +66,8 @@ const respondError = (res, message = 'not enough manpower') =>
     esAssignments: [],
     kitchenAssignments: [],
     escortAssignments: [],
-    kitchenSettings: { requiredPerShift: 36, shift2Start: '13:00' },
-    escortSettings: { requiredPerShift: 4 },
+    kitchenSettings: { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+    escortSettings: { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
     error: message,
   });
 
@@ -87,21 +87,27 @@ const clearKitchenAssignments = (db, userId) => db.run('DELETE FROM kitchen_assi
 const clearEscortAssignments = (db, userId) => db.run('DELETE FROM escort_assignments WHERE userId = $1', [userId]);
 
 const upsertKitchenSettings = async (db, userId, kitchenSettings) => {
-  const requiredPerShift = Number(kitchenSettings?.requiredPerShift ?? 36);
+  const requiredPerShift = Number(kitchenSettings?.requiredPerShift ?? 36); // backward compat
+  const requiredShift1 = Number(kitchenSettings?.requiredShift1 ?? requiredPerShift ?? 36);
+  const requiredShift2 = Number(kitchenSettings?.requiredShift2 ?? requiredPerShift ?? 36);
   const shift2Start = (kitchenSettings?.shift2Start ?? '13:00').toString();
   await db.run('DELETE FROM kitchen_settings WHERE userId = $1', [userId]);
   await db.run(
-    'INSERT INTO kitchen_settings (requiredPerShift, shift2Start, userId) VALUES ($1, $2, $3)',
-    [requiredPerShift, shift2Start, userId]
+    'INSERT INTO kitchen_settings (requiredPerShift, requiredShift1, requiredShift2, shift2Start, userId) VALUES ($1, $2, $3, $4, $5)',
+    [requiredPerShift, requiredShift1, requiredShift2, shift2Start, userId]
   );
 };
 
 const upsertEscortSettings = async (db, userId, escortSettings) => {
-  const requiredPerShift = Number(escortSettings?.requiredPerShift ?? 4);
+  const requiredPerShift = Number(escortSettings?.requiredPerShift ?? 4); // backward compat
+  const requiredShift1 = Number(escortSettings?.requiredShift1 ?? requiredPerShift ?? 4);
+  const requiredShift2 = Number(escortSettings?.requiredShift2 ?? requiredPerShift ?? 4);
+  const requiredShift3 = Number(escortSettings?.requiredShift3 ?? requiredPerShift ?? 4);
+  const requiredShift4 = Number(escortSettings?.requiredShift4 ?? requiredPerShift ?? 4);
   await db.run('DELETE FROM escort_settings WHERE userId = $1', [userId]);
   await db.run(
-    'INSERT INTO escort_settings (requiredPerShift, userId) VALUES ($1, $2)',
-    [requiredPerShift, userId]
+    'INSERT INTO escort_settings (requiredPerShift, requiredShift1, requiredShift2, requiredShift3, requiredShift4, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+    [requiredPerShift, requiredShift1, requiredShift2, requiredShift3, requiredShift4, userId]
   );
 };
 
@@ -247,10 +253,20 @@ const archiveAssignments = async (
     }
   }
 
-  const ks = kitchenSettings || { requiredPerShift: 36, shift2Start: '13:00' };
+  const ks = kitchenSettings || { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
+  const ks1 = Number(ks.requiredShift1 ?? ks.requiredPerShift ?? 36);
+  const ks2 = Number(ks.requiredShift2 ?? ks.requiredPerShift ?? 36);
   await db.run(
-    'INSERT INTO archived_kitchen_settings (schedule_start, schedule_end, requiredPerShift, shift2Start, userId) VALUES ($1, $2, $3, $4, $5)',
-    [scheduleStart, scheduleEnd, Number(ks.requiredPerShift ?? 36), (ks.shift2Start ?? '13:00').toString(), userId]
+    'INSERT INTO archived_kitchen_settings (schedule_start, schedule_end, requiredPerShift, requiredShift1, requiredShift2, shift2Start, userId) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+    [
+      scheduleStart,
+      scheduleEnd,
+      Number(ks.requiredPerShift ?? 36),
+      ks1,
+      ks2,
+      (ks.shift2Start ?? '13:00').toString(),
+      userId
+    ]
   );
 
   for (const k of kitchenAssignments || []) {
@@ -260,10 +276,14 @@ const archiveAssignments = async (
     );
   }
 
-  const esSet = escortSettings || { requiredPerShift: 4 };
+  const esSet = escortSettings || { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 };
+  const es1 = Number(esSet.requiredShift1 ?? esSet.requiredPerShift ?? 4);
+  const es2 = Number(esSet.requiredShift2 ?? esSet.requiredPerShift ?? 4);
+  const es3 = Number(esSet.requiredShift3 ?? esSet.requiredPerShift ?? 4);
+  const es4 = Number(esSet.requiredShift4 ?? esSet.requiredPerShift ?? 4);
   await db.run(
-    'INSERT INTO archived_escort_settings (schedule_start, schedule_end, requiredPerShift, userId) VALUES ($1, $2, $3, $4)',
-    [scheduleStart, scheduleEnd, Number(esSet.requiredPerShift ?? 4), userId]
+    'INSERT INTO archived_escort_settings (schedule_start, schedule_end, requiredPerShift, requiredShift1, requiredShift2, requiredShift3, requiredShift4, userId) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+    [scheduleStart, scheduleEnd, Number(esSet.requiredPerShift ?? 4), es1, es2, es3, es4, userId]
   );
 
   for (const e of escortAssignments || []) {
@@ -348,11 +368,20 @@ const fetchKitchenEscortSnapshot = async (db, userId) => {
     db.all('SELECT * FROM escort_settings WHERE userId = $1 LIMIT 1', [userId]),
   ]);
   const kitchenSettings = kitchenSettingsRows?.[0]
-    ? { requiredPerShift: Number(kitchenSettingsRows[0].requiredpershift), shift2Start: kitchenSettingsRows[0].shift2start }
-    : { requiredPerShift: 36, shift2Start: '13:00' };
+    ? {
+      requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+      requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+      shift2Start: kitchenSettingsRows[0].shift2start
+    }
+    : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
   const escortSettings = escortSettingsRows?.[0]
-    ? { requiredPerShift: Number(escortSettingsRows[0].requiredpershift) }
-    : { requiredPerShift: 4 };
+    ? {
+      requiredShift1: Number(escortSettingsRows[0].requiredshift1 ?? escortSettingsRows[0].requiredpershift ?? 4),
+      requiredShift2: Number(escortSettingsRows[0].requiredshift2 ?? escortSettingsRows[0].requiredpershift ?? 4),
+      requiredShift3: Number(escortSettingsRows[0].requiredshift3 ?? escortSettingsRows[0].requiredpershift ?? 4),
+      requiredShift4: Number(escortSettingsRows[0].requiredshift4 ?? escortSettingsRows[0].requiredpershift ?? 4),
+    }
+    : { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 };
   return {
     kitchenAssignments: kitchen.map(mapKitchenAssignment),
     escortAssignments: escort.map(mapEscortAssignment),
@@ -727,11 +756,20 @@ router.get('/last', async (req, res, next) => {
       db.all('SELECT * FROM escort_settings WHERE userId = $1 LIMIT 1', [req.user.id]),
     ]);
     const kitchenSettings = kitchenSettingsRows?.[0]
-      ? { requiredPerShift: Number(kitchenSettingsRows[0].requiredpershift), shift2Start: kitchenSettingsRows[0].shift2start }
-      : { requiredPerShift: 36, shift2Start: '13:00' };
+      ? {
+        requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+        requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+        shift2Start: kitchenSettingsRows[0].shift2start
+      }
+      : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
     const escortSettings = escortSettingsRows?.[0]
-      ? { requiredPerShift: Number(escortSettingsRows[0].requiredpershift) }
-      : { requiredPerShift: 4 };
+      ? {
+        requiredShift1: Number(escortSettingsRows[0].requiredshift1 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift2: Number(escortSettingsRows[0].requiredshift2 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift3: Number(escortSettingsRows[0].requiredshift3 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift4: Number(escortSettingsRows[0].requiredshift4 ?? escortSettingsRows[0].requiredpershift ?? 4),
+      }
+      : { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 };
     res.json({
       assignments: regular.map(mapAssignment),
       bwAssignments: bw.map(mapBwAssignment),
@@ -843,11 +881,20 @@ router.get('/history', async (req, res, next) => {
     ]);
     console.log('Found assignments:', regular.length, 'bw:', bw.length, 'es:', es.length);
     const kitchenSettings = kitchenSettingsRows?.[0]
-      ? { requiredPerShift: Number(kitchenSettingsRows[0].requiredpershift), shift2Start: kitchenSettingsRows[0].shift2start }
-      : { requiredPerShift: 36, shift2Start: '13:00' };
+      ? {
+        requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+        requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+        shift2Start: kitchenSettingsRows[0].shift2start
+      }
+      : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
     const escortSettings = escortSettingsRows?.[0]
-      ? { requiredPerShift: Number(escortSettingsRows[0].requiredpershift) }
-      : { requiredPerShift: 4 };
+      ? {
+        requiredShift1: Number(escortSettingsRows[0].requiredshift1 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift2: Number(escortSettingsRows[0].requiredshift2 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift3: Number(escortSettingsRows[0].requiredshift3 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift4: Number(escortSettingsRows[0].requiredshift4 ?? escortSettingsRows[0].requiredpershift ?? 4),
+      }
+      : { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 };
 
     res.json({
       assignments: regular.map(row => ({

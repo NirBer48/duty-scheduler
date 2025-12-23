@@ -125,10 +125,10 @@ const App: React.FC = () => {
     loadFromStorage(STORAGE_KEY_ESCORT_ASSIGNMENTS, [])
   );
   const [kitchenSettings, setKitchenSettings] = useState<KitchenSettings>(() =>
-    loadFromStorage(STORAGE_KEY_KITCHEN_SETTINGS, { requiredPerShift: 36, shift2Start: '13:00' })
+    loadFromStorage(STORAGE_KEY_KITCHEN_SETTINGS, { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' })
   );
   const [escortSettings, setEscortSettings] = useState<EscortSettings>(() =>
-    loadFromStorage(STORAGE_KEY_ESCORT_SETTINGS, { requiredPerShift: 4 })
+    loadFromStorage(STORAGE_KEY_ESCORT_SETTINGS, { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 })
   );
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [start, setStart] = useState(() => loadString(STORAGE_KEY_START, calculateDefaultStart()));
@@ -390,7 +390,7 @@ const App: React.FC = () => {
     <Box sx={{ minHeight: '100vh', bgcolor: '#f3f4f6' }}>
       <AppBar position="static">
         <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>{t('Duty Scheduler')}</Typography>
+          <Typography variant="h6" sx={{ flexGrow: 1 }}>{t('MyTurn')}</Typography>
           {user && (
             <Typography variant="body2" sx={{ mr: 2 }}>
               {user.email}

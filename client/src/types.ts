@@ -63,7 +63,8 @@ export interface ESGroup {
 }
 
 export interface KitchenSettings {
-  requiredPerShift: number; // default 36
+  requiredShift1: number; // default 36 (06:00 -> shift2Start)
+  requiredShift2: number; // default 36 (shift2Start -> 21:00)
   shift2Start: string; // "HH:mm" start time of the 2nd shift (also end of 1st)
 }
 
@@ -76,7 +77,10 @@ export interface KitchenAssignment {
 }
 
 export interface EscortSettings {
-  requiredPerShift: number; // default 4
+  requiredShift1: number; // 07:00-10:30 (default 4)
+  requiredShift2: number; // 10:30-14:00 (default 4)
+  requiredShift3: number; // 14:00-17:00 (default 4)
+  requiredShift4: number; // 17:00-19:00 (default 4)
 }
 
 export interface EscortAssignment {

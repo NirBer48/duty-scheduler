@@ -86,6 +86,8 @@ const createTables = async db => {
     CREATE TABLE IF NOT EXISTS kitchen_settings (
       id SERIAL PRIMARY KEY,
       requiredPerShift INTEGER NOT NULL DEFAULT 36,
+      requiredShift1 INTEGER NOT NULL DEFAULT 36,
+      requiredShift2 INTEGER NOT NULL DEFAULT 36,
       shift2Start TEXT NOT NULL DEFAULT '13:00',
       userId INTEGER REFERENCES users(id)
     );
@@ -106,6 +108,10 @@ const createTables = async db => {
     CREATE TABLE IF NOT EXISTS escort_settings (
       id SERIAL PRIMARY KEY,
       requiredPerShift INTEGER NOT NULL DEFAULT 4,
+      requiredShift1 INTEGER NOT NULL DEFAULT 4,
+      requiredShift2 INTEGER NOT NULL DEFAULT 4,
+      requiredShift3 INTEGER NOT NULL DEFAULT 4,
+      requiredShift4 INTEGER NOT NULL DEFAULT 4,
       userId INTEGER REFERENCES users(id)
     );
   `);
@@ -168,6 +174,8 @@ const createTables = async db => {
       schedule_start DATE NOT NULL,
       schedule_end DATE NOT NULL,
       requiredPerShift INTEGER NOT NULL,
+      requiredShift1 INTEGER NOT NULL,
+      requiredShift2 INTEGER NOT NULL,
       shift2Start TEXT NOT NULL,
       userId INTEGER,
       PRIMARY KEY (schedule_start, schedule_end, userId)
@@ -193,6 +201,10 @@ const createTables = async db => {
       schedule_start DATE NOT NULL,
       schedule_end DATE NOT NULL,
       requiredPerShift INTEGER NOT NULL,
+      requiredShift1 INTEGER NOT NULL,
+      requiredShift2 INTEGER NOT NULL,
+      requiredShift3 INTEGER NOT NULL,
+      requiredShift4 INTEGER NOT NULL,
       userId INTEGER,
       PRIMARY KEY (schedule_start, schedule_end, userId)
     );
@@ -218,6 +230,15 @@ const ensureBooleanColumns = async db => {
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS duelGuard BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS sameGenderPref BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE posts ADD COLUMN IF NOT EXISTS optional BOOLEAN NOT NULL DEFAULT false;');
+};
+
+const ensureKitchenEscortSettingsColumns = async db => {
+  await db.run('ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS requiredShift1 INTEGER NOT NULL DEFAULT 36;');
+  await db.run('ALTER TABLE kitchen_settings ADD COLUMN IF NOT EXISTS requiredShift2 INTEGER NOT NULL DEFAULT 36;');
+  await db.run('ALTER TABLE escort_settings ADD COLUMN IF NOT EXISTS requiredShift1 INTEGER NOT NULL DEFAULT 4;');
+  await db.run('ALTER TABLE escort_settings ADD COLUMN IF NOT EXISTS requiredShift2 INTEGER NOT NULL DEFAULT 4;');
+  await db.run('ALTER TABLE escort_settings ADD COLUMN IF NOT EXISTS requiredShift3 INTEGER NOT NULL DEFAULT 4;');
+  await db.run('ALTER TABLE escort_settings ADD COLUMN IF NOT EXISTS requiredShift4 INTEGER NOT NULL DEFAULT 4;');
 };
 
 const ensureUserIdColumn = async (db, table) => {
@@ -260,6 +281,7 @@ const runMigration = async () => {
   try {
     await createTables(db);
     await ensureBooleanColumns(db);
+    await ensureKitchenEscortSettingsColumns(db);
     await ensureUserIdColumn(db, 'people');
     await ensureUserIdColumn(db, 'posts');
     await ensureUserIdColumn(db, 'assignments');

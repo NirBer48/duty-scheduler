@@ -134,8 +134,8 @@ export const generateSchedule = (
   existingBwAssignments: BWAssignment[] = [],
   existingKitchenAssignments: KitchenAssignment[] = [],
   existingEscortAssignments: EscortAssignment[] = [],
-  kitchenSettings: KitchenSettings = { requiredPerShift: 36, shift2Start: '13:00' },
-  escortSettings: EscortSettings = { requiredPerShift: 4 },
+  kitchenSettings: KitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+  escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
   constraints: Constraint[] = []
 ) =>
   request<ScheduleResponse>('/schedule/generate', {
@@ -165,8 +165,8 @@ export const generateGuardsSchedule = (
   existingBwAssignments: BWAssignment[] = [],
   existingKitchenAssignments: KitchenAssignment[] = [],
   existingEscortAssignments: EscortAssignment[] = [],
-  kitchenSettings: KitchenSettings = { requiredPerShift: 36, shift2Start: '13:00' },
-  escortSettings: EscortSettings = { requiredPerShift: 4 },
+  kitchenSettings: KitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+  escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
   constraints: Constraint[] = []
 ) =>
   request<ScheduleResponse>('/schedule/generate-guards', {
@@ -197,8 +197,8 @@ export const generateKitchenSchedule = (
   existingBwAssignments: BWAssignment[] = [],
   existingKitchenAssignments: KitchenAssignment[] = [],
   existingEscortAssignments: EscortAssignment[] = [],
-  kitchenSettings: KitchenSettings = { requiredPerShift: 36, shift2Start: '13:00' },
-  escortSettings: EscortSettings = { requiredPerShift: 4 },
+  kitchenSettings: KitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+  escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
   constraints: Constraint[] = []
 ) =>
   request<ScheduleResponse>('/schedule/generate-kitchen', {

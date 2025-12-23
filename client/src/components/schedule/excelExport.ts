@@ -1,6 +1,18 @@
 import XLSX from 'xlsx-js-style';
 import dayjs from "dayjs";
-import { Person, Post, Assignment, ESGroup, ESGroupAssignment, ShiftOverride, BWAssignment } from "../../types";
+import {
+    Person,
+    Post,
+    Assignment,
+    ESGroup,
+    ESGroupAssignment,
+    ShiftOverride,
+    BWAssignment,
+    KitchenAssignment,
+    EscortAssignment,
+    KitchenSettings,
+    EscortSettings,
+} from "../../types";
 import { ShiftSlot, getPersonIds, BW_SLOT_DEFINITIONS, BW_REQUIRED_PER_SLOT, getBwDaysForRange, getBwSlotsForRange, getShiftTimeWindow } from "./utils";
 
 interface ExportParams {
@@ -16,6 +28,204 @@ interface ExportParams {
     end: string;
     t: (key: string) => string;
 }
+
+type KitchenExportParams = {
+    people: Person[];
+    kitchenAssignments: KitchenAssignment[];
+    escortAssignments: EscortAssignment[];
+    kitchenSettings: KitchenSettings;
+    escortSettings: EscortSettings;
+    kitchenStart: string;
+    kitchenEnd: string;
+    t: (key: string) => string;
+};
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const hhmmToMinutes = (hhmm: string) => {
+    const m = (hhmm || '').match(/^(\d{2}):(\d{2})$/);
+    if (!m) return 0;
+    return Number(m[1]) * 60 + Number(m[2]);
+};
+const clampKitchenShift2Start = (hhmm: string) => {
+    // Keep it within 06:00..20:59 so we still have a non-empty 2nd shift (ends 21:00)
+    const min = 6 * 60;
+    const max = 20 * 60 + 59;
+    const mins = hhmmToMinutes(hhmm);
+    const clamped = Math.min(max, Math.max(min, mins));
+    const hh = Math.floor(clamped / 60);
+    const mm = clamped % 60;
+    return `${pad2(hh)}:${pad2(mm)}`;
+};
+
+const listDays = (startISO: string, endISO: string) => {
+    const start = dayjs(startISO);
+    const end = dayjs(endISO);
+    const out: string[] = [];
+    let cursor = start.startOf('day');
+    const last = end.startOf('day');
+    while (cursor.isBefore(last) || cursor.isSame(last, 'day')) {
+        out.push(cursor.format('YYYY-MM-DD'));
+        cursor = cursor.add(1, 'day');
+    }
+    return out;
+};
+
+const getNamesMultiline = (people: Person[], personIds: number[]) =>
+    personIds.map(pid => people.find(p => p.id === pid)?.name || String(pid)).join("\n");
+
+export const exportKitchenToExcel = ({
+    people,
+    kitchenAssignments,
+    escortAssignments,
+    kitchenSettings,
+    escortSettings,
+    kitchenStart,
+    kitchenEnd,
+    t
+}: KitchenExportParams) => {
+    const wb = XLSX.utils.book_new();
+    const startDt = dayjs(kitchenStart);
+    const endDt = dayjs(kitchenEnd);
+    const days = listDays(kitchenStart, kitchenEnd);
+
+    const shift2Start = clampKitchenShift2Start(kitchenSettings.shift2Start || '13:00');
+    const kitchenShifts = [
+        { id: 'kitchen_1', label: `06:00-${shift2Start}`, required: Number(kitchenSettings.requiredShift1 ?? 36) },
+        { id: 'kitchen_2', label: `${shift2Start}-21:00`, required: Number(kitchenSettings.requiredShift2 ?? 36) },
+    ];
+    const escortShifts = [
+        { id: 'escort_1', label: '07:00-10:30', required: Number(escortSettings.requiredShift1 ?? 4) },
+        { id: 'escort_2', label: '10:30-14:00', required: Number(escortSettings.requiredShift2 ?? 4) },
+        { id: 'escort_3', label: '14:00-17:00', required: Number(escortSettings.requiredShift3 ?? 4) },
+        { id: 'escort_4', label: '17:00-19:00', required: Number(escortSettings.requiredShift4 ?? 4) },
+    ];
+
+    const buildSheet = (
+        sheetName: string,
+        shifts: { id: string; label: string; required: number }[],
+        assignments: { day: string; shiftId: string; personId: number }[],
+    ) => {
+        const wsData: XLSX.CellObject[][] = [];
+        const merges: XLSX.Range[] = [];
+        const colsPerDay = 2; // make each day span multiple columns
+
+        // Columns: days..., Hours (right-most)
+        const headerRow: XLSX.CellObject[] = [
+            ...days.flatMap((day, dayIdx) => {
+                const startCol = dayIdx * colsPerDay;
+                const endCol = startCol + colsPerDay - 1;
+                if (colsPerDay > 1) {
+                    merges.push({ s: { r: 0, c: startCol }, e: { r: 0, c: endCol } });
+                }
+                const first: XLSX.CellObject = {
+                    v: day,
+                    t: 's',
+                    s: {
+                        font: { bold: true, color: { rgb: 'FFFFFF' } },
+                        fill: { fgColor: { rgb: '4472C4' } },
+                        alignment: { horizontal: 'center', vertical: 'center' },
+                        border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                    }
+                };
+                const rest: XLSX.CellObject[] = [];
+                for (let i = 1; i < colsPerDay; i++) {
+                    rest.push({
+                        v: '',
+                        t: 's',
+                        s: {
+                            fill: { fgColor: { rgb: '4472C4' } },
+                            border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                        }
+                    });
+                }
+                return [first, ...rest];
+            }),
+            {
+                v: t('Hours'),
+                t: 's',
+                s: {
+                    font: { bold: true, color: { rgb: 'FFFFFF' } },
+                    fill: { fgColor: { rgb: '5B9BD5' } },
+                    alignment: { horizontal: 'center', vertical: 'center' },
+                    border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                }
+            }
+        ];
+        wsData.push(headerRow);
+
+        shifts.forEach((shift, shiftIdx) => {
+            const row: XLSX.CellObject[] = [];
+            days.forEach((day, dayIdx) => {
+                const personIds = assignments.filter(a => a.day === day && a.shiftId === shift.id).map(a => a.personId);
+                const names = getNamesMultiline(people, personIds);
+                const count = personIds.length;
+
+                let bgColor = 'FFF2CC';
+                if (count === 0) bgColor = 'FFCCCC';
+                else if (count >= shift.required) bgColor = 'C6EFCE';
+
+                const r = 1 + shiftIdx;
+                const startCol = dayIdx * colsPerDay;
+                const endCol = startCol + colsPerDay - 1;
+                if (colsPerDay > 1) {
+                    merges.push({ s: { r, c: startCol }, e: { r, c: endCol } });
+                }
+
+                row.push({
+                    v: names || '-',
+                    t: 's',
+                    s: {
+                        font: { sz: 10 },
+                        fill: { fgColor: { rgb: bgColor } },
+                        alignment: { horizontal: 'center', vertical: 'top', wrapText: true },
+                        border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                    }
+                });
+                for (let i = 1; i < colsPerDay; i++) {
+                    row.push({
+                        v: '',
+                        t: 's',
+                        s: {
+                            fill: { fgColor: { rgb: bgColor } },
+                            border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                        }
+                    });
+                }
+            });
+            row.push({
+                v: shift.label,
+                t: 's',
+                s: {
+                    font: { bold: true },
+                    fill: { fgColor: { rgb: 'D9E2F3' } },
+                    alignment: { horizontal: 'center', vertical: 'center' },
+                    border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                }
+            });
+            wsData.push(row);
+        });
+
+        const ws = XLSX.utils.aoa_to_sheet(wsData.map(r => r.map(c => c.v)));
+        wsData.forEach((row, r) => row.forEach((cell, c) => {
+            const ref = XLSX.utils.encode_cell({ r, c });
+            if (ws[ref]) ws[ref].s = cell.s;
+        }));
+
+        ws['!merges'] = merges;
+        ws['!cols'] = [
+            ...days.flatMap(() => [{ wch: 18 }, { wch: 18 }]),
+            { wch: 18 }, // Hours column
+        ];
+        ws['!rows'] = wsData.map((_, idx) => idx === 0 ? ({ hpt: 24 }) : ({ hpt: 90 })); // make rows tall
+
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    };
+
+    buildSheet('Kitchen', kitchenShifts, kitchenAssignments);
+    buildSheet('Contractors', escortShifts, escortAssignments);
+
+    XLSX.writeFile(wb, `kitchen_${startDt.format('YYYY-MM-DD')}_to_${endDt.format('YYYY-MM-DD')}.xlsx`);
+};
 
 export const exportToExcel = ({
     shifts,
