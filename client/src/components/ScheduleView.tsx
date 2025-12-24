@@ -66,12 +66,12 @@ interface Props {
     readOnly?: boolean;
 }
 
-const ScheduleCalendar: React.FC<Props> = ({ 
-    assignments: initialAssignments, 
-    posts, 
-    people, 
-    start, 
-    end, 
+const ScheduleCalendar: React.FC<Props> = ({
+    assignments: initialAssignments,
+    posts,
+    people,
+    start,
+    end,
     onAssignmentsChange,
     shiftOverrides: externalOverrides = [],
     onShiftOverridesChange,
@@ -83,8 +83,13 @@ const ScheduleCalendar: React.FC<Props> = ({
     onBWAssignmentsChange,
     kitchenAssignments: externalKitchenAssignments = [],
     escortAssignments: externalEscortAssignments = [],
-    kitchenSettings = { requiredShift1: 36, shift2Start: '13:00' },
-    escortSettings = { requiredPerShift: 4 },
+    kitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+    escortSettings = {
+        requiredShift1: 4,
+        requiredShift2: 4,
+        requiredShift3: 4,
+        requiredShift4: 1
+    },
     isGenerating = false,
     constraints = [],
     readOnly = false,
@@ -97,7 +102,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         { id: 'es1', name: lang === 'he' ? "כ\"כ א'" : "ES 1", totalPeople: 5, activePerShift: 1 },
         { id: 'es2', name: lang === 'he' ? "כ\"כ ב'" : "ES 2", totalPeople: 5, activePerShift: 1 },
     ]);
-    
+
     const esGroups = onESGroupsChange && externalESGroups ? externalESGroups : localESGroups;
 
     useEffect(() => {
@@ -107,7 +112,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                 ? (lang === 'he' ? "כ\"כ א'" : "ES 1")
                 : (lang === 'he' ? "כ\"כ ב'" : "ES 2")
         }));
-        
+
         if (onESGroupsChange && externalESGroups) {
             onESGroupsChange(updateNames(externalESGroups));
         } else {
@@ -119,12 +124,12 @@ const ScheduleCalendar: React.FC<Props> = ({
     const [localAssignments, setLocalAssignments] = useState<Assignment[]>(initialAssignments);
     const [localShiftOverrides, setLocalShiftOverrides] = useState<ShiftOverride[]>(externalOverrides);
     const shiftOverrides = onShiftOverridesChange ? externalOverrides : localShiftOverrides;
-    
+
     const [localESAssignments, setLocalESAssignments] = useState<ESGroupAssignment[]>([
         { groupId: 'es1', personIds: [] },
         { groupId: 'es2', personIds: [] },
     ]);
-    
+
     // Use external ES assignments if provided (non-empty), otherwise use local state
     const esAssignments = externalESAssignments && externalESAssignments.length > 0 ? externalESAssignments : localESAssignments;
 
@@ -133,7 +138,7 @@ const ScheduleCalendar: React.FC<Props> = ({
     const setBWAssignments = onBWAssignmentsChange || setLocalBWAssignments;
     const bwDays = getBwDaysForRange(start, end, bwAssignments);
     const bwSlotsForRange = getBwSlotsForRange(start, end);
-    
+
     const [hasChanges, setHasChanges] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -326,17 +331,17 @@ const ScheduleCalendar: React.FC<Props> = ({
         const filtered = shiftOverrides.filter(o =>
             !(o.postId === post.id && o.day === day && o.shiftLabel === shiftLabel)
         );
-        
+
         const newOverrides = required !== post.requiredPerShift
             ? [...filtered, { postId: post.id, day, shiftLabel, requiredPerShift: required }]
             : filtered;
-        
+
         if (onShiftOverridesChange) {
             onShiftOverridesChange(newOverrides);
         } else {
             setLocalShiftOverrides(newOverrides);
         }
-        
+
         setHasChanges(true);
         setValidationErrors([]);
         setInvalidCells(new Set());
@@ -350,7 +355,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         const newESAssignments = esAssignments.map(es =>
             es.groupId === esEditDialog.group!.id ? { ...es, personIds } : es
         );
-        
+
         if (onESAssignmentsChange) {
             onESAssignmentsChange(newESAssignments);
         } else {
@@ -360,7 +365,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         const updatedGroups = esGroups.map(g =>
             g.id === esEditDialog.group!.id ? { ...g, totalPeople } : g
         );
-        
+
         if (onESGroupsChange) {
             onESGroupsChange(updatedGroups);
         } else {
@@ -383,7 +388,7 @@ const ScheduleCalendar: React.FC<Props> = ({
 
         setBWAssignments(updated);
         setHasChanges(true);
-        
+
         // Run validation with the updated BW assignments
         const validation = validateAndMarkCells(updated);
         setValidationErrors(validation.errors);
@@ -437,7 +442,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                     const memberNames = esMembersWorking.map(pid => people.find(p => p.id === pid)?.name || pid).join(', ');
                     errors.push(`${shift.day} ${shift.label} - ${group.name}: ${t('max')} ${group.activePerShift} ${t('active')}, ${t('has')} ${esMembersWorking.length} (${memberNames})`);
                     newInvalidESGroups.add(group.id);
-                    
+
                     for (const post of posts) {
                         const cellPeople = getPersonIds(localAssignments, shift.label, shift.day, post.id);
                         if (cellPeople.some(pid => esMembers.includes(pid))) {
@@ -756,50 +761,50 @@ const ScheduleCalendar: React.FC<Props> = ({
                                     <td style={{ border: "1px solid #888", fontWeight: "bold", minWidth: 140, padding: "4px 8px", background: hoursBg, position: "sticky", left: 0, zIndex: 1 }}>
                                         {shift.day} {displayShiftLabel(shiftIdx, filteredShifts.length, shift.label)}
                                     </td>
-                                {posts.map(post => {
-                                    const names = getPeopleNames(post.id, shift.label, shift.day);
-                                    const required = getRequiredCount(post.id, shift.day, shift.label);
-                                    const assignedCount = getPersonIds(localAssignments, shift.label, shift.day, post.id).length;
-                                    const isInvalid = isInvalidCell(post.id, shift.label, shift.day);
-                                    const hasOverride = shiftOverrides.some(o => o.postId === post.id && o.day === shift.day && o.shiftLabel === shift.label);
+                                    {posts.map(post => {
+                                        const names = getPeopleNames(post.id, shift.label, shift.day);
+                                        const required = getRequiredCount(post.id, shift.day, shift.label);
+                                        const assignedCount = getPersonIds(localAssignments, shift.label, shift.day, post.id).length;
+                                        const isInvalid = isInvalidCell(post.id, shift.label, shift.day);
+                                        const hasOverride = shiftOverrides.some(o => o.postId === post.id && o.day === shift.day && o.shiftLabel === shift.label);
 
-                                    let bgColor = '#fff3e0';
-                                    if (isInvalid && validationErrors.length > 0) bgColor = '#ffcdd2';
-                                    else if (required === 0) bgColor = '#e0e0e0';
-                                    else if (assignedCount === 0) bgColor = '#ffebee';
-                                    else if (assignedCount >= required) bgColor = '#e8f5e9';
+                                        let bgColor = '#fff3e0';
+                                        if (isInvalid && validationErrors.length > 0) bgColor = '#ffcdd2';
+                                        else if (required === 0) bgColor = '#e0e0e0';
+                                        else if (assignedCount === 0) bgColor = '#ffebee';
+                                        else if (assignedCount >= required) bgColor = '#e8f5e9';
 
-                                    return (
-                                        <td
-                                            key={post.id}
-                                            onClick={() => handleCellClick(post, shift.day, shift.label)}
-                                            style={{
-                                                border: isInvalid && validationErrors.length > 0 ? "2px solid #f44336" : "1px solid #ccc",
-                                                minWidth: 120,
-                                                verticalAlign: 'top',
-                                                padding: 4,
-                                                cursor: readOnly ? 'default' : 'pointer',
-                                                backgroundColor: bgColor,
-                                                transition: 'background-color 0.2s',
-                                                position: 'relative'
-                                            }}
-                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e3f2fd'}
-                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = bgColor}
-                                        >
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                <span>{names || <span style={{ color: '#999' }}>—</span>}</span>
-                                                <IconButton size="small" onClick={(e) => handleSettingsClick(e, post, shift.day, shift.label)} sx={{ p: 0, ml: 0.5 }}>
-                                                    <SettingsIcon fontSize="small" color={hasOverride ? "primary" : "disabled"} />
-                                                </IconButton>
-                                            </Box>
-                                            {hasOverride && (
-                                                <Typography variant="caption" color="primary" sx={{ display: 'block' }}>
-                                                    ({required})
-                                                </Typography>
-                                            )}
-                                        </td>
-                                    );
-                                })}
+                                        return (
+                                            <td
+                                                key={post.id}
+                                                onClick={() => handleCellClick(post, shift.day, shift.label)}
+                                                style={{
+                                                    border: isInvalid && validationErrors.length > 0 ? "2px solid #f44336" : "1px solid #ccc",
+                                                    minWidth: 120,
+                                                    verticalAlign: 'top',
+                                                    padding: 4,
+                                                    cursor: readOnly ? 'default' : 'pointer',
+                                                    backgroundColor: bgColor,
+                                                    transition: 'background-color 0.2s',
+                                                    position: 'relative'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e3f2fd'}
+                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = bgColor}
+                                            >
+                                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                    <span>{names || <span style={{ color: '#999' }}>—</span>}</span>
+                                                    <IconButton size="small" onClick={(e) => handleSettingsClick(e, post, shift.day, shift.label)} sx={{ p: 0, ml: 0.5 }}>
+                                                        <SettingsIcon fontSize="small" color={hasOverride ? "primary" : "disabled"} />
+                                                    </IconButton>
+                                                </Box>
+                                                {hasOverride && (
+                                                    <Typography variant="caption" color="primary" sx={{ display: 'block' }}>
+                                                        ({required})
+                                                    </Typography>
+                                                )}
+                                            </td>
+                                        );
+                                    })}
                                     {shiftIdx === 0 && esGroups.map(group => {
                                         const esAssignment = esAssignments.find(es => es.groupId === group.id);
                                         const assignedCount = esAssignment?.personIds.length || 0;
@@ -893,29 +898,29 @@ const ScheduleCalendar: React.FC<Props> = ({
                                     // Check if this slot instance overlaps with the actual date range
                                     return slotEnd.isAfter(startDt) && slotStart.isBefore(endDt);
                                 });
-                                
+
                                 // Only render the row if there are days where this slot overlaps
                                 if (daysForThisSlot.length === 0) return null;
-                                
+
                                 return (
                                     <tr key={slot.id}>
                                         <td style={{ border: "1px solid #888", padding: "6px 8px", background: "#fafafa", fontWeight: 600 }}>
                                             {slotLabel}
                                         </td>
-                                    {filteredBwDays.map(day => {
-                                        // Check if this specific slot on this day overlaps with the date range
-                                        const slotStart = dayjs(`${day}T${String(slot.startHour).padStart(2, '0')}:${String(slot.startMinute).padStart(2, '0')}:00`);
-                                        let slotEnd = dayjs(`${day}T${String(slot.endHour).padStart(2, '0')}:${String(slot.endMinute).padStart(2, '0')}:00`);
-                                        if (!slotEnd.isAfter(slotStart)) {
-                                            slotEnd = slotEnd.add(1, 'day');
-                                        }
-                                        const slotOverlaps = slotEnd.isAfter(startDt) && slotStart.isBefore(endDt);
-                                        
-                                        // Don't render cell if slot doesn't overlap with date range
-                                        if (!slotOverlaps) {
-                                            return <td key={getBwSlotKey(day, slot.id)} style={{ padding: 0, border: 'none', width: 0, visibility: 'hidden' }} />;
-                                        }
-                                        
+                                        {filteredBwDays.map(day => {
+                                            // Check if this specific slot on this day overlaps with the date range
+                                            const slotStart = dayjs(`${day}T${String(slot.startHour).padStart(2, '0')}:${String(slot.startMinute).padStart(2, '0')}:00`);
+                                            let slotEnd = dayjs(`${day}T${String(slot.endHour).padStart(2, '0')}:${String(slot.endMinute).padStart(2, '0')}:00`);
+                                            if (!slotEnd.isAfter(slotStart)) {
+                                                slotEnd = slotEnd.add(1, 'day');
+                                            }
+                                            const slotOverlaps = slotEnd.isAfter(startDt) && slotStart.isBefore(endDt);
+
+                                            // Don't render cell if slot doesn't overlap with date range
+                                            if (!slotOverlaps) {
+                                                return <td key={getBwSlotKey(day, slot.id)} style={{ padding: 0, border: 'none', width: 0, visibility: 'hidden' }} />;
+                                            }
+
                                             const personIds = getBWPersonIds(day, slot.id);
                                             const key = getBwSlotKey(day, slot.id);
                                             const isInvalid = isInvalidBWSlot(day, slot.id);
