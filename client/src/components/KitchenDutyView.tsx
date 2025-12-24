@@ -544,17 +544,17 @@ const KitchenDutyView: React.FC<Props> = ({
           <thead>
             <tr>
               {rtl && (
-                <th style={{ border: '1px solid #888', background: '#f0f0f0', minWidth: 160, padding: '8px 4px' }}>
+                <th style={{ border: '1px solid #888', background: '#f0f0f0', width: '20%', padding: '8px 4px' }}>
                   {t('Hours')}
                 </th>
               )}
               {daysWithAnyKitchen.map(day => (
-                <th key={day} style={{ border: '1px solid #888', background: '#f0f0f0', minWidth: 170, padding: '8px 4px' }}>
+                <th key={day} style={{ border: '1px solid #888', background: '#f0f0f0', width: `${daysWithAnyKitchen.length > 0 ? 80 / daysWithAnyKitchen.length : 80}%`, padding: '8px 4px' }}>
                   {day}
                 </th>
               ))}
               {!rtl && (
-                <th style={{ border: '1px solid #888', background: '#f0f0f0', minWidth: 160, padding: '8px 4px' }}>
+                <th style={{ border: '1px solid #888', background: '#f0f0f0', width: '20%', padding: '8px 4px' }}>
                   {t('Hours')}
                 </th>
               )}
@@ -645,17 +645,17 @@ const KitchenDutyView: React.FC<Props> = ({
           <thead>
             <tr>
               {rtl && (
-                <th style={{ border: '1px solid #888', background: '#f0f0f0', minWidth: 160, padding: '8px 4px' }}>
+                <th style={{ border: '1px solid #888', background: '#f0f0f0', width: '20%', padding: '8px 4px' }}>
                   {t('Hours')}
                 </th>
               )}
               {daysWithAnyEscort.map(day => (
-                <th key={day} style={{ border: '1px solid #888', background: '#f0f0f0', minWidth: 170, padding: '8px 4px' }}>
+                <th key={day} style={{ border: '1px solid #888', background: '#f0f0f0', width: `${daysWithAnyEscort.length > 0 ? 80 / daysWithAnyEscort.length : 80}%`, padding: '8px 4px' }}>
                   {day}
                 </th>
               ))}
               {!rtl && (
-                <th style={{ border: '1px solid #888', background: '#f0f0f0', minWidth: 160, padding: '8px 4px' }}>
+                <th style={{ border: '1px solid #888', background: '#f0f0f0', width: '20%', padding: '8px 4px' }}>
                   {t('Hours')}
                 </th>
               )}
