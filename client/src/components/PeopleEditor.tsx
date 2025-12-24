@@ -112,8 +112,8 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
       row.DuelGuard ??
       row.DG ??
       row['DG'] ??
-      row['דואל'] ??
-      row['דואל גארד'] ??
+      row['זוג'] ??
+      row['שמירה בזוג'] ??
       false
     );
 
