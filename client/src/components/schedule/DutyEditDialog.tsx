@@ -46,7 +46,14 @@ const getBwIsoRange = (bw: BWAssignment): IsoRange | null => {
   return { start: start.toISOString(), end: end.toISOString() };
 };
 
-const overlaps = (a: IsoRange, b: IsoRange) => dayjs(a.start).isBefore(b.end) && dayjs(b.start).isBefore(a.end);
+const overlaps = (a: IsoRange, b: IsoRange) => {
+  const aStart = dayjs(a.start);
+  const aEnd = dayjs(a.end);
+  const bStart = dayjs(b.start);
+  const bEnd = dayjs(b.end);
+  // Consider ranges overlapping if they actually overlap (not just touch at boundary)
+  return aStart.isBefore(bEnd) && bStart.isBefore(aEnd);
+};
 
 export type DutyEditDialogProps = {
   open: boolean;
@@ -115,14 +122,26 @@ const DutyEditDialog: React.FC<DutyEditDialogProps> = ({
 
     for (const a of guardAssignments) add(a.personId, getGuardAssignmentIsoRange(a));
     for (const bw of bwAssignments) add(bw.personId, getBwIsoRange(bw));
+    // For kitchen assignments, only add if they actually overlap with the current timeRange
+    // This prevents adjacent kitchen shifts from being considered overlapping
     for (const k of kitchenAssignments) {
-      if (k.start && k.end) add(k.personId, { start: k.start, end: k.end });
+      if (k.start && k.end) {
+        const kitchenRange = { start: k.start, end: k.end };
+        if (!overlaps(kitchenRange, timeRange)) {
+          add(k.personId, kitchenRange);
+        }
+      }
     }
     for (const e of escortAssignments) {
-      if (e.start && e.end) add(e.personId, { start: e.start, end: e.end });
+      if (e.start && e.end) {
+        const escortRange = { start: e.start, end: e.end };
+        if (!overlaps(escortRange, timeRange)) {
+          add(e.personId, escortRange);
+        }
+      }
     }
     return map;
-  }, [guardAssignments, bwAssignments, kitchenAssignments, escortAssignments]);
+  }, [guardAssignments, bwAssignments, kitchenAssignments, escortAssignments, timeRange]);
 
   const togglePerson = (personId: number) => {
     setSelected(prev => {

@@ -554,6 +554,7 @@ const App: React.FC = () => {
                     onGenerate={handleGenerateKitchen}
                     onClear={handleClearKitchen}
                     onAddConstraint={() => setConstraintDialogOpen(true)}
+                    isGenerating={isGenerating}
                   />
                 </Paper>
             )}
