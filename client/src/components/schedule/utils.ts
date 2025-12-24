@@ -79,7 +79,17 @@ export const SHIFT_TIME_RANGES: Record<string, { start: number; end: number }> =
 export const getShiftTimeWindow = (label: string) => SHIFT_TIME_RANGES[label];
 export const NIGHT_SHIFT_LABELS = new Set(["20:00-00:00", "00:00-04:00", "04:00-08:00"]);
 export const isNightShift = (label: string) => NIGHT_SHIFT_LABELS.has(label);
-export const STANDING_EXEMPT_POST_NAMES: string[] = ["שג רגלי","ימח","שג רכוב אחורי","שג רכוב קדמי","עתודה"];
+export const STANDING_EXEMPT_POST_NAMES: string[] = (() => {
+    const defaultNames = ["שג רגלי", "ימח", "שג רכוב אחורי", "שג רכוב קדמי", "עתודה"];
+
+    try {
+        const envValue = import.meta.env?.VITE_STANDING_EXEMPT_POST_NAMES;
+        
+        return envValue ? JSON.parse(envValue) : defaultNames;
+    } catch {
+        return defaultNames;
+    }
+})();
 export const isStandingExemptPost = (postName?: string) =>
     !!postName && STANDING_EXEMPT_POST_NAMES.includes(postName);
 
@@ -100,7 +110,10 @@ export const BW_SLOT_DEFINITIONS: BwSlotDefinition[] = [
     { id: 'bw_evening', label: '18:30-20:00', startHour: 18, startMinute: 30, endHour: 20, endMinute: 0 },
 ];
 
-export const BW_REQUIRED_PER_SLOT = 20;
+export const BW_REQUIRED_PER_SLOT = (() => {
+    const envValue = import.meta.env?.VITE_BW_REQUIRED;
+    return envValue ? parseInt(envValue) : 20;
+})();
 
 export const getBwSlotKey = (day: string, slotId: string) => `${day}|${slotId}`;
 

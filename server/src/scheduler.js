@@ -3,14 +3,19 @@ import utc from 'dayjs/plugin/utc.js';
 
 dayjs.extend(utc);
 
+// Configuration constants - can be overridden by environment variables
+const STANDING_EXEMPT_POST_NAMES = process.env.STANDING_EXEMPT_POST_NAMES
+  ? JSON.parse(process.env.STANDING_EXEMPT_POST_NAMES)
+  : ["שג רגלי","ימח","שג רכוב אחורי","שג רכוב קדמי","עתודה"];
+
 const BW_SLOTS = [
   { id: 'bw_morning', label: 'BW 08:30-11:30', startHour: 8, startMinute: 30, endHour: 11, endMinute: 30 },
   { id: 'bw_afternoon', label: 'BW 13:30-17:30', startHour: 13, startMinute: 30, endHour: 17, endMinute: 30 },
   { id: 'bw_evening', label: 'BW 18:30-20:00', startHour: 18, startMinute: 30, endHour: 20, endMinute: 0 },
 ];
-const BW_REQUIRED = 20;
-const NIGHT_SHIFT_LABELS = new Set(['20:00-00:00', '00:00-04:00', '04:00-08:00']);
-const STANDING_EXEMPT_POST_NAMES = ["ימח","שג רכוב אחורי","שג רכוב קדמי","עתודה"]; // posts people with standing exemption cannot occupy
+
+const BW_REQUIRED = parseInt(process.env.BW_REQUIRED) || 20;
+const NIGHT_SHIFT_LABELS = new Set(['20:00-00:00', '00:00-04:00', '04:00-08:00']); // posts people with standing exemption cannot occupy
 
 const computeBWDays = (startISO, endISO, existingBwAssignments = []) => {
   const start = dayjs(startISO);
@@ -85,7 +90,7 @@ export const scheduleGenerator = (
   // Build standing-exempt post IDs from names list
   const standingExemptPostIds = new Set(
     posts
-      .filter(p => STANDING_EXEMPT_POST_NAMES.includes(p.name))
+      .filter(p => STANDING_EXEMPT_POST_NAMES.some(exemptName => p.name.includes(exemptName)))
       .map(p => p.id)
   );
 
