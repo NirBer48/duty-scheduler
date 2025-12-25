@@ -47,8 +47,14 @@ const mapEsAssignmentRows = rows => {
   }));
 };
 
-const respondError = (res, message = 'not enough manpower') =>
-  res.json({ assignments: [], bwAssignments: [], esAssignments: [], error: message });
+const respondError = (res, message = 'not enough manpower', missingCount = null) =>
+  res.json({ 
+    assignments: [], 
+    bwAssignments: [], 
+    esAssignments: [], 
+    error: message,
+    missingCount: missingCount
+  });
 
 const shuffle = (arr = []) => {
   const copy = [...arr];
@@ -217,6 +223,8 @@ router.post('/generate', async (req, res, next) => {
     const sanitizedBw = sanitizeBw(existingBwAssignments);
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+    
+    console.log(`[Schedule Generate] People: ${shuffledPeople.length}, Posts: ${postRows.length}`);
 
     const result = scheduleGenerator(
       shuffledPeople,
@@ -231,11 +239,11 @@ router.post('/generate', async (req, res, next) => {
     );
 
     if (result.error) {
-      return respondError(res, result.error);
+      return respondError(res, result.error, result.missingCount);
     }
 
     if (result.assignments.some(a => a.personId == null || a.postId == null)) {
-      return respondError(res);
+      return respondError(res, 'not enough manpower', 1);
     }
 
     await persistAllAssignments(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id, startISO, endISO);
