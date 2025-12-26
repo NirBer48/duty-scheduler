@@ -78,7 +78,42 @@ export const SHIFT_TIME_RANGES: Record<string, { start: number; end: number }> =
 
 export const getShiftTimeWindow = (label: string) => SHIFT_TIME_RANGES[label];
 export const NIGHT_SHIFT_LABELS = new Set(["20:00-00:00", "00:00-04:00", "04:00-08:00"]);
-export const isNightShift = (label: string) => NIGHT_SHIFT_LABELS.has(label);
+
+export const isNightShift = (label: string) => {
+  // Check exact matches first
+  if (NIGHT_SHIFT_LABELS.has(label)) return true;
+
+  // Parse shift label to check if it overlaps with night hours (20:00-08:00)
+  const match = label.match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+  if (!match) return false;
+
+  const startHour = parseInt(match[1]);
+  const startMinute = parseInt(match[2]);
+  const endHour = parseInt(match[3]);
+  const endMinute = parseInt(match[4]);
+
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+
+  // Night period: 20:00 to 08:00 (wraps around midnight)
+  // A shift is a night shift if it starts OR ends in the night period
+  // Night period: 20:00-23:59 (same day) OR 00:00-07:59 (next day)
+  
+  // Check if shift starts in night period
+  const startsInNight = (startMinutes >= 20 * 60) || (startMinutes < 8 * 60);
+  
+  // Check if shift ends in night period
+  const endsInNight = (endMinutes > 20 * 60) || (endMinutes <= 8 * 60);
+  
+  // Also check if shift crosses midnight and overlaps with night
+  const crossesMidnight = endMinutes <= startMinutes;
+  if (crossesMidnight) {
+    // Shift crosses midnight, so it definitely overlaps with night period
+    return true;
+  }
+
+  return startsInNight || endsInNight;
+};
 export const STANDING_EXEMPT_POST_NAMES: string[] = (() => {
     const defaultNames = ["שג רגלי", "ימח", "שג רכוב אחורי", "שג רכוב קדמי", "עתודה"];
 

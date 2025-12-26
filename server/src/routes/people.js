@@ -11,6 +11,7 @@ const mapPerson = row => ({
   limitedAbility: Boolean(row.limitedability),
   standingExemption: Boolean(row.standingexemption),
   duelGuard: Boolean(row.duelguard),
+  nightGuardExemption: Boolean(row.nightguardexemption),
 });
 
 router.get('/', async (req, res, next) => {
@@ -25,10 +26,10 @@ router.get('/', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const db = getDb(req);
-    const { name, gender, sameGenderPref = false, limitedAbility = false, standingExemption = false, duelGuard = false } = req.body;
+    const { name, gender, sameGenderPref = false, limitedAbility = false, standingExemption = false, duelGuard = false, nightGuardExemption = false } = req.body;
     const result = await db.run(
-      'INSERT INTO people (name, gender, sameGenderPref, limitedAbility, standingExemption, duelGuard, userId) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
-      [name, gender, !!sameGenderPref, !!limitedAbility, !!standingExemption, !!duelGuard, req.user.id]
+      'INSERT INTO people (name, gender, sameGenderPref, limitedAbility, standingExemption, duelGuard, nightGuardExemption, userId) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
+      [name, gender, !!sameGenderPref, !!limitedAbility, !!standingExemption, !!duelGuard, !!nightGuardExemption, req.user.id]
     );
     res.json({
       id: result.lastID,
@@ -38,6 +39,7 @@ router.post('/', async (req, res, next) => {
       limitedAbility,
       standingExemption,
       duelGuard,
+      nightGuardExemption,
     });
   } catch (err) {
     next(err);

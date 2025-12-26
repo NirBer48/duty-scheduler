@@ -46,6 +46,7 @@ type AddPersonPayload = {
   limitedAbility: boolean;
   standingExemption: boolean;
   duelGuard: boolean;
+  nightGuardExemption: boolean;
 };
 
 type AddPostPayload = {

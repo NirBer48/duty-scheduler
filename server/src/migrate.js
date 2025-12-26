@@ -24,6 +24,7 @@ const createTables = async db => {
       limitedAbility BOOLEAN NOT NULL DEFAULT false,
       standingExemption BOOLEAN NOT NULL DEFAULT false,
       duelGuard BOOLEAN NOT NULL DEFAULT false,
+      nightGuardExemption BOOLEAN NOT NULL DEFAULT false,
       userId INTEGER REFERENCES users(id)
     );
   `);
@@ -228,6 +229,7 @@ const ensureBooleanColumns = async db => {
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS limitedAbility BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS standingExemption BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS duelGuard BOOLEAN NOT NULL DEFAULT false;');
+  await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS nightGuardExemption BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS sameGenderPref BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE posts ADD COLUMN IF NOT EXISTS optional BOOLEAN NOT NULL DEFAULT false;');
 };

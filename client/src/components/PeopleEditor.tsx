@@ -19,6 +19,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
   const [limitedAbility, setLimitedAbility] = useState(false);
   const [standingExemption, setStandingExemption] = useState(false);
   const [duelGuard, setDuelGuard] = useState(false);
+  const [nightGuardExemption, setNightGuardExemption] = useState(false);
   const [validationError, setValidationError] = useState('');
   const { t, lang } = useI18n();
   const dir = lang === 'he' ? 'rtl' : 'ltr';
@@ -46,12 +47,13 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
       return;
     }
     setValidationError('');
-    await addPerson({ name: trimmed, gender, sameGenderPref, limitedAbility, standingExemption, duelGuard });
+    await addPerson({ name: trimmed, gender, sameGenderPref, limitedAbility, standingExemption, duelGuard, nightGuardExemption });
     setName('');
     setSameGenderPref(false);
     setLimitedAbility(false);
     setStandingExemption(false);
     setDuelGuard(false);
+    setNightGuardExemption(false);
     await refreshPeople();
   };
 
@@ -117,6 +119,18 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
       false
     );
 
+  const resolveNightGuardExemption = (row: any) =>
+    parseBool(
+      row.nightGuardExemption ??
+      row.NightGuardExemption ??
+      row.NGE ??
+      row['NGE'] ??
+      row['לילה'] ??
+      row['פטור לילה'] ??
+      row['שמירה לילה'] ??
+      false
+    );
+
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -151,6 +165,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
         const resolvedLimitedAbility = resolveLimitedAbility(row);
         const resolvedStandingExemption = resolveStandingExemption(row);
         const resolvedDuelGuard = resolveDuelGuard(row);
+        const resolvedNightGuardExemption = resolveNightGuardExemption(row);
 
         await addPerson({
           name: resolvedName,
@@ -159,6 +174,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
           limitedAbility: resolvedLimitedAbility,
           standingExemption: resolvedStandingExemption,
           duelGuard: resolvedDuelGuard,
+          nightGuardExemption: resolvedNightGuardExemption,
         });
         existingNames.add(resolvedName.toLowerCase());
         importedCount++;
@@ -245,6 +261,17 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
               />
             }
             label={<Typography variant="body2">{t('Duel guard (DG)')}</Typography>}
+            sx={{ mr: 0 }}
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={nightGuardExemption}
+                onChange={e => setNightGuardExemption(e.target.checked)}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">{t('Night guard exemption')}</Typography>}
             sx={{ mr: 0 }}
           />
           <FormControlLabel
@@ -358,6 +385,14 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                           label={t('Duel guard (DG)')}
                           size="small"
                           color="secondary"
+                          sx={{ direction: 'ltr' }}
+                        />
+                      )}
+                      {p.nightGuardExemption && (
+                        <Chip
+                          label={t('Night guard exemption note short')}
+                          size="small"
+                          color="primary"
                           sx={{ direction: 'ltr' }}
                         />
                       )}

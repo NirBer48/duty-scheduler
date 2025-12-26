@@ -507,6 +507,17 @@ const ScheduleCalendar: React.FC<Props> = ({
             }
         }
 
+        // Night guard exemption
+        for (const assignment of localAssignments) {
+            if (!isNightShift(assignment.shiftLabel)) continue;
+            const person = people.find(p => p.id === assignment.personId);
+            if (person?.nightGuardExemption) {
+                const post = posts.find(p => p.id === assignment.postId);
+                errors.push(`${assignment.day} ${assignment.shiftLabel} - ${post?.name || 'Unknown'}: ${t('Night guard exemption - cannot work night shifts')}`);
+                newInvalidCells.add(getCellKey(assignment.postId, assignment.day, assignment.shiftLabel));
+            }
+        }
+
         // Check same gender pairing (night shifts only)
         for (const shift of shifts) {
             if (!isNightShift(shift.label)) continue;

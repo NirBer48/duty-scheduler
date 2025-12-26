@@ -15,7 +15,43 @@ const BW_SLOTS = [
 ];
 
 const BW_REQUIRED = parseInt(process.env.BW_REQUIRED) || 20;
-const NIGHT_SHIFT_LABELS = new Set(['20:00-00:00', '00:00-04:00', '04:00-08:00']); // posts people with standing exemption cannot occupy
+const NIGHT_SHIFT_LABELS = new Set(['20:00-00:00', '00:00-04:00', '04:00-08:00']);
+
+const isNightShiftLabel = (label) => {
+  // Check exact matches first
+  if (NIGHT_SHIFT_LABELS.has(label)) return true;
+
+  // Parse shift label to check if it overlaps with night hours (20:00-08:00)
+  const match = label.match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+  if (!match) return false;
+
+  const startHour = parseInt(match[1]);
+  const startMinute = parseInt(match[2]);
+  const endHour = parseInt(match[3]);
+  const endMinute = parseInt(match[4]);
+
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+
+  // Night period: 20:00 to 08:00 (wraps around midnight)
+  // A shift is a night shift if it starts OR ends in the night period
+  // Night period: 20:00-23:59 (same day) OR 00:00-07:59 (next day)
+  
+  // Check if shift starts in night period
+  const startsInNight = (startMinutes >= 20 * 60) || (startMinutes < 8 * 60);
+  
+  // Check if shift ends in night period
+  const endsInNight = (endMinutes > 20 * 60) || (endMinutes <= 8 * 60);
+  
+  // Also check if shift crosses midnight and overlaps with night
+  const crossesMidnight = endMinutes <= startMinutes;
+  if (crossesMidnight) {
+    // Shift crosses midnight, so it definitely overlaps with night period
+    return true;
+  }
+
+  return startsInNight || endsInNight;
+};
 
 const computeBWDays = (startISO, endISO, existingBwAssignments = []) => {
   const start = dayjs(startISO);
@@ -398,7 +434,8 @@ export const scheduleGenerator = (
     if (hasRestViolation(person.id, slot.index)) return false;
     if (!canESMemberWorkAtShift(person.id, slot.day, slot.shiftLabel)) return false;
     if (person.standingExemption && standingExemptPostIds.has(slot.postId)) return false;
-    
+    if (person.nightGuardExemption && isNightShiftLabel(slot.shiftLabel)) return false;
+
     // Check for overlapping BW assignments
     if (hasOverlappingBWAssignment(person.id, slot.start, slot.end)) return false;
     

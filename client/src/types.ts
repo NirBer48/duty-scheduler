@@ -9,6 +9,7 @@ export interface Person {
   limitedAbility: boolean;
   standingExemption: boolean;
   duelGuard: boolean;
+  nightGuardExemption: boolean;
 }
 
 export interface Post {

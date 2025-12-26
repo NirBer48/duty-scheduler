@@ -6,10 +6,11 @@ const getDb = req => req.app.locals.db;
 
 const mapPerson = row => ({
   ...row,
-  sameGenderPref: Boolean(row.samegenderpref),
-  limitedAbility: Boolean(row.limitedability),
-  standingExemption: Boolean(row.standingexemption),
-  duelGuard: Boolean(row.duelguard),
+  sameGenderPref: Boolean(row.samegenderpref || row.sameGenderPref),
+  limitedAbility: Boolean(row.limitedability || row.limitedAbility),
+  standingExemption: Boolean(row.standingexemption || row.standingExemption),
+  duelGuard: Boolean(row.duelguard || row.duelGuard),
+  nightGuardExemption: Boolean(row.nightguardexemption || row.nightGuardExemption),
 });
 
 const mapPost = row => ({
