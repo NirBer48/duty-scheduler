@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import morgan from 'morgan';
 import peopleRoute from './routes/people.js';
 import postsRoute from './routes/posts.js';
 import scheduleRoute from './routes/schedule.js';
@@ -15,7 +14,6 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(cors({ origin: true, credentials: true }));
-app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser());
 app.use(attachUserIfPresent);
