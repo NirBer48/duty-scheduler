@@ -223,8 +223,6 @@ router.post('/generate', async (req, res, next) => {
     const sanitizedBw = sanitizeBw(existingBwAssignments);
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
-    
-    console.log(`[Schedule Generate] People: ${shuffledPeople.length}, Posts: ${postRows.length}`);
 
     const result = scheduleGenerator(
       shuffledPeople,

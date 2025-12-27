@@ -507,9 +507,7 @@ export const scheduleGenerator = (
 
   // Check for unfilled mandatory slots and calculate minimum people needed
   const unfilledMandatorySlots = slotsToFill.filter(slot => slot.stillNeeded > 0 && !slot.optional);
-  
-  console.log(`[Scheduler] Total slots: ${slotsToFill.length}, Unfilled mandatory: ${unfilledMandatorySlots.length}`);
-  
+    
   if (unfilledMandatorySlots.length > 0) {
     // Calculate total unfilled positions
     const totalUnfilledPositions = unfilledMandatorySlots.reduce((sum, slot) => sum + slot.stillNeeded, 0);
@@ -517,11 +515,7 @@ export const scheduleGenerator = (
     // Each person can work at most 2 shifts per day (due to 8-hour rest requirement)
     // So minimum additional people needed = ceil(totalUnfilledPositions / 2)
     const minPeopleNeeded = Math.ceil(totalUnfilledPositions / 2);
-    
-    // Log details for debugging
-    console.log(`[Scheduler] Total unfilled positions: ${totalUnfilledPositions}`);
-    console.log(`[Scheduler] Min people needed (unfilled/2): ${minPeopleNeeded}`);
-    
+
     return { 
       assignments: [], 
       bwAssignments: [], 
