@@ -326,6 +326,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
               p.limitedAbility ? t('Limited ability note short') : null,
               p.standingExemption ? t('Standing exemption note short') : null,
               p.duelGuard ? t('Duel guard note short') : null,
+              p.nightGuardExemption ? t('Night guard exemption note short') : null,
             ].filter(Boolean);
 
             return (
