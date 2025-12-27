@@ -211,7 +211,12 @@ const KitchenDutyView: React.FC<Props> = ({
             const start2 = dayjs(a2.start);
             const end2 = dayjs(a2.end);
 
-            if (start1.isBefore(end2) && start2.isBefore(end1)) {
+            // Check if ranges actually overlap (not just touch at boundary)
+            // Use minute precision to handle edge cases
+            if ((end1.isSame(start2, 'minute') || end1.isBefore(start2, 'minute')) || 
+                (end2.isSame(start1, 'minute') || end2.isBefore(start1, 'minute'))) {
+              // Adjacent shifts (one ends when the other starts) - not overlapping
+            } else if (start1.isBefore(end2) && start2.isBefore(end1)) {
               errors.push(`${person.name}: ${t('Overlapping shift in this timeframe')} (${a1.day} ${t(a1.shiftId)} & ${a2.day} ${t(a2.shiftId)})`);
               newInvalidKitchenCells.add(`${a1.day}|${a1.shiftId}`);
               newInvalidKitchenCells.add(`${a2.day}|${a2.shiftId}`);
@@ -234,7 +239,12 @@ const KitchenDutyView: React.FC<Props> = ({
             const start2 = dayjs(a2.start);
             const end2 = dayjs(a2.end);
 
-            if (start1.isBefore(end2) && start2.isBefore(end1)) {
+            // Check if ranges actually overlap (not just touch at boundary)
+            // Use minute precision to handle edge cases
+            if ((end1.isSame(start2, 'minute') || end1.isBefore(start2, 'minute')) || 
+                (end2.isSame(start1, 'minute') || end2.isBefore(start1, 'minute'))) {
+              // Adjacent shifts (one ends when the other starts) - not overlapping
+            } else if (start1.isBefore(end2) && start2.isBefore(end1)) {
               errors.push(`${person.name}: ${t('Overlapping shift in this timeframe')} (${a1.day} ${t(a1.shiftId)} & ${a2.day} ${t(a2.shiftId)})`);
               newInvalidEscortCells.add(`${a1.day}|${a1.shiftId}`);
               newInvalidEscortCells.add(`${a2.day}|${a2.shiftId}`);
@@ -255,7 +265,11 @@ const KitchenDutyView: React.FC<Props> = ({
         const guardStart = dayjs(guard.start);
         const guardEnd = dayjs(guard.end);
 
-        if (kitchenStart.isBefore(guardEnd) && guardStart.isBefore(kitchenEnd)) {
+        // Check if ranges actually overlap (not just touch at boundary)
+        // Use minute precision to handle edge cases
+        if (!(kitchenEnd.isSame(guardStart, 'minute') || kitchenEnd.isBefore(guardStart, 'minute')) && 
+            !(guardEnd.isSame(kitchenStart, 'minute') || guardEnd.isBefore(kitchenStart, 'minute')) && 
+            kitchenStart.isBefore(guardEnd) && guardStart.isBefore(kitchenEnd)) {
           const person = people.find(p => p.id === kitchen.personId);
           errors.push(`${person?.name || kitchen.personId}: ${t('Overlapping shift in this timeframe')} (${kitchen.day} ${t(kitchen.shiftId)} & ${guard.day} ${guard.shiftLabel})`);
           newInvalidKitchenCells.add(`${kitchen.day}|${kitchen.shiftId}`);
@@ -274,7 +288,11 @@ const KitchenDutyView: React.FC<Props> = ({
         const guardStart = dayjs(guard.start);
         const guardEnd = dayjs(guard.end);
 
-        if (escortStart.isBefore(guardEnd) && guardStart.isBefore(escortEnd)) {
+        // Check if ranges actually overlap (not just touch at boundary)
+        // Use minute precision to handle edge cases
+        if (!(escortEnd.isSame(guardStart, 'minute') || escortEnd.isBefore(guardStart, 'minute')) && 
+            !(guardEnd.isSame(escortStart, 'minute') || guardEnd.isBefore(escortStart, 'minute')) && 
+            escortStart.isBefore(guardEnd) && guardStart.isBefore(escortEnd)) {
           const person = people.find(p => p.id === escort.personId);
           errors.push(`${person?.name || escort.personId}: ${t('Overlapping shift in this timeframe')} (${escort.day} ${t(escort.shiftId)} & ${guard.day} ${guard.shiftLabel})`);
           newInvalidEscortCells.add(`${escort.day}|${escort.shiftId}`);
@@ -294,7 +312,11 @@ const KitchenDutyView: React.FC<Props> = ({
         const escortStart = dayjs(escort.start);
         const escortEnd = dayjs(escort.end);
 
-        if (kitchenStart.isBefore(escortEnd) && escortStart.isBefore(kitchenEnd)) {
+        // Check if ranges actually overlap (not just touch at boundary)
+        // Use minute precision to handle edge cases
+        if (!(kitchenEnd.isSame(escortStart, 'minute') || kitchenEnd.isBefore(escortStart, 'minute')) && 
+            !(escortEnd.isSame(kitchenStart, 'minute') || escortEnd.isBefore(kitchenStart, 'minute')) && 
+            kitchenStart.isBefore(escortEnd) && escortStart.isBefore(kitchenEnd)) {
           const person = people.find(p => p.id === kitchen.personId);
           errors.push(`${person?.name || kitchen.personId}: ${t('Overlapping shift in this timeframe')} (${kitchen.day} ${t(kitchen.shiftId)} & ${escort.day} ${t(escort.shiftId)})`);
           newInvalidKitchenCells.add(`${kitchen.day}|${kitchen.shiftId}`);
@@ -314,7 +336,11 @@ const KitchenDutyView: React.FC<Props> = ({
         const constraintStart = dayjs(constraint.startISO);
         const constraintEnd = dayjs(constraint.endISO);
 
-        if (assignmentStart.isBefore(constraintEnd) && constraintStart.isBefore(assignmentEnd)) {
+        // Check if ranges actually overlap (not just touch at boundary)
+        // Use minute precision to handle edge cases
+        if (!(assignmentEnd.isSame(constraintStart, 'minute') || assignmentEnd.isBefore(constraintStart, 'minute')) && 
+            !(constraintEnd.isSame(assignmentStart, 'minute') || constraintEnd.isBefore(assignmentStart, 'minute')) && 
+            assignmentStart.isBefore(constraintEnd) && constraintStart.isBefore(assignmentEnd)) {
           const person = people.find(p => p.id === assignment.personId);
           const isKitchen = kitchenAssignments.includes(assignment);
           errors.push(`${person?.name || assignment.personId}: ${t('Constraint conflict')}: ${constraint.title} (${assignment.day} ${t(assignment.shiftId)})`);
@@ -786,6 +812,10 @@ const KitchenDutyView: React.FC<Props> = ({
           bwAssignments={bwAssignments}
           kitchenAssignments={kitchenAssignments}
           escortAssignments={escortAssignments}
+          scheduleStart={start}
+          scheduleEnd={end}
+          currentDay={dialog.day}
+          currentShiftId={dialog.shiftId}
         />
       )}
     </Box>

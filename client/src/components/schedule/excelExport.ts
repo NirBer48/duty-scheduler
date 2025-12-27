@@ -107,16 +107,17 @@ export const exportKitchenToExcel = ({
     ) => {
         const wsData: XLSX.CellObject[][] = [];
         const merges: XLSX.Range[] = [];
-        const colsPerDay = 2; // make each day span multiple columns
+        // Each day spans a fixed 10 columns, but the shift/day data is a single merged cell.
+        // Names are shown in ONE long row (comma-separated), like the BW export.
+        const colsPerDay = 10;
+        const rowHeights: { hpt?: number }[] = [];
 
         // Columns: days..., Hours (right-most)
         const headerRow: XLSX.CellObject[] = [
             ...days.flatMap((day, dayIdx) => {
                 const startCol = dayIdx * colsPerDay;
                 const endCol = startCol + colsPerDay - 1;
-                if (colsPerDay > 1) {
-                    merges.push({ s: { r: 0, c: startCol }, e: { r: 0, c: endCol } });
-                }
+                merges.push({ s: { r: 0, c: startCol }, e: { r: 0, c: endCol } });
                 const first: XLSX.CellObject = {
                     v: day,
                     t: 's',
@@ -152,13 +153,18 @@ export const exportKitchenToExcel = ({
             }
         ];
         wsData.push(headerRow);
+        rowHeights.push({ hpt: 24 });
 
         shifts.forEach((shift, shiftIdx) => {
             const row: XLSX.CellObject[] = [];
+            let maxLinesForRow = 1;
             days.forEach((day, dayIdx) => {
                 const personIds = assignments.filter(a => a.day === day && a.shiftId === shift.id).map(a => a.personId);
-                const names = getNamesMultiline(people, personIds);
                 const count = personIds.length;
+                const names = personIds
+                    .map(pid => people.find(p => p.id === pid)?.name || String(pid))
+                    .sort((a, b) => a.localeCompare(b))
+                    .join(', ');
 
                 let bgColor = 'FFF2CC';
                 if (count === 0) bgColor = 'FFCCCC';
@@ -167,10 +173,15 @@ export const exportKitchenToExcel = ({
                 const r = 1 + shiftIdx;
                 const startCol = dayIdx * colsPerDay;
                 const endCol = startCol + colsPerDay - 1;
-                if (colsPerDay > 1) {
-                    merges.push({ s: { r, c: startCol }, e: { r, c: endCol } });
-                }
+                merges.push({ s: { r, c: startCol }, e: { r, c: endCol } });
 
+                // Estimate how many wrapped lines are needed to show the full string.
+                // This is approximate but works well with fixed-width day blocks.
+                const charsPerLine = colsPerDay * 8; // matches `wch: 8` below
+                const neededLines = Math.max(1, Math.ceil((names || '-').length / charsPerLine));
+                if (neededLines > maxLinesForRow) maxLinesForRow = neededLines;
+
+                // First col of the merged region holds the content.
                 row.push({
                     v: names || '-',
                     t: 's',
@@ -181,6 +192,7 @@ export const exportKitchenToExcel = ({
                         border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
                     }
                 });
+                // The rest of the merged region cells are empty but styled.
                 for (let i = 1; i < colsPerDay; i++) {
                     row.push({
                         v: '',
@@ -203,6 +215,8 @@ export const exportKitchenToExcel = ({
                 }
             });
             wsData.push(row);
+            // Roughly 14pt per line + a bit of padding
+            rowHeights.push({ hpt: Math.min(300, 16 + maxLinesForRow * 14) });
         });
 
         const ws = XLSX.utils.aoa_to_sheet(wsData.map(r => r.map(c => c.v)));
@@ -213,16 +227,17 @@ export const exportKitchenToExcel = ({
 
         ws['!merges'] = merges;
         ws['!cols'] = [
-            ...days.flatMap(() => [{ wch: 18 }, { wch: 18 }]),
+            ...days.flatMap(() => Array.from({ length: colsPerDay }, () => ({ wch: 8 }))),
             { wch: 18 }, // Hours column
         ];
-        ws['!rows'] = wsData.map((_, idx) => idx === 0 ? ({ hpt: 24 }) : ({ hpt: 90 })); // make rows tall
+        ws['!rows'] = rowHeights;
 
         XLSX.utils.book_append_sheet(wb, ws, sheetName);
     };
 
-    buildSheet('Kitchen', kitchenShifts, kitchenAssignments);
-    buildSheet('Contractors', escortShifts, escortAssignments);
+    // Hebrew sheet names as requested
+    buildSheet('מטבח', kitchenShifts, kitchenAssignments);
+    buildSheet('ליווי', escortShifts, escortAssignments);
 
     XLSX.writeFile(wb, `kitchen_${startDt.format('YYYY-MM-DD')}_to_${endDt.format('YYYY-MM-DD')}.xlsx`);
 };

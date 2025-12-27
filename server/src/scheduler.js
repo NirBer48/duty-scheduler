@@ -682,6 +682,9 @@ export const scheduleGenerator = (
     for (const shift of shifts) {
       const shiftStart = dayjs(shift.start);
       const shiftEnd = dayjs(shift.end);
+      // Exclude adjacent shifts (one ends when the other starts) - use minute precision
+      if ((shiftEnd.isSame(slotStart, 'minute') || shiftEnd.isBefore(slotStart, 'minute')) || 
+          (slotEnd.isSame(shiftStart, 'minute') || slotEnd.isBefore(shiftStart, 'minute'))) continue;
       if (shiftStart.isBefore(slotEnd) && slotStart.isBefore(shiftEnd)) {
         return true;
       }
@@ -696,6 +699,9 @@ export const scheduleGenerator = (
     for (const interval of list) {
       const aStart = dayjs(interval.start);
       const aEnd = dayjs(interval.end);
+      // Exclude adjacent shifts (one ends when the other starts) - use minute precision
+      if ((aEnd.isSame(slotStart, 'minute') || aEnd.isBefore(slotStart, 'minute')) || 
+          (slotEnd.isSame(aStart, 'minute') || slotEnd.isBefore(aStart, 'minute'))) continue;
       if (aStart.isBefore(slotEnd) && slotStart.isBefore(aEnd)) return true;
     }
     return false;
@@ -725,6 +731,9 @@ export const scheduleGenerator = (
       if (personToESGroup.get(assignment.personId) !== groupId) continue;
       const assignmentStart = dayjs(assignment.start);
       const assignmentEnd = dayjs(assignment.end);
+      // Exclude adjacent shifts (one ends when the other starts) - use minute precision
+      if ((assignmentEnd.isSame(slotStart, 'minute') || assignmentEnd.isBefore(slotStart, 'minute')) || 
+          (slotEnd.isSame(assignmentStart, 'minute') || slotEnd.isBefore(assignmentStart, 'minute'))) continue;
       if (assignmentStart.isBefore(slotEnd) && slotStart.isBefore(assignmentEnd)) {
         return true;
       }
@@ -897,6 +906,9 @@ export const scheduleGenerator = (
     const slotStart = dayjs(slotStartISO);
     const slotEnd = dayjs(slotEndISO);
     for (const c of cList) {
+      // Exclude adjacent ranges (one ends when the other starts) - use minute precision
+      if ((slotEnd.isSame(c.start, 'minute') || slotEnd.isBefore(c.start, 'minute')) || 
+          (c.end.isSame(slotStart, 'minute') || c.end.isBefore(slotStart, 'minute'))) continue;
       if (slotStart.isBefore(c.end) && c.start.isBefore(slotEnd)) return true;
     }
     return false;
@@ -961,8 +973,10 @@ export const scheduleGenerator = (
   };
 
   if (mode !== 'guards') {
-    fillDuty(kitchenShifts, kitchenSlotAssigned, kitchenAssignments, 'kitchen');
+    // Fill escort first so `escort_2` (10:30-14:00) doesn't get starved by kitchen_2 (starts at 13:00)
+    // which overlaps it and can otherwise consume most candidates.
     fillDuty(escortShifts, escortSlotAssigned, escortAssignments, 'escort');
+    fillDuty(kitchenShifts, kitchenSlotAssigned, kitchenAssignments, 'kitchen');
   }
 
   return {
