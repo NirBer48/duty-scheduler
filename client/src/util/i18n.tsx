@@ -127,6 +127,7 @@ const translations: Record<Language, TranslationMap> = {
     'ES overlap with shift': 'Another ES member is already on shift at this time',
     'BW conflict': 'BW conflict',
     'in BW at this time': 'in BW at this time',
+    'Missing about X people to complete the task': 'Missing about {count} people to complete the task',
   },
   he: {
     'History': 'היסטוריה',
@@ -252,6 +253,7 @@ const translations: Record<Language, TranslationMap> = {
     'ES overlap with shift': 'חבר כ"כ אחר כבר במשמרת בזמן זה',
     'BW conflict': 'חפיפה עם עב"ס',
     'in BW at this time': 'בעב"ס בזמן זה',
+    'Missing about X people to complete the task': 'חסרים כ{count} אנשים לביצוע המשימה',
   }
 };
 

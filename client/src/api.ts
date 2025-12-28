@@ -65,6 +65,7 @@ type ScheduleResponse = {
   kitchenSettings?: KitchenSettings;
   escortSettings?: EscortSettings;
   error?: string;
+  missingCount?: number;
 };
 
 type ScheduleSnapshot = {

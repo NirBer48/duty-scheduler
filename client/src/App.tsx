@@ -137,6 +137,7 @@ const App: React.FC = () => {
   const [kitchenEnd, setKitchenEnd] = useState(() => loadString(STORAGE_KEY_KITCHEN_END, calculateDefaultEnd()));
   const { t, lang, setLang } = useI18n();
   const [error, setError] = useState('');
+  const [missingCount, setMissingCount] = useState<number | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [constraintDialogOpen, setConstraintDialogOpen] = useState(false);
   const [constraintPersonId, setConstraintPersonId] = useState<number | ''>('');
@@ -237,6 +238,10 @@ const App: React.FC = () => {
       setError(t('Invalid credentials'));
       return;
     }
+    // Clear previous error state before generating
+    setError('');
+    setMissingCount(null);
+    
     // Send as local (no timezone shift) to keep boundaries exact
     const startISO = start;
     const endISO = end;
@@ -265,9 +270,12 @@ const App: React.FC = () => {
         setESAssignments(res.esAssignments);
       }
       setError(res.error || '');
+      console.log("missing:", res.missingCount);
+      setMissingCount(res.missingCount ?? null);
       await Promise.all([refreshPeople(), refreshPosts()]);
     } catch (e) {
       setError(t('Save failed'));
+      setMissingCount(null);
     } finally {
       setIsGenerating(false);
     }
@@ -283,6 +291,7 @@ const App: React.FC = () => {
       ]);
       setBWAssignments([]);
       setError('');
+      setMissingCount(null);
       await clearSchedule('guards');
     }
   };
@@ -329,6 +338,7 @@ const App: React.FC = () => {
       setKitchenAssignments([]);
       setEscortAssignments([]);
       setError('');
+      setMissingCount(null);
       await clearSchedule('kitchen');
     }
   };
@@ -500,7 +510,12 @@ const App: React.FC = () => {
                       </Button>
                     </Stack>
                     {error && (
-                      <Typography color="error" sx={{ mt: 2 }}>{t(error)}</Typography>
+                      <Typography color="error" sx={{ mt: 2 }}>
+                        {missingCount != null && missingCount > 0 
+                          ? t('Missing about X people to complete the task').replace('{count}', String(missingCount))
+                          : t(error)
+                        }
+                      </Typography>
                     )}
                   </Paper>
                   <Paper sx={{ p: 2, overflow: 'auto' }}>

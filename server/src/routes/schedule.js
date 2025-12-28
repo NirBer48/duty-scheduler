@@ -60,7 +60,7 @@ const mapEsAssignmentRows = rows => {
   }));
 };
 
-const respondError = (res, message = 'not enough manpower') =>
+const respondError = (res, message = 'not enough manpower', missingCount = null) =>
   res.json({
     assignments: [],
     bwAssignments: [],
@@ -70,6 +70,7 @@ const respondError = (res, message = 'not enough manpower') =>
     kitchenSettings: { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
     escortSettings: { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
     error: message,
+    missingCount,
   });
 
 const shuffle = (arr = []) => {
@@ -467,11 +468,11 @@ router.post('/generate', async (req, res, next) => {
     );
 
     if (result.error) {
-      return respondError(res, result.error);
+      return respondError(res, result.error, result.missingCount);
     }
 
     if (result.assignments.some(a => a.personId == null || a.postId == null)) {
-      return respondError(res);
+      return respondError(res, 'not enough manpower', 1);
     }
 
     await persistAllAssignments(
@@ -564,7 +565,7 @@ router.post('/generate-guards', async (req, res, next) => {
       { mode: 'guards' }
     );
 
-    if (result.error) return respondError(res, result.error);
+    if (result.error) return respondError(res, result.error, result.missingCount ?? null);
 
     await persistGuardsOnly(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id);
 
@@ -644,7 +645,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
       { mode: 'kitchen', kitchenStartISO, kitchenEndISO }
     );
 
-    if (result.error) return respondError(res, result.error);
+    if (result.error) return respondError(res, result.error, result.missingCount ?? null);
 
     await persistKitchenOnly(
       db,

@@ -561,11 +561,23 @@ export const scheduleGenerator = (
     }
   }
 
-  // Check for unfilled mandatory slots
-  const unfilledMandatory = mode !== 'kitchen' && slotsToFill.some(slot => slot.stillNeeded > 0 && !slot.optional);
-  
-  if (unfilledMandatory) {
-    return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
+  // Check for unfilled mandatory slots and calculate minimum people needed
+  const unfilledMandatorySlots = slotsToFill.filter(slot => slot.stillNeeded > 0 && !slot.optional);
+    
+  if (unfilledMandatorySlots.length > 0) {
+    // Calculate total unfilled positions
+    const totalUnfilledPositions = unfilledMandatorySlots.reduce((sum, slot) => sum + slot.stillNeeded, 0);
+    
+    // Each person can work at most 2 shifts per day (due to 8-hour rest requirement)
+    // So minimum additional people needed = ceil(totalUnfilledPositions / 2)
+    const minPeopleNeeded = Math.ceil(totalUnfilledPositions / 2);
+
+    return { 
+      assignments: [], 
+      bwAssignments: [], 
+      error: 'not enough manpower',
+      missingCount: minPeopleNeeded
+    };
   }
 
   // Check for duelGuard violations (duelGuard people alone in shifts)
@@ -578,19 +590,22 @@ export const scheduleGenerator = (
     assignmentsBySlot.get(key).push(assignment.personId);
   }
 
+  let duelGuardViolations = 0;
+  let genderPrefViolations = 0;
+
   if (mode !== 'kitchen') {
     for (const [slotKey, personIds] of assignmentsBySlot.entries()) {
       if (personIds.length === 1) {
         const person = people.find(p => p.id === personIds[0]);
         if (person?.duelGuard) {
-          // DuelGuard person is alone in a shift
-          return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
+          // DuelGuard person is alone in a shift - need 1 more person
+          duelGuardViolations += 1;
         }
       }
 
       // Check same-gender preference for night shifts
       if (personIds.length > 1) {
-        const [postId, day, shiftLabel] = slotKey.split('|');
+        const shiftLabel = slotKey.split('|')[2];
         if (NIGHT_SHIFT_LABELS.has(shiftLabel)) {
           const assignedPeople = personIds.map(pid => people.find(p => p.id === pid)).filter(Boolean);
           for (let i = 0; i < assignedPeople.length; i++) {
@@ -598,8 +613,9 @@ export const scheduleGenerator = (
             if (person.sameGenderPref) {
               for (let j = 0; j < assignedPeople.length; j++) {
                 if (i !== j && assignedPeople[j].gender !== person.gender) {
-                  // Same-gender preference violated
-                  return { assignments: [], bwAssignments: [], error: 'not enough manpower' };
+                  // Same-gender preference violated - need 1 replacement
+                  genderPrefViolations += 1;
+                  break;
                 }
               }
             }
@@ -607,6 +623,15 @@ export const scheduleGenerator = (
         }
       }
     }
+  }
+
+  if (duelGuardViolations > 0 || genderPrefViolations > 0) {
+    return { 
+      assignments: [], 
+      bwAssignments: [], 
+      error: 'not enough manpower',
+      missingCount: duelGuardViolations + genderPrefViolations
+    };
   }
 
   const bwAssignments = [];
