@@ -1,4 +1,15 @@
-import type { Assignment, BWAssignment, ESGroupAssignment, Person, Post, Constraint } from './types';
+import type {
+  Assignment,
+  BWAssignment,
+  ESGroupAssignment,
+  Person,
+  Post,
+  Constraint,
+  KitchenAssignment,
+  EscortAssignment,
+  KitchenSettings,
+  EscortSettings,
+} from './types';
 
 const BASE = '/api';
 
@@ -35,6 +46,7 @@ type AddPersonPayload = {
   limitedAbility: boolean;
   standingExemption: boolean;
   duelGuard: boolean;
+  nightGuardExemption: boolean;
 };
 
 type AddPostPayload = {
@@ -48,6 +60,10 @@ type ScheduleResponse = {
   assignments?: Assignment[];
   bwAssignments?: BWAssignment[];
   esAssignments?: ESGroupAssignment[];
+  kitchenAssignments?: KitchenAssignment[];
+  escortAssignments?: EscortAssignment[];
+  kitchenSettings?: KitchenSettings;
+  escortSettings?: EscortSettings;
   error?: string;
   missingCount?: number;
 };
@@ -56,6 +72,10 @@ type ScheduleSnapshot = {
   assignments: Assignment[];
   bwAssignments: BWAssignment[];
   esAssignments: ESGroupAssignment[];
+  kitchenAssignments?: KitchenAssignment[];
+  escortAssignments?: EscortAssignment[];
+  kitchenSettings?: KitchenSettings;
+  escortSettings?: EscortSettings;
 };
 
 export const register = (email: string, password: string) =>
@@ -114,6 +134,10 @@ export const generateSchedule = (
   esAssignments: ESGroupAssignment[] = [],
   existingAssignments: ExistingAssignment[] = [],
   existingBwAssignments: BWAssignment[] = [],
+  existingKitchenAssignments: KitchenAssignment[] = [],
+  existingEscortAssignments: EscortAssignment[] = [],
+  kitchenSettings: KitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+  escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
   constraints: Constraint[] = []
 ) =>
   request<ScheduleResponse>('/schedule/generate', {
@@ -126,11 +150,80 @@ export const generateSchedule = (
       esAssignments,
       existingAssignments,
       existingBwAssignments,
+      existingKitchenAssignments,
+      existingEscortAssignments,
+      kitchenSettings,
+      escortSettings,
       constraints,
     }),
   });
 
-export const clearSchedule = () => request<{ ok: boolean }>('/schedule/clear', { method: 'DELETE' });
+export const generateGuardsSchedule = (
+  startISO: string,
+  endISO: string,
+  shiftOverrides: { postId: number; day: string; shiftLabel: string; requiredPerShift: number }[] = [],
+  esAssignments: ESGroupAssignment[] = [],
+  existingAssignments: ExistingAssignment[] = [],
+  existingBwAssignments: BWAssignment[] = [],
+  existingKitchenAssignments: KitchenAssignment[] = [],
+  existingEscortAssignments: EscortAssignment[] = [],
+  kitchenSettings: KitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+  escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
+  constraints: Constraint[] = []
+) =>
+  request<ScheduleResponse>('/schedule/generate-guards', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      startISO,
+      endISO,
+      shiftOverrides,
+      esAssignments,
+      existingAssignments,
+      existingBwAssignments,
+      existingKitchenAssignments,
+      existingEscortAssignments,
+      kitchenSettings,
+      escortSettings,
+      constraints,
+    }),
+  });
+
+export const generateKitchenSchedule = (
+  guardsStartISO: string,
+  guardsEndISO: string,
+  kitchenStartISO: string,
+  kitchenEndISO: string,
+  esAssignments: ESGroupAssignment[] = [],
+  existingAssignments: ExistingAssignment[] = [],
+  existingBwAssignments: BWAssignment[] = [],
+  existingKitchenAssignments: KitchenAssignment[] = [],
+  existingEscortAssignments: EscortAssignment[] = [],
+  kitchenSettings: KitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+  escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
+  constraints: Constraint[] = []
+) =>
+  request<ScheduleResponse>('/schedule/generate-kitchen', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      startISO: guardsStartISO,
+      endISO: guardsEndISO,
+      kitchenStartISO,
+      kitchenEndISO,
+      esAssignments,
+      existingAssignments,
+      existingBwAssignments,
+      existingKitchenAssignments,
+      existingEscortAssignments,
+      kitchenSettings,
+      escortSettings,
+      constraints,
+    }),
+  });
+
+export const clearSchedule = (mode: 'all' | 'guards' | 'kitchen' = 'all') =>
+  request<{ ok: boolean }>(`/schedule/clear?mode=${encodeURIComponent(mode)}`, { method: 'DELETE' });
 
 export const fetchLastSchedule = () => request<ScheduleSnapshot>('/schedule/last');
 
@@ -147,10 +240,24 @@ export const saveAllSchedules = (
   assignments: Assignment[],
   bwAssignments: BWAssignment[],
   esAssignments: ESGroupAssignment[],
+  kitchenAssignments: KitchenAssignment[],
+  escortAssignments: EscortAssignment[],
+  kitchenSettings: KitchenSettings,
+  escortSettings: EscortSettings,
   start: string,
   end: string
 ) =>
   request<{ ok: boolean; error?: string }>('/schedule/save-all', {
     method: 'POST',
-    body: JSON.stringify({ assignments, bwAssignments, esAssignments, start, end }),
+    body: JSON.stringify({
+      assignments,
+      bwAssignments,
+      esAssignments,
+      kitchenAssignments,
+      escortAssignments,
+      kitchenSettings,
+      escortSettings,
+      start,
+      end,
+    }),
   });

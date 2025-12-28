@@ -144,6 +144,14 @@ export const CellEditDialog: React.FC<Props> = ({
         return t('Standing exemption - cannot work this post');
     };
 
+    const hasNightGuardExemptionConflict = (personId: number): string | null => {
+        const person = people.find(p => p.id === personId);
+        if (!person) return null;
+        if (!person.nightGuardExemption) return null;
+        if (!isNightShift(shiftLabel)) return null;
+        return t('Night guard exemption - cannot work night shifts');
+    };
+
     const hasConstraintConflict = (personId: number): string | null => {
         const cList = constraints.filter(c => c.personId === personId);
         if (cList.length === 0) return null;
@@ -249,6 +257,7 @@ export const CellEditDialog: React.FC<Props> = ({
         if (hasBWConflict(personId)) count++;
         if (hasESBWConflict(personId)) count++;
         if (hasStandingExemptionConflict(personId)) count++;
+        if (hasNightGuardExemptionConflict(personId)) count++;
         if (hasConstraintConflict(personId)) count++;
         const person = people.find(p => p.id === personId);
         const assignedCountWithPerson = (isSelected => {
@@ -320,6 +329,7 @@ export const CellEditDialog: React.FC<Props> = ({
                                 const bwConflict = hasBWConflict(person.id);
                                 const esBwConflict = hasESBWConflict(person.id);
                                 const standingConflict = hasStandingExemptionConflict(person.id);
+                                const nightGuardConflict = hasNightGuardExemptionConflict(person.id);
                                 const constraintConflict = hasConstraintConflict(person.id);
                                 const assignedCountWithPerson = isSelected ? selected.length : selected.length + 1;
                                 const duelGuardConflict = person.duelGuard && assignedCountWithPerson < Math.max(2, requiredCount);
@@ -368,6 +378,11 @@ export const CellEditDialog: React.FC<Props> = ({
                                         {standingConflict && (
                                             <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
                                                 ⚠️ {standingConflict}
+                                            </Typography>
+                                        )}
+                                        {nightGuardConflict && (
+                                            <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                                ⚠️ {nightGuardConflict}
                                             </Typography>
                                         )}
                                         {constraintConflict && (

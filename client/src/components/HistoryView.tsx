@@ -10,7 +10,8 @@ import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import { useI18n } from "../util/i18n";
 import { fetchHistoryPeriods, fetchScheduleByPeriod } from "../api";
 import ScheduleCalendar from "./ScheduleView";
-import type { Post, Person, Assignment, BWAssignment, ESGroupAssignment } from "../types";import {
+import KitchenDutyView from "./KitchenDutyView";
+import type { Post, Person, Assignment, BWAssignment, ESGroupAssignment, KitchenAssignment, EscortAssignment, KitchenSettings, EscortSettings } from "../types";import {
   FormControl,
   InputLabel,
   Select,
@@ -29,6 +30,10 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [bwAssignments, setBWAssignments] = useState<BWAssignment[]>([]);
   const [esAssignments, setESAssignments] = useState<ESGroupAssignment[]>([]);
+  const [kitchenAssignments, setKitchenAssignments] = useState<KitchenAssignment[]>([]);
+  const [escortAssignments, setEscortAssignments] = useState<EscortAssignment[]>([]);
+  const [kitchenSettings, setKitchenSettings] = useState<KitchenSettings>({ requiredPerShift: 36, shift2Start: '13:00' });
+  const [escortSettings, setEscortSettings] = useState<EscortSettings>({ requiredPerShift: 4 });
   const [error, setError] = useState<string>("");
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
 
@@ -59,10 +64,16 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
       const fetchedAssignments = snap.assignments || [];
       const fetchedBW = snap.bwAssignments || [];
       const fetchedES = snap.esAssignments || [];
+      const fetchedKitchen = snap.kitchenAssignments || [];
+      const fetchedEscort = snap.escortAssignments || [];
       
       setAssignments(fetchedAssignments);
       setBWAssignments(fetchedBW);
       setESAssignments(fetchedES);
+      setKitchenAssignments(fetchedKitchen);
+      setEscortAssignments(fetchedEscort);
+      if (snap.kitchenSettings) setKitchenSettings(snap.kitchenSettings);
+      if (snap.escortSettings) setEscortSettings(snap.escortSettings);
 
       // Use exact start/end from assignments; fallback to selected period bounds if missing
       let minStart = '';
@@ -80,6 +91,8 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
       setAssignments([]);
       setBWAssignments([]);
       setESAssignments([]);
+      setKitchenAssignments([]);
+      setEscortAssignments([]);
     } finally {
       setLoading(false);
     }
@@ -127,7 +140,7 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
       </Paper>
       <Paper sx={{ p: 2 }}>
         <Box sx={{ height: "60vh", overflow: "auto" }}>
-          {assignments.length === 0 && bwAssignments.length === 0 && esAssignments.length === 0 ? (
+          {assignments.length === 0 && bwAssignments.length === 0 && esAssignments.length === 0 && kitchenAssignments.length === 0 && escortAssignments.length === 0 ? (
             <Box sx={{ p: 4, display: "flex", justifyContent: "center" }}>
               <Card
                 sx={{
@@ -165,20 +178,49 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
               </Card>
             </Box>
           ) : (
-            <ScheduleCalendar
-              assignments={assignments}
-              posts={posts}
-              people={people}
-              start={dateRange.start}
-              end={dateRange.end}
-              isGenerating={false}
-              shiftOverrides={[]}
-              esAssignments={esAssignments}
-              esGroups={[]}
-              bwAssignments={bwAssignments}
-              constraints={[]}
-              readOnly={true}
-            />
+            <>
+              <ScheduleCalendar
+                assignments={assignments}
+                posts={posts}
+                people={people}
+                start={dateRange.start}
+                end={dateRange.end}
+                isGenerating={false}
+                shiftOverrides={[]}
+                esAssignments={esAssignments}
+                esGroups={[]}
+                bwAssignments={bwAssignments}
+                constraints={[]}
+                readOnly={true}
+                kitchenAssignments={kitchenAssignments}
+                escortAssignments={escortAssignments}
+                kitchenSettings={kitchenSettings}
+                escortSettings={escortSettings}
+              />
+              <Box sx={{ mt: 3 }}>
+                <KitchenDutyView
+                  people={people}
+                  start={dateRange.start}
+                  end={dateRange.end}
+                  assignments={assignments}
+                  bwAssignments={bwAssignments}
+                  esAssignments={esAssignments}
+                  kitchenAssignments={kitchenAssignments}
+                  onKitchenAssignmentsChange={setKitchenAssignments}
+                  escortAssignments={escortAssignments}
+                  onEscortAssignmentsChange={setEscortAssignments}
+                  kitchenSettings={kitchenSettings}
+                  onKitchenSettingsChange={setKitchenSettings}
+                  escortSettings={escortSettings}
+                  onEscortSettingsChange={setEscortSettings}
+                  constraints={[]}
+                  onGenerate={() => {}}
+                  onClear={() => {}}
+                  onAddConstraint={() => {}}
+                  readOnly={true}
+                />
+              </Box>
+            </>
           )}
         </Box>
       </Paper>

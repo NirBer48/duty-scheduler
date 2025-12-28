@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS people (
   limitedAbility BOOLEAN NOT NULL DEFAULT false,
   standingExemption BOOLEAN NOT NULL DEFAULT false,
   duelGuard BOOLEAN NOT NULL DEFAULT false,
+  nightGuardExemption BOOLEAN NOT NULL DEFAULT false,
   userId INTEGER REFERENCES users(id)
 );
 
@@ -58,6 +59,41 @@ CREATE TABLE IF NOT EXISTS constraints (
   title TEXT NOT NULL,
   startISO TEXT NOT NULL,
   endISO TEXT NOT NULL,
+  userId INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS kitchen_settings (
+  id SERIAL PRIMARY KEY,
+  requiredPerShift INTEGER NOT NULL DEFAULT 36,
+  requiredShift1 INTEGER NOT NULL DEFAULT 36,
+  requiredShift2 INTEGER NOT NULL DEFAULT 36,
+  shift2Start TEXT NOT NULL DEFAULT '13:00',
+  userId INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS kitchen_assignments (
+  id SERIAL PRIMARY KEY,
+  personId INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  shiftId TEXT NOT NULL,
+  userId INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS escort_settings (
+  id SERIAL PRIMARY KEY,
+  requiredPerShift INTEGER NOT NULL DEFAULT 4,
+  requiredShift1 INTEGER NOT NULL DEFAULT 4,
+  requiredShift2 INTEGER NOT NULL DEFAULT 4,
+  requiredShift3 INTEGER NOT NULL DEFAULT 4,
+  requiredShift4 INTEGER NOT NULL DEFAULT 4,
+  userId INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS escort_assignments (
+  id SERIAL PRIMARY KEY,
+  personId INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  shiftId TEXT NOT NULL,
   userId INTEGER REFERENCES users(id)
 );
 

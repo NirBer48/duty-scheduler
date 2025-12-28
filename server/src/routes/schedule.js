@@ -6,10 +6,11 @@ const getDb = req => req.app.locals.db;
 
 const mapPerson = row => ({
   ...row,
-  sameGenderPref: Boolean(row.samegenderpref),
-  limitedAbility: Boolean(row.limitedability),
-  standingExemption: Boolean(row.standingexemption),
-  duelGuard: Boolean(row.duelguard),
+  sameGenderPref: Boolean(row.samegenderpref || row.sameGenderPref),
+  limitedAbility: Boolean(row.limitedability || row.limitedAbility),
+  standingExemption: Boolean(row.standingexemption || row.standingExemption),
+  duelGuard: Boolean(row.duelguard || row.duelGuard),
+  nightGuardExemption: Boolean(row.nightguardexemption || row.nightGuardExemption),
 });
 
 const mapPost = row => ({
@@ -34,6 +35,18 @@ const mapBwAssignment = row => ({
   slotId: row.slotid,
 });
 
+const mapKitchenAssignment = row => ({
+  personId: Number(row.personid),
+  day: row.day,
+  shiftId: row.shiftid,
+});
+
+const mapEscortAssignment = row => ({
+  personId: Number(row.personid),
+  day: row.day,
+  shiftId: row.shiftid,
+});
+
 const mapEsAssignmentRows = rows => {
   const grouped = rows.reduce((acc, row) => {
     const groupId = row.groupid;
@@ -48,12 +61,16 @@ const mapEsAssignmentRows = rows => {
 };
 
 const respondError = (res, message = 'not enough manpower', missingCount = null) =>
-  res.json({ 
-    assignments: [], 
-    bwAssignments: [], 
-    esAssignments: [], 
+  res.json({
+    assignments: [],
+    bwAssignments: [],
+    esAssignments: [],
+    kitchenAssignments: [],
+    escortAssignments: [],
+    kitchenSettings: { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+    escortSettings: { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
     error: message,
-    missingCount: missingCount
+    missingCount,
   });
 
 const shuffle = (arr = []) => {
@@ -68,6 +85,33 @@ const shuffle = (arr = []) => {
 const clearAssignments = (db, userId) => db.run('DELETE FROM assignments WHERE userId = $1', [userId]);
 const clearBwAssignments = (db, userId) => db.run('DELETE FROM bw_assignments WHERE userId = $1', [userId]);
 const clearEsAssignments = (db, userId) => db.run('DELETE FROM es_assignments WHERE userId = $1', [userId]);
+const clearKitchenAssignments = (db, userId) => db.run('DELETE FROM kitchen_assignments WHERE userId = $1', [userId]);
+const clearEscortAssignments = (db, userId) => db.run('DELETE FROM escort_assignments WHERE userId = $1', [userId]);
+
+const upsertKitchenSettings = async (db, userId, kitchenSettings) => {
+  const requiredPerShift = Number(kitchenSettings?.requiredPerShift ?? 36); // backward compat
+  const requiredShift1 = Number(kitchenSettings?.requiredShift1 ?? requiredPerShift ?? 36);
+  const requiredShift2 = Number(kitchenSettings?.requiredShift2 ?? requiredPerShift ?? 36);
+  const shift2Start = (kitchenSettings?.shift2Start ?? '13:00').toString();
+  await db.run('DELETE FROM kitchen_settings WHERE userId = $1', [userId]);
+  await db.run(
+    'INSERT INTO kitchen_settings (requiredPerShift, requiredShift1, requiredShift2, shift2Start, userId) VALUES ($1, $2, $3, $4, $5)',
+    [requiredPerShift, requiredShift1, requiredShift2, shift2Start, userId]
+  );
+};
+
+const upsertEscortSettings = async (db, userId, escortSettings) => {
+  const requiredPerShift = Number(escortSettings?.requiredPerShift ?? 4); // backward compat
+  const requiredShift1 = Number(escortSettings?.requiredShift1 ?? requiredPerShift ?? 4);
+  const requiredShift2 = Number(escortSettings?.requiredShift2 ?? requiredPerShift ?? 4);
+  const requiredShift3 = Number(escortSettings?.requiredShift3 ?? requiredPerShift ?? 4);
+  const requiredShift4 = Number(escortSettings?.requiredShift4 ?? requiredPerShift ?? 4);
+  await db.run('DELETE FROM escort_settings WHERE userId = $1', [userId]);
+  await db.run(
+    'INSERT INTO escort_settings (requiredPerShift, requiredShift1, requiredShift2, requiredShift3, requiredShift4, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+    [requiredPerShift, requiredShift1, requiredShift2, requiredShift3, requiredShift4, userId]
+  );
+};
 
 const persistAssignments = async (db, assignments = [], userId) => {
   for (const { personId, postId, day, shiftLabel, start, end } of assignments) {
@@ -83,6 +127,24 @@ const persistBwAssignments = async (db, bwAssignments = [], userId) => {
     await db.run(
       'INSERT INTO bw_assignments (personId, day, slotId, userId) VALUES ($1, $2, $3, $4)',
       [personId, day, slotId, userId]
+    );
+  }
+};
+
+const persistKitchenAssignments = async (db, kitchenAssignments = [], userId) => {
+  for (const { personId, day, shiftId } of kitchenAssignments) {
+    await db.run(
+      'INSERT INTO kitchen_assignments (personId, day, shiftId, userId) VALUES ($1, $2, $3, $4)',
+      [personId, day, shiftId, userId]
+    );
+  }
+};
+
+const persistEscortAssignments = async (db, escortAssignments = [], userId) => {
+  for (const { personId, day, shiftId } of escortAssignments) {
+    await db.run(
+      'INSERT INTO escort_assignments (personId, day, shiftId, userId) VALUES ($1, $2, $3, $4)',
+      [personId, day, shiftId, userId]
     );
   }
 };
@@ -125,7 +187,19 @@ const isBwSlotInRange = (day, slotId, rangeStart, rangeEnd) => {
   return slotEnd > rangeStart && slotStart < rangeEnd;
 };
 
-const archiveAssignments = async (db, assignments = [], bwAssignments = [], esAssignments = [], userId, start, end) => {
+const archiveAssignments = async (
+  db,
+  assignments = [],
+  bwAssignments = [],
+  esAssignments = [],
+  kitchenAssignments = [],
+  escortAssignments = [],
+  kitchenSettings,
+  escortSettings,
+  userId,
+  start,
+  end
+) => {
   // Extract date part without timezone conversion: "2025-12-17T20:00" -> "2025-12-17"
   const scheduleStart = start.substring(0, 10);
   const scheduleEnd = end.substring(0, 10);
@@ -154,6 +228,10 @@ const archiveAssignments = async (db, assignments = [], bwAssignments = [], esAs
   await db.run('DELETE FROM archived_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_bw_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_es_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
+  await db.run('DELETE FROM archived_kitchen_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
+  await db.run('DELETE FROM archived_kitchen_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
+  await db.run('DELETE FROM archived_escort_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
+  await db.run('DELETE FROM archived_escort_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
 
   // Insert new archives (filtered)
   for (const a of filteredAssignments) {
@@ -176,16 +254,155 @@ const archiveAssignments = async (db, assignments = [], bwAssignments = [], esAs
       );
     }
   }
+
+  const ks = kitchenSettings || { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
+  const ks1 = Number(ks.requiredShift1 ?? ks.requiredPerShift ?? 36);
+  const ks2 = Number(ks.requiredShift2 ?? ks.requiredPerShift ?? 36);
+  await db.run(
+    'INSERT INTO archived_kitchen_settings (schedule_start, schedule_end, requiredPerShift, requiredShift1, requiredShift2, shift2Start, userId) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+    [
+      scheduleStart,
+      scheduleEnd,
+      Number(ks.requiredPerShift ?? 36),
+      ks1,
+      ks2,
+      (ks.shift2Start ?? '13:00').toString(),
+      userId
+    ]
+  );
+
+  for (const k of kitchenAssignments || []) {
+    await db.run(
+      'INSERT INTO archived_kitchen_assignments (schedule_start, schedule_end, personId, day, shiftId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+      [scheduleStart, scheduleEnd, Number(k.personId), k.day, k.shiftId, userId]
+    );
+  }
+
+  const esSet = escortSettings || { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 };
+  const es1 = Number(esSet.requiredShift1 ?? esSet.requiredPerShift ?? 4);
+  const es2 = Number(esSet.requiredShift2 ?? esSet.requiredPerShift ?? 4);
+  const es3 = Number(esSet.requiredShift3 ?? esSet.requiredPerShift ?? 4);
+  const es4 = Number(esSet.requiredShift4 ?? esSet.requiredPerShift ?? 4);
+  await db.run(
+    'INSERT INTO archived_escort_settings (schedule_start, schedule_end, requiredPerShift, requiredShift1, requiredShift2, requiredShift3, requiredShift4, userId) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+    [scheduleStart, scheduleEnd, Number(esSet.requiredPerShift ?? 4), es1, es2, es3, es4, userId]
+  );
+
+  for (const e of escortAssignments || []) {
+    await db.run(
+      'INSERT INTO archived_escort_assignments (schedule_start, schedule_end, personId, day, shiftId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+      [scheduleStart, scheduleEnd, Number(e.personId), e.day, e.shiftId, userId]
+    );
+  }
   console.log('Archived successfully');
 };
 
-const persistAllAssignments = async (db, assignments = [], bwAssignments = [], esAssignments = [], userId, start, end) => {
+const persistAllAssignments = async (
+  db,
+  assignments = [],
+  bwAssignments = [],
+  esAssignments = [],
+  kitchenAssignments = [],
+  escortAssignments = [],
+  kitchenSettings,
+  escortSettings,
+  userId,
+  start,
+  end
+) => {
+  await Promise.all([
+    clearAssignments(db, userId),
+    clearBwAssignments(db, userId),
+    clearEsAssignments(db, userId),
+    clearKitchenAssignments(db, userId),
+    clearEscortAssignments(db, userId),
+  ]);
+  await persistAssignments(db, assignments, userId);
+  await persistBwAssignments(db, bwAssignments, userId);
+  await persistEsAssignments(db, esAssignments, userId);
+  await persistKitchenAssignments(db, kitchenAssignments, userId);
+  await persistEscortAssignments(db, escortAssignments, userId);
+  await upsertKitchenSettings(db, userId, kitchenSettings);
+  await upsertEscortSettings(db, userId, escortSettings);
+  // Archive the saved assignments
+  await archiveAssignments(
+    db,
+    assignments,
+    bwAssignments,
+    esAssignments,
+    kitchenAssignments,
+    escortAssignments,
+    kitchenSettings,
+    escortSettings,
+    userId,
+    start,
+    end
+  );
+};
+
+const persistGuardsOnly = async (db, assignments = [], bwAssignments = [], esAssignments = [], userId) => {
   await Promise.all([clearAssignments(db, userId), clearBwAssignments(db, userId), clearEsAssignments(db, userId)]);
   await persistAssignments(db, assignments, userId);
   await persistBwAssignments(db, bwAssignments, userId);
   await persistEsAssignments(db, esAssignments, userId);
-  // Archive the saved assignments
-  await archiveAssignments(db, assignments, bwAssignments, esAssignments, userId, start, end);
+};
+
+const persistKitchenOnly = async (
+  db,
+  kitchenAssignments = [],
+  escortAssignments = [],
+  kitchenSettings,
+  escortSettings,
+  userId
+) => {
+  await Promise.all([clearKitchenAssignments(db, userId), clearEscortAssignments(db, userId)]);
+  await persistKitchenAssignments(db, kitchenAssignments, userId);
+  await persistEscortAssignments(db, escortAssignments, userId);
+  await upsertKitchenSettings(db, userId, kitchenSettings);
+  await upsertEscortSettings(db, userId, escortSettings);
+};
+
+const fetchKitchenEscortSnapshot = async (db, userId) => {
+  const [kitchen, escort, kitchenSettingsRows, escortSettingsRows] = await Promise.all([
+    db.all('SELECT * FROM kitchen_assignments WHERE userId = $1', [userId]),
+    db.all('SELECT * FROM escort_assignments WHERE userId = $1', [userId]),
+    db.all('SELECT * FROM kitchen_settings WHERE userId = $1 LIMIT 1', [userId]),
+    db.all('SELECT * FROM escort_settings WHERE userId = $1 LIMIT 1', [userId]),
+  ]);
+  const kitchenSettings = kitchenSettingsRows?.[0]
+    ? {
+      requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+      requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+      shift2Start: kitchenSettingsRows[0].shift2start
+    }
+    : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
+  const escortSettings = escortSettingsRows?.[0]
+    ? {
+      requiredShift1: Number(escortSettingsRows[0].requiredshift1 ?? escortSettingsRows[0].requiredpershift ?? 4),
+      requiredShift2: Number(escortSettingsRows[0].requiredshift2 ?? escortSettingsRows[0].requiredpershift ?? 4),
+      requiredShift3: Number(escortSettingsRows[0].requiredshift3 ?? escortSettingsRows[0].requiredpershift ?? 4),
+      requiredShift4: Number(escortSettingsRows[0].requiredshift4 ?? escortSettingsRows[0].requiredpershift ?? 4),
+    }
+    : { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 };
+  return {
+    kitchenAssignments: kitchen.map(mapKitchenAssignment),
+    escortAssignments: escort.map(mapEscortAssignment),
+    kitchenSettings,
+    escortSettings,
+  };
+};
+
+const fetchGuardsSnapshot = async (db, userId) => {
+  const [regular, bw, es] = await Promise.all([
+    db.all('SELECT * FROM assignments WHERE userId = $1', [userId]),
+    db.all('SELECT * FROM bw_assignments WHERE userId = $1', [userId]),
+    db.all('SELECT * FROM es_assignments WHERE userId = $1', [userId]),
+  ]);
+  return {
+    assignments: regular.map(mapAssignment),
+    bwAssignments: bw.map(mapBwAssignment),
+    esAssignments: mapEsAssignmentRows(es),
+  };
 };
 
 router.post('/generate', async (req, res, next) => {
@@ -198,6 +415,10 @@ router.post('/generate', async (req, res, next) => {
       esAssignments = [],
       existingAssignments = [],
       existingBwAssignments = [],
+      existingKitchenAssignments = [],
+      existingEscortAssignments = [],
+      kitchenSettings,
+      escortSettings,
       constraints = [],
     } = req.body;
 
@@ -212,6 +433,10 @@ router.post('/generate', async (req, res, next) => {
       (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
     const sanitizeBw = arr =>
       (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeKitchen = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEscort = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
@@ -221,6 +446,8 @@ router.post('/generate', async (req, res, next) => {
     const sanitizedEs = sanitizeEs(esAssignments);
     const sanitizedAssignments = sanitizeAssignments(existingAssignments);
     const sanitizedBw = sanitizeBw(existingBwAssignments);
+    const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
+    const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
 
@@ -233,6 +460,10 @@ router.post('/generate', async (req, res, next) => {
       sanitizedEs,
       sanitizedAssignments,
       sanitizedBw,
+      sanitizedKitchen,
+      sanitizedEscort,
+      kitchenSettings,
+      escortSettings,
       constraints
     );
 
@@ -244,8 +475,196 @@ router.post('/generate', async (req, res, next) => {
       return respondError(res, 'not enough manpower', 1);
     }
 
-    await persistAllAssignments(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id, startISO, endISO);
-    res.json({ assignments: result.assignments, bwAssignments: result.bwAssignments, esAssignments: sanitizedEs });
+    await persistAllAssignments(
+      db,
+      result.assignments,
+      result.bwAssignments,
+      sanitizedEs,
+      result.kitchenAssignments || [],
+      result.escortAssignments || [],
+      result.kitchenSettings || kitchenSettings,
+      result.escortSettings || escortSettings,
+      req.user.id,
+      startISO,
+      endISO
+    );
+    res.json({
+      assignments: result.assignments,
+      bwAssignments: result.bwAssignments,
+      esAssignments: sanitizedEs,
+      kitchenAssignments: result.kitchenAssignments || [],
+      escortAssignments: result.escortAssignments || [],
+      kitchenSettings: result.kitchenSettings || kitchenSettings || { requiredPerShift: 36, shift2Start: '13:00' },
+      escortSettings: result.escortSettings || escortSettings || { requiredPerShift: 4 },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/generate-guards', async (req, res, next) => {
+  try {
+    const db = getDb(req);
+    const {
+      startISO,
+      endISO,
+      shiftOverrides = [],
+      esAssignments = [],
+      existingAssignments = [],
+      existingBwAssignments = [],
+      existingKitchenAssignments = [],
+      existingEscortAssignments = [],
+      kitchenSettings,
+      escortSettings,
+      constraints = [],
+    } = req.body;
+
+    const [peopleRows, postRows] = await Promise.all([
+      db.all('SELECT * FROM people WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
+    ]);
+
+    const personIds = new Set(peopleRows.map(p => p.id));
+    const postIds = new Set(postRows.map(p => p.id));
+    const sanitizeAssignments = arr =>
+      (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
+    const sanitizeBw = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeKitchen = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEscort = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEs = arr =>
+      (arr || []).map(es => ({
+        groupId: es.groupId,
+        personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
+      }));
+
+    const sanitizedEs = sanitizeEs(esAssignments);
+    const sanitizedAssignments = sanitizeAssignments(existingAssignments);
+    const sanitizedBw = sanitizeBw(existingBwAssignments);
+    const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
+    const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
+
+    const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+
+    const result = scheduleGenerator(
+      shuffledPeople,
+      postRows.map(mapPost),
+      startISO,
+      endISO,
+      shiftOverrides,
+      sanitizedEs,
+      sanitizedAssignments,
+      sanitizedBw,
+      sanitizedKitchen,
+      sanitizedEscort,
+      kitchenSettings,
+      escortSettings,
+      constraints,
+      { mode: 'guards' }
+    );
+
+    if (result.error) return respondError(res, result.error, result.missingCount ?? null);
+
+    await persistGuardsOnly(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id);
+
+    const kitchenSnap = await fetchKitchenEscortSnapshot(db, req.user.id);
+    res.json({
+      assignments: result.assignments,
+      bwAssignments: result.bwAssignments,
+      esAssignments: sanitizedEs,
+      ...kitchenSnap,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/generate-kitchen', async (req, res, next) => {
+  try {
+    const db = getDb(req);
+    const {
+      startISO,
+      endISO,
+      kitchenStartISO,
+      kitchenEndISO,
+      esAssignments = [],
+      existingAssignments = [],
+      existingBwAssignments = [],
+      existingKitchenAssignments = [],
+      existingEscortAssignments = [],
+      kitchenSettings,
+      escortSettings,
+      constraints = [],
+    } = req.body;
+
+    const [peopleRows, postRows] = await Promise.all([
+      db.all('SELECT * FROM people WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
+    ]);
+
+    const personIds = new Set(peopleRows.map(p => p.id));
+    const postIds = new Set(postRows.map(p => p.id));
+    const sanitizeAssignments = arr =>
+      (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
+    const sanitizeBw = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeKitchen = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEscort = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEs = arr =>
+      (arr || []).map(es => ({
+        groupId: es.groupId,
+        personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
+      }));
+
+    const sanitizedEs = sanitizeEs(esAssignments);
+    const sanitizedAssignments = sanitizeAssignments(existingAssignments);
+    const sanitizedBw = sanitizeBw(existingBwAssignments);
+    const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
+    const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
+
+    const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+
+    const result = scheduleGenerator(
+      shuffledPeople,
+      postRows.map(mapPost),
+      startISO,
+      endISO,
+      [], // no guard overrides needed for kitchen generation
+      sanitizedEs,
+      sanitizedAssignments,
+      sanitizedBw,
+      sanitizedKitchen,
+      sanitizedEscort,
+      kitchenSettings,
+      escortSettings,
+      constraints,
+      { mode: 'kitchen', kitchenStartISO, kitchenEndISO }
+    );
+
+    if (result.error) return respondError(res, result.error, result.missingCount ?? null);
+
+    await persistKitchenOnly(
+      db,
+      result.kitchenAssignments || [],
+      result.escortAssignments || [],
+      result.kitchenSettings || kitchenSettings,
+      result.escortSettings || escortSettings,
+      req.user.id
+    );
+
+    const guardsSnap = await fetchGuardsSnapshot(db, req.user.id);
+    res.json({
+      ...guardsSnap,
+      esAssignments: guardsSnap.esAssignments, // keep server truth
+      kitchenAssignments: result.kitchenAssignments || [],
+      escortAssignments: result.escortAssignments || [],
+      kitchenSettings: result.kitchenSettings || kitchenSettings || { requiredPerShift: 36, shift2Start: '13:00' },
+      escortSettings: result.escortSettings || escortSettings || { requiredPerShift: 4 },
+    });
   } catch (err) {
     next(err);
   }
@@ -254,7 +673,17 @@ router.post('/generate', async (req, res, next) => {
 router.post('/save-all', async (req, res, next) => {
   try {
     const db = getDb(req);
-    const { assignments = [], bwAssignments = [], esAssignments = [], start, end } = req.body;
+    const {
+      assignments = [],
+      bwAssignments = [],
+      esAssignments = [],
+      kitchenAssignments = [],
+      escortAssignments = [],
+      kitchenSettings,
+      escortSettings,
+      start,
+      end,
+    } = req.body;
     const [peopleRows, postRows] = await Promise.all([
       db.all('SELECT id FROM people WHERE userId = $1', [req.user.id]),
       db.all('SELECT id FROM posts WHERE userId = $1', [req.user.id]),
@@ -263,11 +692,25 @@ router.post('/save-all', async (req, res, next) => {
     const postIds = new Set(postRows.map(p => p.id));
     const sanitizedAssignments = assignments.filter(a => personIds.has(a.personId) && postIds.has(a.postId));
     const sanitizedBw = bwAssignments.filter(a => personIds.has(a.personId));
+    const sanitizedKitchen = kitchenAssignments.filter(a => personIds.has(a.personId));
+    const sanitizedEscort = escortAssignments.filter(a => personIds.has(a.personId));
     const sanitizedEs = esAssignments.map(es => ({
       groupId: es.groupId,
       personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
     }));
-    await persistAllAssignments(db, sanitizedAssignments, sanitizedBw, sanitizedEs, req.user.id, start, end);
+    await persistAllAssignments(
+      db,
+      sanitizedAssignments,
+      sanitizedBw,
+      sanitizedEs,
+      sanitizedKitchen,
+      sanitizedEscort,
+      kitchenSettings,
+      escortSettings,
+      req.user.id,
+      start,
+      end
+    );
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -305,15 +748,38 @@ router.post('/update-cell', async (req, res, next) => {
 router.get('/last', async (req, res, next) => {
   try {
     const db = getDb(req);
-    const [regular, bw, es] = await Promise.all([
+    const [regular, bw, es, kitchen, escort, kitchenSettingsRows, escortSettingsRows] = await Promise.all([
       db.all('SELECT * FROM assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM bw_assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM es_assignments WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM kitchen_assignments WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM escort_assignments WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM kitchen_settings WHERE userId = $1 LIMIT 1', [req.user.id]),
+      db.all('SELECT * FROM escort_settings WHERE userId = $1 LIMIT 1', [req.user.id]),
     ]);
+    const kitchenSettings = kitchenSettingsRows?.[0]
+      ? {
+        requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+        requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+        shift2Start: kitchenSettingsRows[0].shift2start
+      }
+      : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
+    const escortSettings = escortSettingsRows?.[0]
+      ? {
+        requiredShift1: Number(escortSettingsRows[0].requiredshift1 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift2: Number(escortSettingsRows[0].requiredshift2 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift3: Number(escortSettingsRows[0].requiredshift3 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift4: Number(escortSettingsRows[0].requiredshift4 ?? escortSettingsRows[0].requiredpershift ?? 4),
+      }
+      : { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 };
     res.json({
       assignments: regular.map(mapAssignment),
       bwAssignments: bw.map(mapBwAssignment),
       esAssignments: mapEsAssignmentRows(es),
+      kitchenAssignments: kitchen.map(mapKitchenAssignment),
+      escortAssignments: escort.map(mapEscortAssignment),
+      kitchenSettings,
+      escortSettings,
     });
   } catch (err) {
     next(err);
@@ -323,7 +789,20 @@ router.get('/last', async (req, res, next) => {
 router.delete('/clear', async (req, res, next) => {
   try {
     const db = getDb(req);
-    await Promise.all([clearAssignments(db, req.user.id), clearBwAssignments(db, req.user.id), clearEsAssignments(db, req.user.id)]);
+    const mode = (req.query?.mode || 'all').toString();
+    if (mode === 'guards') {
+      await Promise.all([clearAssignments(db, req.user.id), clearBwAssignments(db, req.user.id), clearEsAssignments(db, req.user.id)]);
+    } else if (mode === 'kitchen') {
+      await Promise.all([clearKitchenAssignments(db, req.user.id), clearEscortAssignments(db, req.user.id)]);
+    } else {
+      await Promise.all([
+        clearAssignments(db, req.user.id),
+        clearBwAssignments(db, req.user.id),
+        clearEsAssignments(db, req.user.id),
+        clearKitchenAssignments(db, req.user.id),
+        clearEscortAssignments(db, req.user.id),
+      ]);
+    }
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -335,7 +814,7 @@ router.get('/history-periods', async (req, res, next) => {
     const db = getDb(req);
     // Query each table separately and combine results
     // Cast DATE to TEXT to avoid timezone conversion issues
-    const [assignmentPeriods, bwPeriods, esPeriods] = await Promise.all([
+    const [assignmentPeriods, bwPeriods, esPeriods, kitchenPeriods, escortPeriods] = await Promise.all([
       db.all(`
         SELECT DISTINCT schedule_start::TEXT, schedule_end::TEXT
         FROM archived_assignments
@@ -351,11 +830,21 @@ router.get('/history-periods', async (req, res, next) => {
         FROM archived_es_assignments
         WHERE userId = $1
       `, [req.user.id]),
+      db.all(`
+        SELECT DISTINCT schedule_start::TEXT, schedule_end::TEXT
+        FROM archived_kitchen_assignments
+        WHERE userId = $1
+      `, [req.user.id]),
+      db.all(`
+        SELECT DISTINCT schedule_start::TEXT, schedule_end::TEXT
+        FROM archived_escort_assignments
+        WHERE userId = $1
+      `, [req.user.id]),
     ]);
     
     // Combine and deduplicate by creating a map
     const periodMap = new Map();
-    const allPeriods = [...assignmentPeriods, ...bwPeriods, ...esPeriods];
+    const allPeriods = [...assignmentPeriods, ...bwPeriods, ...esPeriods, ...kitchenPeriods, ...escortPeriods];
     for (const p of allPeriods) {
       const key = `${p.schedule_start}|${p.schedule_end}`;
       if (!periodMap.has(key)) {
@@ -383,12 +872,32 @@ router.get('/history', async (req, res, next) => {
       return res.status(400).json({ error: 'start and end query parameters required' });
     }
     console.log('Fetching history for period:', start, 'to', end, 'userId:', req.user.id);
-    const [regular, bw, es] = await Promise.all([
+    const [regular, bw, es, kitchen, escort, kitchenSettingsRows, escortSettingsRows] = await Promise.all([
       db.all(`SELECT * FROM archived_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3`, [start, end, req.user.id]),
       db.all('SELECT * FROM archived_bw_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
       db.all('SELECT * FROM archived_es_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
+      db.all('SELECT * FROM archived_kitchen_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
+      db.all('SELECT * FROM archived_escort_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
+      db.all('SELECT * FROM archived_kitchen_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
+      db.all('SELECT * FROM archived_escort_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
     ]);
     console.log('Found assignments:', regular.length, 'bw:', bw.length, 'es:', es.length);
+    const kitchenSettings = kitchenSettingsRows?.[0]
+      ? {
+        requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+        requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+        shift2Start: kitchenSettingsRows[0].shift2start
+      }
+      : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
+    const escortSettings = escortSettingsRows?.[0]
+      ? {
+        requiredShift1: Number(escortSettingsRows[0].requiredshift1 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift2: Number(escortSettingsRows[0].requiredshift2 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift3: Number(escortSettingsRows[0].requiredshift3 ?? escortSettingsRows[0].requiredpershift ?? 4),
+        requiredShift4: Number(escortSettingsRows[0].requiredshift4 ?? escortSettingsRows[0].requiredpershift ?? 4),
+      }
+      : { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 };
+
     res.json({
       assignments: regular.map(row => ({
         postId: Number(row.postid),
@@ -412,6 +921,10 @@ router.get('/history', async (req, res, next) => {
         groupId,
         personIds,
       })),
+      kitchenAssignments: kitchen.map(mapKitchenAssignment),
+      escortAssignments: escort.map(mapEscortAssignment),
+      kitchenSettings,
+      escortSettings,
     });
   } catch (err) {
     next(err);

@@ -1,4 +1,4 @@
-# Duty Scheduler (סידור תורנויות)
+# MyTurn (סידור תורנויות)
 
 A web application for scheduling people across duty shifts with support for multiple posts, rest rules, and special duty groups (כ"כ).
 

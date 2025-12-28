@@ -9,6 +9,7 @@ export interface Person {
   limitedAbility: boolean;
   standingExemption: boolean;
   duelGuard: boolean;
+  nightGuardExemption: boolean;
 }
 
 export interface Post {
@@ -60,4 +61,33 @@ export interface ESGroup {
   name: string;
   totalPeople: number;
   activePerShift: number;
+}
+
+export interface KitchenSettings {
+  requiredShift1: number; // default 36 (06:00 -> shift2Start)
+  requiredShift2: number; // default 36 (shift2Start -> 21:00)
+  shift2Start: string; // "HH:mm" start time of the 2nd shift (also end of 1st)
+}
+
+export interface KitchenAssignment {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // kitchen_1 | kitchen_2
+  personId: number;
+  start?: string;
+  end?: string;
+}
+
+export interface EscortSettings {
+  requiredShift1: number; // 07:00-10:30 (default 4)
+  requiredShift2: number; // 10:30-14:00 (default 4)
+  requiredShift3: number; // 14:00-17:00 (default 4)
+  requiredShift4: number; // 17:00-19:00 (default 4)
+}
+
+export interface EscortAssignment {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // escort_1..escort_4
+  personId: number;
+  start?: string;
+  end?: string;
 }
