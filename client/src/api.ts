@@ -49,6 +49,7 @@ type ScheduleResponse = {
   bwAssignments?: BWAssignment[];
   esAssignments?: ESGroupAssignment[];
   error?: string;
+  missingCount?: number;
 };
 
 type ScheduleSnapshot = {
