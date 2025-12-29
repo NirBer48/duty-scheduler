@@ -412,7 +412,7 @@ const App: React.FC = () => {
             </Button>
           )}
           <Button color="inherit" onClick={() => setLang(lang === 'en' ? 'he' : 'en')}>
-            {lang === 'en' ? 'עברית' : 'English'}
+            {lang === 'en' ? 'עברית' : 'EN'}
           </Button>
         </Toolbar>
       </AppBar>

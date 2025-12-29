@@ -684,7 +684,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         <>
             {/* Action buttons */}
             {!readOnly && (
-                <Box sx={{ mb: 0, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Box sx={{ mb: 0, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', flexDirection: 'row-reverse', mr: 5}}>
                     <Button variant="outlined" onClick={handleExport} disabled={isSaving || isGenerating}>
                         {t('Export to Excel')}
                     </Button>
