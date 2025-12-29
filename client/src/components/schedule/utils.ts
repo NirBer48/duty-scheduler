@@ -3,6 +3,7 @@ import { Assignment, BWAssignment } from "../../types";
 
 export interface ShiftSlot {
     day: string;
+     displayDay: string;
     label: string;
 }
 
@@ -17,6 +18,7 @@ export const getShiftsForPeriod = (start: string, end: string): ShiftSlot[] => {
     const addShift = (s: dayjs.Dayjs, e: dayjs.Dayjs) => {
         result.push({
             day: s.format('YYYY-MM-DD'),
+             displayDay: s.format('DD/MM/YY'),
             label: formatLabel(s, e),
         });
     };

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useMemo, useState, ReactNode, useEffect } from 'react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 
 type Language = 'en' | 'he';
@@ -274,15 +274,21 @@ const I18nContext = createContext<I18nContextValue>({
 export const I18nProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [lang, setLang] = useState<Language>('he');
   const rtl = lang === 'he';
+  
   const theme = useMemo(() => createTheme({ direction: rtl ? 'rtl' : 'ltr' }), [rtl]);
   const t = (k: string) => translations[lang][k] || k;
+
+    useEffect(() => {
+    document.documentElement.dir = rtl ? 'rtl' : 'ltr';
+    document.body.style.direction = rtl ? 'rtl' : 'ltr';
+  }, [rtl]);
 
   return (
     <I18nContext.Provider value={{ lang, rtl, setLang, t }}>
       <ThemeProvider theme={theme}>
-        <div dir={rtl ? 'rtl' : 'ltr'} style={{ width: '100%' }}>
+        {/* <div dir={rtl ? 'rtl' : 'ltr'} style={{ width: '100%' }}> */}
           {children}
-        </div>
+        {/* </div> */}
       </ThemeProvider>
     </I18nContext.Provider>
   );

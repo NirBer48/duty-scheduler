@@ -53,7 +53,7 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
 
   return (
     <Paper sx={{ p: 2, mb: 2, maxHeight: 350, minWidth: 300, display: 'flex', flexDirection: 'column' }}>
-      <Typography variant="h6" mb={1}>{t('Posts')}</Typography>
+      <Typography variant="h6" fontWeight={"bold"} mb={1}>{t('Posts')}</Typography>
       
       <Divider sx={{ mb: 2 }} />
       
@@ -87,8 +87,8 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
         <List
           dense
           sx={{
-            direction: dir,
-            textAlign: align,
+            // direction: dir,
+            // textAlign: align,
           }}
         >
           {posts.map(p => (
@@ -101,16 +101,16 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
               key={p.id}
               sx={{
                 py: 0.5,
-                textAlign: align,
-                direction: dir,
+                // textAlign: align,
+                // direction: dir,
               }}
             >
               <ListItemText
-                sx={{ textAlign: align }}
+                // sx={{ textAlign: align }}
                 primary={
                   <Typography
                     variant="body2"
-                    sx={{ direction: dir }}
+                    // sx={{ direction: dir }}
                   >
                     {p.name}
                   </Typography>
@@ -119,7 +119,7 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
                   <Typography
                     variant="caption"
                     component="span"
-                    sx={{ direction: dir }}
+                    // sx={{ direction: dir }}
                   >
                     {`${t('Required')}: ${p.requiredPerShift}`}
                   </Typography>
