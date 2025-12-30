@@ -128,6 +128,11 @@ const translations: Record<Language, TranslationMap> = {
     'BW conflict': 'BW conflict',
     'in BW at this time': 'in BW at this time',
     'Missing about X people to complete the task': 'Missing about {count} people to complete the task',
+    'Rasar': 'Rasar',
+    'Contractor escort - 400': 'Contractor escort - 400',
+    'rasar_1': '08:30-11:30',
+    'rasar_2': '13:30-17:30',
+    'rasar_3': '19:30-20:30',
   },
   he: {
     'History': 'היסטוריה',
@@ -254,6 +259,11 @@ const translations: Record<Language, TranslationMap> = {
     'BW conflict': 'חפיפה עם עב"ס',
     'in BW at this time': 'בעב"ס בזמן זה',
     'Missing about X people to complete the task': 'חסרים כ{count} אנשים לביצוע המשימה',
+    'Rasar': 'רס"ר',
+    'Contractor escort - 400': 'ליווי קבלנים - 400',
+    'rasar_1': '08:30-11:30',
+    'rasar_2': '13:30-17:30',
+    'rasar_3': '19:30-20:30',
   }
 };
 

@@ -127,6 +127,28 @@ const createTables = async db => {
     );
   `);
 
+  // RASAR duty ("רס\"ר") assignments
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS rasar_assignments (
+      id SERIAL PRIMARY KEY,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      shiftId TEXT NOT NULL,
+      userId INTEGER REFERENCES users(id)
+    );
+  `);
+
+  // Contractor escort duty - 400 ("ליווי קבלנים - 400") assignments
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS escort400_assignments (
+      id SERIAL PRIMARY KEY,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      shiftId TEXT NOT NULL,
+      userId INTEGER REFERENCES users(id)
+    );
+  `);
+
   // Archived tables for history lookback
   await db.run(`DROP TABLE IF EXISTS archived_assignments`);
   await db.run(`
