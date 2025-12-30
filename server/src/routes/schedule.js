@@ -47,6 +47,18 @@ const mapEscortAssignment = row => ({
   shiftId: row.shiftid,
 });
 
+const mapRasarAssignment = row => ({
+  personId: Number(row.personid),
+  day: row.day,
+  shiftId: row.shiftid,
+});
+
+const mapEscort400Assignment = row => ({
+  personId: Number(row.personid),
+  day: row.day,
+  shiftId: row.shiftid,
+});
+
 const mapEsAssignmentRows = rows => {
   const grouped = rows.reduce((acc, row) => {
     const groupId = row.groupid;
@@ -67,6 +79,8 @@ const respondError = (res, message = 'not enough manpower', missingCount = null)
     esAssignments: [],
     kitchenAssignments: [],
     escortAssignments: [],
+    rasarAssignments: [],
+    escort400Assignments: [],
     kitchenSettings: { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
     escortSettings: { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
     error: message,
@@ -87,6 +101,8 @@ const clearBwAssignments = (db, userId) => db.run('DELETE FROM bw_assignments WH
 const clearEsAssignments = (db, userId) => db.run('DELETE FROM es_assignments WHERE userId = $1', [userId]);
 const clearKitchenAssignments = (db, userId) => db.run('DELETE FROM kitchen_assignments WHERE userId = $1', [userId]);
 const clearEscortAssignments = (db, userId) => db.run('DELETE FROM escort_assignments WHERE userId = $1', [userId]);
+const clearRasarAssignments = (db, userId) => db.run('DELETE FROM rasar_assignments WHERE userId = $1', [userId]);
+const clearEscort400Assignments = (db, userId) => db.run('DELETE FROM escort400_assignments WHERE userId = $1', [userId]);
 
 const upsertKitchenSettings = async (db, userId, kitchenSettings) => {
   const requiredPerShift = Number(kitchenSettings?.requiredPerShift ?? 36); // backward compat
@@ -144,6 +160,24 @@ const persistEscortAssignments = async (db, escortAssignments = [], userId) => {
   for (const { personId, day, shiftId } of escortAssignments) {
     await db.run(
       'INSERT INTO escort_assignments (personId, day, shiftId, userId) VALUES ($1, $2, $3, $4)',
+      [personId, day, shiftId, userId]
+    );
+  }
+};
+
+const persistRasarAssignments = async (db, rasarAssignments = [], userId) => {
+  for (const { personId, day, shiftId } of rasarAssignments) {
+    await db.run(
+      'INSERT INTO rasar_assignments (personId, day, shiftId, userId) VALUES ($1, $2, $3, $4)',
+      [personId, day, shiftId, userId]
+    );
+  }
+};
+
+const persistEscort400Assignments = async (db, escort400Assignments = [], userId) => {
+  for (const { personId, day, shiftId } of escort400Assignments) {
+    await db.run(
+      'INSERT INTO escort400_assignments (personId, day, shiftId, userId) VALUES ($1, $2, $3, $4)',
       [personId, day, shiftId, userId]
     );
   }
@@ -304,6 +338,8 @@ const persistAllAssignments = async (
   esAssignments = [],
   kitchenAssignments = [],
   escortAssignments = [],
+  rasarAssignments = [],
+  escort400Assignments = [],
   kitchenSettings,
   escortSettings,
   userId,
@@ -316,12 +352,16 @@ const persistAllAssignments = async (
     clearEsAssignments(db, userId),
     clearKitchenAssignments(db, userId),
     clearEscortAssignments(db, userId),
+    clearRasarAssignments(db, userId),
+    clearEscort400Assignments(db, userId),
   ]);
   await persistAssignments(db, assignments, userId);
   await persistBwAssignments(db, bwAssignments, userId);
   await persistEsAssignments(db, esAssignments, userId);
   await persistKitchenAssignments(db, kitchenAssignments, userId);
   await persistEscortAssignments(db, escortAssignments, userId);
+  await persistRasarAssignments(db, rasarAssignments, userId);
+  await persistEscort400Assignments(db, escort400Assignments, userId);
   await upsertKitchenSettings(db, userId, kitchenSettings);
   await upsertEscortSettings(db, userId, escortSettings);
   // Archive the saved assignments
@@ -362,6 +402,16 @@ const persistKitchenOnly = async (
   await upsertEscortSettings(db, userId, escortSettings);
 };
 
+const persistRasarOnly = async (db, rasarAssignments = [], userId) => {
+  await clearRasarAssignments(db, userId);
+  await persistRasarAssignments(db, rasarAssignments, userId);
+};
+
+const persistEscort400Only = async (db, escort400Assignments = [], userId) => {
+  await clearEscort400Assignments(db, userId);
+  await persistEscort400Assignments(db, escort400Assignments, userId);
+};
+
 const fetchKitchenEscortSnapshot = async (db, userId) => {
   const [kitchen, escort, kitchenSettingsRows, escortSettingsRows] = await Promise.all([
     db.all('SELECT * FROM kitchen_assignments WHERE userId = $1', [userId]),
@@ -392,6 +442,16 @@ const fetchKitchenEscortSnapshot = async (db, userId) => {
   };
 };
 
+const fetchRasarSnapshot = async (db, userId) => {
+  const rows = await db.all('SELECT * FROM rasar_assignments WHERE userId = $1', [userId]);
+  return { rasarAssignments: rows.map(mapRasarAssignment) };
+};
+
+const fetchEscort400Snapshot = async (db, userId) => {
+  const rows = await db.all('SELECT * FROM escort400_assignments WHERE userId = $1', [userId]);
+  return { escort400Assignments: rows.map(mapEscort400Assignment) };
+};
+
 const fetchGuardsSnapshot = async (db, userId) => {
   const [regular, bw, es] = await Promise.all([
     db.all('SELECT * FROM assignments WHERE userId = $1', [userId]),
@@ -417,6 +477,7 @@ router.post('/generate', async (req, res, next) => {
       existingBwAssignments = [],
       existingKitchenAssignments = [],
       existingEscortAssignments = [],
+      existingRasarAssignments = [],
       kitchenSettings,
       escortSettings,
       constraints = [],
@@ -437,6 +498,8 @@ router.post('/generate', async (req, res, next) => {
       (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeEscort = arr =>
       (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeRasar = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
@@ -448,6 +511,7 @@ router.post('/generate', async (req, res, next) => {
     const sanitizedBw = sanitizeBw(existingBwAssignments);
     const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
+    const sanitizedRasar = sanitizeRasar(existingRasarAssignments);
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
 
@@ -464,7 +528,8 @@ router.post('/generate', async (req, res, next) => {
       sanitizedEscort,
       kitchenSettings,
       escortSettings,
-      constraints
+      constraints,
+      { existingRasarAssignments: sanitizedRasar, rasarStartISO: startISO, rasarEndISO: endISO }
     );
 
     if (result.error) {
@@ -482,6 +547,7 @@ router.post('/generate', async (req, res, next) => {
       sanitizedEs,
       result.kitchenAssignments || [],
       result.escortAssignments || [],
+      result.rasarAssignments || [],
       result.kitchenSettings || kitchenSettings,
       result.escortSettings || escortSettings,
       req.user.id,
@@ -494,6 +560,7 @@ router.post('/generate', async (req, res, next) => {
       esAssignments: sanitizedEs,
       kitchenAssignments: result.kitchenAssignments || [],
       escortAssignments: result.escortAssignments || [],
+      rasarAssignments: result.rasarAssignments || [],
       kitchenSettings: result.kitchenSettings || kitchenSettings || { requiredPerShift: 36, shift2Start: '13:00' },
       escortSettings: result.escortSettings || escortSettings || { requiredPerShift: 4 },
     });
@@ -514,6 +581,7 @@ router.post('/generate-guards', async (req, res, next) => {
       existingBwAssignments = [],
       existingKitchenAssignments = [],
       existingEscortAssignments = [],
+      existingRasarAssignments = [],
       kitchenSettings,
       escortSettings,
       constraints = [],
@@ -534,6 +602,8 @@ router.post('/generate-guards', async (req, res, next) => {
       (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeEscort = arr =>
       (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeRasar = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
@@ -545,6 +615,7 @@ router.post('/generate-guards', async (req, res, next) => {
     const sanitizedBw = sanitizeBw(existingBwAssignments);
     const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
+    const sanitizedRasar = sanitizeRasar(existingRasarAssignments);
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
 
@@ -562,19 +633,23 @@ router.post('/generate-guards', async (req, res, next) => {
       kitchenSettings,
       escortSettings,
       constraints,
-      { mode: 'guards' }
+      { mode: 'guards', existingRasarAssignments: sanitizedRasar, rasarStartISO: startISO, rasarEndISO: endISO }
     );
 
     if (result.error) return respondError(res, result.error, result.missingCount ?? null);
 
     await persistGuardsOnly(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id);
 
-    const kitchenSnap = await fetchKitchenEscortSnapshot(db, req.user.id);
+    const [kitchenSnap, rasarSnap] = await Promise.all([
+      fetchKitchenEscortSnapshot(db, req.user.id),
+      fetchRasarSnapshot(db, req.user.id),
+    ]);
     res.json({
       assignments: result.assignments,
       bwAssignments: result.bwAssignments,
       esAssignments: sanitizedEs,
       ...kitchenSnap,
+      ...rasarSnap,
     });
   } catch (err) {
     next(err);
@@ -594,6 +669,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
       existingBwAssignments = [],
       existingKitchenAssignments = [],
       existingEscortAssignments = [],
+      existingRasarAssignments = [],
       kitchenSettings,
       escortSettings,
       constraints = [],
@@ -614,6 +690,8 @@ router.post('/generate-kitchen', async (req, res, next) => {
       (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeEscort = arr =>
       (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeRasar = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
@@ -625,6 +703,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
     const sanitizedBw = sanitizeBw(existingBwAssignments);
     const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
+    const sanitizedRasar = sanitizeRasar(existingRasarAssignments);
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
 
@@ -642,7 +721,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
       kitchenSettings,
       escortSettings,
       constraints,
-      { mode: 'kitchen', kitchenStartISO, kitchenEndISO }
+      { mode: 'kitchen', kitchenStartISO, kitchenEndISO, existingRasarAssignments: sanitizedRasar, rasarStartISO: startISO, rasarEndISO: endISO }
     );
 
     if (result.error) return respondError(res, result.error, result.missingCount ?? null);
@@ -656,15 +735,151 @@ router.post('/generate-kitchen', async (req, res, next) => {
       req.user.id
     );
 
-    const guardsSnap = await fetchGuardsSnapshot(db, req.user.id);
+    const [guardsSnap, rasarSnap] = await Promise.all([
+      fetchGuardsSnapshot(db, req.user.id),
+      fetchRasarSnapshot(db, req.user.id),
+    ]);
     res.json({
       ...guardsSnap,
       esAssignments: guardsSnap.esAssignments, // keep server truth
       kitchenAssignments: result.kitchenAssignments || [],
       escortAssignments: result.escortAssignments || [],
+      ...rasarSnap,
       kitchenSettings: result.kitchenSettings || kitchenSettings || { requiredPerShift: 36, shift2Start: '13:00' },
       escortSettings: result.escortSettings || escortSettings || { requiredPerShift: 4 },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/generate-rasar', async (req, res, next) => {
+  try {
+    const db = getDb(req);
+    const {
+      startISO,
+      endISO,
+      rasarStartISO,
+      rasarEndISO,
+      rasarOverrides = [],
+      escort400Overrides = [],
+      esAssignments = [],
+      existingAssignments = [],
+      existingBwAssignments = [],
+      existingKitchenAssignments = [],
+      existingEscortAssignments = [],
+      existingRasarAssignments = [],
+      existingEscort400Assignments = [],
+      kitchenSettings,
+      escortSettings,
+      constraints = [],
+    } = req.body;
+
+    const effectiveStartISO = startISO ?? rasarStartISO;
+    const effectiveEndISO = endISO ?? rasarEndISO;
+    if (!effectiveStartISO || !effectiveEndISO) {
+      return res.status(400).json({ error: 'startISO and endISO required' });
+    }
+
+    const [peopleRows, postRows] = await Promise.all([
+      db.all('SELECT * FROM people WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
+    ]);
+
+    const personIds = new Set(peopleRows.map(p => p.id));
+    const postIds = new Set(postRows.map(p => p.id));
+    const sanitizeAssignments = arr =>
+      (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
+    const sanitizeBw = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeKitchen = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEscort = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeRasar = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEscort400 = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEs = arr =>
+      (arr || []).map(es => ({
+        groupId: es.groupId,
+        personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
+      }));
+
+    const sanitizedEs = sanitizeEs(esAssignments);
+    const sanitizedAssignments = sanitizeAssignments(existingAssignments);
+    const sanitizedBw = sanitizeBw(existingBwAssignments);
+    const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
+    const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
+    const sanitizedRasar = sanitizeRasar(existingRasarAssignments);
+    const sanitizedEscort400 = sanitizeEscort400(existingEscort400Assignments);
+
+    const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+
+    const result = scheduleGenerator(
+      shuffledPeople,
+      postRows.map(mapPost),
+      effectiveStartISO,
+      effectiveEndISO,
+      [], // no guard overrides needed
+      sanitizedEs,
+      sanitizedAssignments,
+      sanitizedBw,
+      sanitizedKitchen,
+      sanitizedEscort,
+      kitchenSettings,
+      escortSettings,
+      constraints,
+      {
+        mode: 'rasar',
+        existingRasarAssignments: sanitizedRasar,
+        rasarStartISO: effectiveStartISO,
+        rasarEndISO: effectiveEndISO,
+        rasarOverrides,
+        existingEscort400Assignments: sanitizedEscort400,
+        escort400Overrides,
+      }
+    );
+
+    if (result.error) return respondError(res, result.error, result.missingCount ?? null);
+
+    await Promise.all([
+      persistRasarOnly(db, result.rasarAssignments || [], req.user.id),
+      persistEscort400Only(db, result.escort400Assignments || [], req.user.id),
+    ]);
+
+    const [guardsSnap, kitchenSnap] = await Promise.all([
+      fetchGuardsSnapshot(db, req.user.id),
+      fetchKitchenEscortSnapshot(db, req.user.id),
+    ]);
+
+    res.json({
+      ...guardsSnap,
+      ...kitchenSnap,
+      rasarAssignments: result.rasarAssignments || [],
+      escort400Assignments: result.escort400Assignments || [],
+      kitchenSettings: kitchenSnap.kitchenSettings,
+      escortSettings: kitchenSnap.escortSettings,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/save-rasar', async (req, res, next) => {
+  try {
+    const db = getDb(req);
+    const { rasarAssignments = [], escort400Assignments = [] } = req.body || {};
+    const peopleRows = await db.all('SELECT id, gender FROM people WHERE userId = $1', [req.user.id]);
+    const personIds = new Set(peopleRows.map(p => p.id));
+    const femaleIds = new Set(peopleRows.filter(p => p.gender === 'F').map(p => p.id));
+    const sanitized = (rasarAssignments || []).filter(a => personIds.has(a.personId));
+    const sanitized400 = (escort400Assignments || []).filter(a => femaleIds.has(a.personId));
+    await Promise.all([
+      persistRasarOnly(db, sanitized, req.user.id),
+      persistEscort400Only(db, sanitized400, req.user.id),
+    ]);
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }
@@ -679,6 +894,8 @@ router.post('/save-all', async (req, res, next) => {
       esAssignments = [],
       kitchenAssignments = [],
       escortAssignments = [],
+      rasarAssignments = [],
+      escort400Assignments = [],
       kitchenSettings,
       escortSettings,
       start,
@@ -694,6 +911,8 @@ router.post('/save-all', async (req, res, next) => {
     const sanitizedBw = bwAssignments.filter(a => personIds.has(a.personId));
     const sanitizedKitchen = kitchenAssignments.filter(a => personIds.has(a.personId));
     const sanitizedEscort = escortAssignments.filter(a => personIds.has(a.personId));
+    const sanitizedRasar = rasarAssignments.filter(a => personIds.has(a.personId));
+    const sanitizedEscort400 = escort400Assignments.filter(a => personIds.has(a.personId));
     const sanitizedEs = esAssignments.map(es => ({
       groupId: es.groupId,
       personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
@@ -705,6 +924,8 @@ router.post('/save-all', async (req, res, next) => {
       sanitizedEs,
       sanitizedKitchen,
       sanitizedEscort,
+      sanitizedRasar,
+      sanitizedEscort400,
       kitchenSettings,
       escortSettings,
       req.user.id,
@@ -748,12 +969,14 @@ router.post('/update-cell', async (req, res, next) => {
 router.get('/last', async (req, res, next) => {
   try {
     const db = getDb(req);
-    const [regular, bw, es, kitchen, escort, kitchenSettingsRows, escortSettingsRows] = await Promise.all([
+    const [regular, bw, es, kitchen, escort, rasar, escort400, kitchenSettingsRows, escortSettingsRows] = await Promise.all([
       db.all('SELECT * FROM assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM bw_assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM es_assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM kitchen_assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM escort_assignments WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM rasar_assignments WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM escort400_assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM kitchen_settings WHERE userId = $1 LIMIT 1', [req.user.id]),
       db.all('SELECT * FROM escort_settings WHERE userId = $1 LIMIT 1', [req.user.id]),
     ]);
@@ -778,6 +1001,8 @@ router.get('/last', async (req, res, next) => {
       esAssignments: mapEsAssignmentRows(es),
       kitchenAssignments: kitchen.map(mapKitchenAssignment),
       escortAssignments: escort.map(mapEscortAssignment),
+      rasarAssignments: rasar.map(mapRasarAssignment),
+      escort400Assignments: escort400.map(mapEscort400Assignment),
       kitchenSettings,
       escortSettings,
     });
@@ -794,6 +1019,8 @@ router.delete('/clear', async (req, res, next) => {
       await Promise.all([clearAssignments(db, req.user.id), clearBwAssignments(db, req.user.id), clearEsAssignments(db, req.user.id)]);
     } else if (mode === 'kitchen') {
       await Promise.all([clearKitchenAssignments(db, req.user.id), clearEscortAssignments(db, req.user.id)]);
+    } else if (mode === 'rasar') {
+      await Promise.all([clearRasarAssignments(db, req.user.id), clearEscort400Assignments(db, req.user.id)]);
     } else {
       await Promise.all([
         clearAssignments(db, req.user.id),
@@ -801,6 +1028,8 @@ router.delete('/clear', async (req, res, next) => {
         clearEsAssignments(db, req.user.id),
         clearKitchenAssignments(db, req.user.id),
         clearEscortAssignments(db, req.user.id),
+        clearRasarAssignments(db, req.user.id),
+        clearEscort400Assignments(db, req.user.id),
       ]);
     }
     res.json({ ok: true });

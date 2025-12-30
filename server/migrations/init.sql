@@ -97,4 +97,20 @@ CREATE TABLE IF NOT EXISTS escort_assignments (
   userId INTEGER REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS rasar_assignments (
+  id SERIAL PRIMARY KEY,
+  personId INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  shiftId TEXT NOT NULL,
+  userId INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS escort400_assignments (
+  id SERIAL PRIMARY KEY,
+  personId INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  shiftId TEXT NOT NULL,
+  userId INTEGER REFERENCES users(id)
+);
+
 COMMIT;

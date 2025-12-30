@@ -998,6 +998,12 @@ const ScheduleCalendar: React.FC<Props> = ({
                     esGroups={esGroups}
                     bwAssignments={bwAssignments}
                     constraints={constraints}
+                    rangeStartISO={start}
+                    rangeEndISO={end}
+                    kitchenAssignments={externalKitchenAssignments}
+                    escortAssignments={externalEscortAssignments}
+                    rasarAssignments={[]}
+                    escort400Assignments={[]}
                 />
             )}
 
@@ -1023,6 +1029,14 @@ const ScheduleCalendar: React.FC<Props> = ({
                     onSave={handleESSave}
                     otherESPersonIds={esAssignments.filter(es => es.groupId !== esEditDialog.group!.id).flatMap(es => es.personIds)}
                     constraints={constraints}
+                    rangeStartISO={start}
+                    rangeEndISO={end}
+                    guardAssignments={localAssignments}
+                    bwAssignments={bwAssignments}
+                    kitchenAssignments={externalKitchenAssignments}
+                    escortAssignments={externalEscortAssignments}
+                    rasarAssignments={[]}
+                    escort400Assignments={[]}
                 />
             )}
 
@@ -1038,6 +1052,13 @@ const ScheduleCalendar: React.FC<Props> = ({
                     assignments={localAssignments}
                     esAssignments={esAssignments}
                     esGroups={esGroups}
+                    bwAssignments={bwAssignments}
+                    rangeStartISO={start}
+                    rangeEndISO={end}
+                    kitchenAssignments={externalKitchenAssignments}
+                    escortAssignments={externalEscortAssignments}
+                    rasarAssignments={[]}
+                    escort400Assignments={[]}
                 />
             )}
         </>

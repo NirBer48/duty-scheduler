@@ -9,6 +9,10 @@ import type {
   EscortAssignment,
   KitchenSettings,
   EscortSettings,
+  RasarAssignment,
+  RasarOverride,
+  Escort400Assignment,
+  Escort400Override,
 } from './types';
 
 const BASE = '/api';
@@ -62,6 +66,8 @@ type ScheduleResponse = {
   esAssignments?: ESGroupAssignment[];
   kitchenAssignments?: KitchenAssignment[];
   escortAssignments?: EscortAssignment[];
+  rasarAssignments?: RasarAssignment[];
+  escort400Assignments?: Escort400Assignment[];
   kitchenSettings?: KitchenSettings;
   escortSettings?: EscortSettings;
   error?: string;
@@ -74,6 +80,8 @@ type ScheduleSnapshot = {
   esAssignments: ESGroupAssignment[];
   kitchenAssignments?: KitchenAssignment[];
   escortAssignments?: EscortAssignment[];
+  rasarAssignments?: RasarAssignment[];
+  escort400Assignments?: Escort400Assignment[];
   kitchenSettings?: KitchenSettings;
   escortSettings?: EscortSettings;
 };
@@ -222,7 +230,7 @@ export const generateKitchenSchedule = (
     }),
   });
 
-export const clearSchedule = (mode: 'all' | 'guards' | 'kitchen' = 'all') =>
+export const clearSchedule = (mode: 'all' | 'guards' | 'kitchen' | 'rasar' = 'all') =>
   request<{ ok: boolean }>(`/schedule/clear?mode=${encodeURIComponent(mode)}`, { method: 'DELETE' });
 
 export const fetchLastSchedule = () => request<ScheduleSnapshot>('/schedule/last');
@@ -235,6 +243,38 @@ export const fetchHistoryPeriods = () =>
 
 export const fetchScheduleByPeriod = (start: string, end: string) =>
   request<ScheduleSnapshot>(`/schedule/history?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+
+export const generateRasarSchedule = (
+  rasarStartISO: string,
+  rasarEndISO: string,
+  existingRasarAssignments: RasarAssignment[] = [],
+  constraints: Constraint[] = [],
+  rasarOverrides: RasarOverride[] = [],
+  existingEscort400Assignments: Escort400Assignment[] = [],
+  escort400Overrides: Escort400Override[] = []
+) =>
+  request<ScheduleResponse>('/schedule/generate-rasar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      // Server expects startISO/endISO; we also send rasarStartISO/rasarEndISO for backward compatibility.
+      startISO: rasarStartISO,
+      endISO: rasarEndISO,
+      rasarStartISO,
+      rasarEndISO,
+      existingRasarAssignments,
+      constraints,
+      rasarOverrides,
+      existingEscort400Assignments,
+      escort400Overrides,
+    }),
+  });
+
+export const saveRasarSchedule = (rasarAssignments: RasarAssignment[], escort400Assignments: Escort400Assignment[]) =>
+  request<{ ok: boolean; error?: string }>('/schedule/save-rasar', {
+    method: 'POST',
+    body: JSON.stringify({ rasarAssignments, escort400Assignments }),
+  });
 
 export const saveAllSchedules = (
   assignments: Assignment[],

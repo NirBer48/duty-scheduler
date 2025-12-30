@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import ScheduleCalendar from './components/ScheduleView';
 import KitchenDutyView from './components/KitchenDutyView';
+import RasarDutyView from './components/RasarDutyView';
 import PeopleEditor from './components/PeopleEditor';
 import PostsEditor from './components/PostsEditor';
-import { fetchPeople, fetchPosts, generateGuardsSchedule, generateKitchenSchedule, clearSchedule, fetchLastSchedule, fetchConstraints, addConstraint, login, register, logout, fetchMe } from './api';
+import { fetchPeople, fetchPosts, generateGuardsSchedule, generateKitchenSchedule, generateRasarSchedule, saveRasarSchedule, clearSchedule, fetchLastSchedule, fetchConstraints, addConstraint, login, register, logout, fetchMe } from './api';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
@@ -27,6 +28,10 @@ import type {
   EscortAssignment,
   KitchenSettings,
   EscortSettings,
+  RasarAssignment,
+  RasarOverride,
+  Escort400Assignment,
+  Escort400Override,
 } from './types';
 import {
   Dialog,
@@ -55,6 +60,8 @@ const STORAGE_KEY_KITCHEN_SETTINGS = 'duty_scheduler_kitchen_settings';
 const STORAGE_KEY_ESCORT_SETTINGS = 'duty_scheduler_escort_settings';
 const STORAGE_KEY_KITCHEN_START = 'duty_scheduler_kitchen_start';
 const STORAGE_KEY_KITCHEN_END = 'duty_scheduler_kitchen_end';
+const STORAGE_KEY_RASAR_OVERRIDES = 'duty_scheduler_rasar_overrides';
+const STORAGE_KEY_ESCORT400_OVERRIDES = 'duty_scheduler_escort400_overrides';
 
 const formatLocalDateTime = (date: Date) => {
   const year = date.getFullYear();
@@ -130,6 +137,16 @@ const App: React.FC = () => {
   const [escortSettings, setEscortSettings] = useState<EscortSettings>(() =>
     loadFromStorage(STORAGE_KEY_ESCORT_SETTINGS, { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 })
   );
+  const [rasarAssignments, setRasarAssignments] = useState<RasarAssignment[]>([]);
+  const [rasarOverrides, setRasarOverrides] = useState<RasarOverride[]>(() =>
+    loadFromStorage(STORAGE_KEY_RASAR_OVERRIDES, [])
+  );
+  const [escort400Assignments, setEscort400Assignments] = useState<Escort400Assignment[]>([]);
+  const [escort400Overrides, setEscort400Overrides] = useState<Escort400Override[]>(() =>
+    loadFromStorage(STORAGE_KEY_ESCORT400_OVERRIDES, [])
+  );
+  const [rasarHasChanges, setRasarHasChanges] = useState(false);
+  const [rasarIsSaving, setRasarIsSaving] = useState(false);
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [start, setStart] = useState(() => loadString(STORAGE_KEY_START, calculateDefaultStart()));
   const [end, setEnd] = useState(() => loadString(STORAGE_KEY_END, calculateDefaultEnd()));
@@ -190,6 +207,9 @@ const App: React.FC = () => {
         setBWAssignments(snapshot.bwAssignments || []);
         setKitchenAssignments(snapshot.kitchenAssignments || []);
         setEscortAssignments(snapshot.escortAssignments || []);
+        setRasarAssignments(snapshot.rasarAssignments || []);
+        setEscort400Assignments(snapshot.escort400Assignments || []);
+        setRasarHasChanges(false);
         if (snapshot.kitchenSettings) setKitchenSettings(snapshot.kitchenSettings);
         if (snapshot.escortSettings) setEscortSettings(snapshot.escortSettings);
         if (snapshot.esAssignments?.length) {
@@ -232,6 +252,8 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ESCORT_ASSIGNMENTS, JSON.stringify(escortAssignments)); }, [escortAssignments]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_SETTINGS, JSON.stringify(kitchenSettings)); }, [kitchenSettings]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ESCORT_SETTINGS, JSON.stringify(escortSettings)); }, [escortSettings]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_RASAR_OVERRIDES, JSON.stringify(rasarOverrides)); }, [rasarOverrides]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_ESCORT400_OVERRIDES, JSON.stringify(escort400Overrides)); }, [escort400Overrides]);
 
   const handleScheduleGuards = async () => {
     if (!user) {
@@ -343,6 +365,60 @@ const App: React.FC = () => {
     }
   };
 
+  const handleGenerateRasar = async (rasarStartISO: string, rasarEndISO: string, existing: RasarAssignment[], overrides: RasarOverride[]) => {
+    if (!user) return;
+    setError('');
+    setMissingCount(null);
+    setIsGenerating(true);
+    try {
+      const res = await generateRasarSchedule(
+        rasarStartISO,
+        rasarEndISO,
+        existing,
+        constraints,
+        overrides,
+        escort400Assignments,
+        escort400Overrides
+      );
+      setRasarAssignments(res.rasarAssignments || []);
+      setEscort400Assignments(res.escort400Assignments || []);
+      setRasarHasChanges(true);
+      setError(res.error || '');
+    } catch (e) {
+      setError(t('Save failed'));
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleSaveRasar = async () => {
+    if (!user) return;
+    setError('');
+    setMissingCount(null);
+    setRasarIsSaving(true);
+    try {
+      const res = await saveRasarSchedule(rasarAssignments, escort400Assignments);
+      if (!res.ok) setError(res.error || t('Save failed'));
+      else setRasarHasChanges(false);
+    } catch (e) {
+      setError(t('Save failed'));
+    } finally {
+      setRasarIsSaving(false);
+    }
+  };
+
+  const handleClearRasar = async () => {
+    if (!user) return;
+    if (window.confirm(t('Are you sure you want to clear the schedule?'))) {
+      setRasarAssignments([]);
+      setEscort400Assignments([]);
+      setRasarHasChanges(true);
+      setError('');
+      setMissingCount(null);
+      await clearSchedule('rasar');
+    }
+  };
+
   const translateAuthError = (msg: string) => {
     const lower = (msg || '').toLowerCase();
     if (lower.includes('email exists')) return t('Email already exists');
@@ -379,6 +455,8 @@ const App: React.FC = () => {
     setBWAssignments([]);
     setKitchenAssignments([]);
     setEscortAssignments([]);
+    setRasarAssignments([]);
+    setEscort400Assignments([]);
     setESAssignments([
       { groupId: 'es1', personIds: [] },
       { groupId: 'es2', personIds: [] },
@@ -462,6 +540,7 @@ const App: React.FC = () => {
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
             <Tab label={t('Guards')} />
             <Tab label={t('Kitchen')} />
+            <Tab label={t('Rasar')} />
             <Tab label={t('History')} />
           </Tabs>
         <Box display="flex" gap={3} alignItems="flex-start">
@@ -574,6 +653,34 @@ const App: React.FC = () => {
                 </Paper>
             )}
               {tab === 2 && (
+                <Paper sx={{ p: 2, overflow: 'auto' }}>
+                  <RasarDutyView
+                    people={people}
+                    guardAssignments={assignments}
+                    bwAssignments={bwAssignments}
+                    kitchenAssignments={kitchenAssignments}
+                    escortAssignments={escortAssignments}
+                    rasarAssignments={rasarAssignments}
+                    onRasarAssignmentsChange={(a) => { setRasarAssignments(a); setRasarHasChanges(true); }}
+                    rasarOverrides={rasarOverrides}
+                    onRasarOverridesChange={(o) => { setRasarOverrides(o); setRasarHasChanges(true); }}
+                    escort400Assignments={escort400Assignments}
+                    onEscort400AssignmentsChange={(a) => { setEscort400Assignments(a); setRasarHasChanges(true); }}
+                    escort400Overrides={escort400Overrides}
+                    onEscort400OverridesChange={(o) => { setEscort400Overrides(o); setRasarHasChanges(true); }}
+                    constraints={constraints}
+                    onGenerate={handleGenerateRasar}
+                    onGenerateEscort400={handleGenerateRasar}
+                    onSave={handleSaveRasar}
+                    onClear={handleClearRasar}
+                    onAddConstraint={() => setConstraintDialogOpen(true)}
+                    isGenerating={isGenerating}
+                    isSaving={rasarIsSaving}
+                    hasChanges={rasarHasChanges}
+                  />
+                </Paper>
+              )}
+              {tab === 3 && (
                   <HistoryView people={people} posts={posts} />
                 )}
             </Box>

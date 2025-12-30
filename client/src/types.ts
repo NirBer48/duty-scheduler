@@ -91,3 +91,31 @@ export interface EscortAssignment {
   start?: string;
   end?: string;
 }
+
+export interface RasarAssignment {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // rasar_1 | rasar_2 | rasar_3
+  personId: number;
+  start?: string;
+  end?: string;
+}
+
+export interface RasarOverride {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // rasar_1 | rasar_2 | rasar_3
+  required: number;
+}
+
+export interface Escort400Assignment {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // escort400_1 | escort400_2
+  personId: number;
+  start?: string;
+  end?: string;
+}
+
+export interface Escort400Override {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // escort400_1 | escort400_2
+  required: number;
+}

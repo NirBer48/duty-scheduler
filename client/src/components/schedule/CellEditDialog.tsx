@@ -12,10 +12,12 @@ import {
     Chip,
     TextField
 } from "@mui/material";
+import Tooltip from "@mui/material/Tooltip";
 import { useI18n } from "../../util/i18n";
-import { Person, Post, Assignment, ESGroup, ESGroupAssignment, BWAssignment, Constraint } from "../../types";
+import { Person, Post, Assignment, ESGroup, ESGroupAssignment, BWAssignment, Constraint, KitchenAssignment, EscortAssignment, RasarAssignment, Escort400Assignment } from "../../types";
 import { ShiftSlot, getShiftIndex, BW_SLOT_DEFINITIONS, getShiftTimeWindow, getBwSlotRangeMinutes, hasTimeOverlap, isNightShift, isStandingExemptPost } from "./utils";
 import dayjs from "dayjs";
+import { buildDutyCountsByPerson } from "./dutyCounts";
 
 interface Props {
     open: boolean;
@@ -33,6 +35,12 @@ interface Props {
     esGroups: ESGroup[];
     bwAssignments: BWAssignment[];
     constraints?: Constraint[];
+    rangeStartISO: string;
+    rangeEndISO: string;
+    kitchenAssignments: KitchenAssignment[];
+    escortAssignments: EscortAssignment[];
+    rasarAssignments: RasarAssignment[];
+    escort400Assignments: Escort400Assignment[];
 }
 
 export const CellEditDialog: React.FC<Props> = ({
@@ -51,11 +59,60 @@ export const CellEditDialog: React.FC<Props> = ({
     esGroups,
     bwAssignments,
     constraints = [],
+    rangeStartISO,
+    rangeEndISO,
+    kitchenAssignments,
+    escortAssignments,
+    rasarAssignments,
+    escort400Assignments,
 }) => {
     const [selected, setSelected] = useState<number[]>(currentPersonIds);
     const [search, setSearch] = useState('');
     const { t } = useI18n();
     const maxAllowed = requiredCount;
+
+    const dutyCountsByPerson = React.useMemo(
+        () =>
+            buildDutyCountsByPerson({
+                people,
+                rangeStartISO,
+                rangeEndISO,
+                guardAssignments: allAssignments,
+                bwAssignments,
+                kitchenAssignments,
+                escortAssignments,
+                rasarAssignments,
+                escort400Assignments,
+            }),
+        [people, rangeStartISO, rangeEndISO, allAssignments, bwAssignments, kitchenAssignments, escortAssignments, rasarAssignments, escort400Assignments]
+    );
+
+    const tooltipForPerson = (person: Person) => {
+        const c = dutyCountsByPerson.get(person.id);
+        const lines: Array<{ label: string; count: number }> = [];
+        if (c?.guards) lines.push({ label: t('Guards'), count: c.guards });
+        if (c?.bw) lines.push({ label: t('BW Assignments'), count: c.bw });
+        if (c?.kitchen) lines.push({ label: t('Kitchen'), count: c.kitchen });
+        if (c?.escort) lines.push({ label: 'Escort', count: c.escort });
+        if (c?.rasar) lines.push({ label: t('Rasar'), count: c.rasar });
+        if (c?.escort400) lines.push({ label: t('Contractor escort - 400'), count: c.escort400 });
+
+        return (
+            <Box sx={{ whiteSpace: 'pre-line' }}>
+                <Typography variant="subtitle2">{person.name}</Typography>
+                <Box sx={{ height: 8 }} />
+                {lines.length === 0 ? (
+                    <Typography variant="body2">{t('No duties in range')}</Typography>
+                ) : (
+                    lines.map(l => (
+                        <Typography key={l.label} variant="body2">
+                            {l.label}: {l.count}
+                        </Typography>
+                    ))
+                )}
+            </Box>
+        );
+    };
 
     // Build a map of personId -> ES group
     const personToESGroup = new Map<number, ESGroup>();
@@ -347,11 +404,13 @@ export const CellEditDialog: React.FC<Props> = ({
                                                 />
                                             }
                                             label={
-                                                <span>
-                                                    {person.name} ({person.gender})
+                                                <Tooltip title={tooltipForPerson(person)} placement="top" arrow>
+                                                    <span>
+                                                        {person.name} ({person.gender})
                                                     {person.sameGenderPreference && ' 👫'}
                                                     {esGroup && <Chip label={esGroup.name} size="small" sx={{ ml: 1 }} color="info" />}
-                                                </span>
+                                                    </span>
+                                                </Tooltip>
                                             }
                                             sx={{ opacity: isDisabled ? 0.5 : 1 }}
                                         />
