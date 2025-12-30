@@ -145,6 +145,7 @@ const App: React.FC = () => {
   const [escort400Overrides, setEscort400Overrides] = useState<Escort400Override[]>(() =>
     loadFromStorage(STORAGE_KEY_ESCORT400_OVERRIDES, [])
   );
+  const [rasarSaveViolations, setRasarSaveViolations] = useState<Array<{ personId: number; message: string }>>([]);
   const [rasarHasChanges, setRasarHasChanges] = useState(false);
   const [rasarIsSaving, setRasarIsSaving] = useState(false);
   const [constraints, setConstraints] = useState<Constraint[]>([]);
@@ -370,10 +371,16 @@ const App: React.FC = () => {
     setError('');
     setMissingCount(null);
     setIsGenerating(true);
+    setRasarSaveViolations([]);
     try {
       const res = await generateRasarSchedule(
         rasarStartISO,
         rasarEndISO,
+        esAssignments,
+        assignments,
+        bwAssignments,
+        kitchenAssignments,
+        escortAssignments,
         existing,
         constraints,
         overrides,
@@ -384,6 +391,7 @@ const App: React.FC = () => {
       setEscort400Assignments(res.escort400Assignments || []);
       setRasarHasChanges(true);
       setError(res.error || '');
+      setRasarSaveViolations(res.violations || []);
     } catch (e) {
       setError(t('Save failed'));
     } finally {
@@ -396,10 +404,15 @@ const App: React.FC = () => {
     setError('');
     setMissingCount(null);
     setRasarIsSaving(true);
+    setRasarSaveViolations([]);
     try {
       const res = await saveRasarSchedule(rasarAssignments, escort400Assignments);
-      if (!res.ok) setError(res.error || t('Save failed'));
-      else setRasarHasChanges(false);
+      if (!res.ok) {
+        setError(res.error || t('Save failed'));
+        setRasarSaveViolations(res.violations || []);
+      } else {
+        setRasarHasChanges(false);
+      }
     } catch (e) {
       setError(t('Save failed'));
     } finally {
@@ -660,6 +673,8 @@ const App: React.FC = () => {
                     bwAssignments={bwAssignments}
                     kitchenAssignments={kitchenAssignments}
                     escortAssignments={escortAssignments}
+                    esAssignments={esAssignments}
+                    kitchenSettings={kitchenSettings}
                     rasarAssignments={rasarAssignments}
                     onRasarAssignmentsChange={(a) => { setRasarAssignments(a); setRasarHasChanges(true); }}
                     rasarOverrides={rasarOverrides}
@@ -677,6 +692,8 @@ const App: React.FC = () => {
                     isGenerating={isGenerating}
                     isSaving={rasarIsSaving}
                     hasChanges={rasarHasChanges}
+                    error={error}
+                    saveViolations={rasarSaveViolations}
                   />
                 </Paper>
               )}

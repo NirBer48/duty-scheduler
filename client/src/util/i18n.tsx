@@ -206,6 +206,8 @@ const translations: Record<Language, TranslationMap> = {
     'active': 'פעילים',
     'Imported': 'יובאו',
     'Skipped': 'דולגו',
+    'Show': 'הצג',
+    'Hide': 'הסתר',
     'Import failed': 'הייבוא נכשל',
     'Clear': 'נקה',
     'Are you sure you want to clear the schedule?': 'האם אתה בטוח שברצונך לנקות את הסידור?',
