@@ -8,17 +8,19 @@ import {
   IconButton,
   CircularProgress,
   Alert,
+  Collapse,
 } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import EditIcon from '@mui/icons-material/Edit';
 import SettingsIcon from '@mui/icons-material/Settings';
 import { useI18n } from '../util/i18n';
-import type { Constraint, Person, RasarAssignment, RasarOverride, Escort400Assignment, Escort400Override } from '../types';
+import type { Constraint, Person, RasarAssignment, RasarOverride, Escort400Assignment, Escort400Override, ESGroupAssignment, KitchenSettings } from '../types';
 import DutyEditDialog from './schedule/DutyEditDialog';
 import { DutyShiftSettingsDialog } from './schedule/DutyShiftSettingsDialog';
 import { exportRasarToExcel } from './schedule/excelExport';
 import type { Assignment, BWAssignment, KitchenAssignment, EscortAssignment } from '../types';
+import { BW_SLOT_DEFINITIONS, getShiftTimeWindow } from './schedule/utils';
 
 type Props = {
   people: Person[];
@@ -26,6 +28,8 @@ type Props = {
   bwAssignments: BWAssignment[];
   kitchenAssignments: KitchenAssignment[];
   escortAssignments: EscortAssignment[];
+  esAssignments: ESGroupAssignment[];
+  kitchenSettings: KitchenSettings;
   rasarAssignments: RasarAssignment[];
   onRasarAssignmentsChange: (a: RasarAssignment[]) => void;
   rasarOverrides: RasarOverride[];
@@ -54,6 +58,8 @@ type Props = {
   isSaving?: boolean;
   hasChanges?: boolean;
   readOnly?: boolean;
+  error?: string;
+  saveViolations?: Array<{ personId: number; message: string }>;
 };
 
 const RASAR_SHIFTS = [
@@ -81,12 +87,29 @@ const overlaps = (aStartISO: string, aEndISO: string, bStartISO: string, bEndISO
   return aStart.isBefore(bEnd) && bStart.isBefore(aEnd);
 };
 
+const esMemberIdSet = (esAssignments: ESGroupAssignment[]) => {
+  const set = new Set<number>();
+  for (const es of esAssignments) for (const pid of es.personIds) set.add(pid);
+  return set;
+};
+
+const buildRangeFromShiftLabel = (day: string, shiftLabel: string) => {
+  const m = (shiftLabel || '').match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const start = dayjs(`${day}T${m[1]}:${m[2]}:00`);
+  let end = dayjs(`${day}T${m[3]}:${m[4]}:00`);
+  if (!end.isAfter(start)) end = end.add(1, 'day');
+  return { start: start.toISOString(), end: end.toISOString() };
+};
+
 const RasarDutyView: React.FC<Props> = ({
   people,
   guardAssignments,
   bwAssignments,
   kitchenAssignments,
   escortAssignments,
+  esAssignments,
+  kitchenSettings,
   rasarAssignments,
   onRasarAssignmentsChange,
   rasarOverrides,
@@ -105,8 +128,11 @@ const RasarDutyView: React.FC<Props> = ({
   isSaving = false,
   hasChanges = false,
   readOnly = false,
+  error = '',
+  saveViolations = [],
 }) => {
   const { t, lang } = useI18n();
+  const [showValidationDetails, setShowValidationDetails] = useState(false);
   const [weekAnchor, setWeekAnchor] = useState(() => getSunday(dayjs()));
   const weekStart = useMemo(() => getSunday(weekAnchor), [weekAnchor]);
   const weekEndDisplay = useMemo(() => weekStart.add(4, 'day'), [weekStart]);
@@ -201,17 +227,19 @@ const RasarDutyView: React.FC<Props> = ({
   const buildTimeRange = (day: string, shiftId: string) => {
     const shiftDef = RASAR_SHIFTS.find((s) => s.id === shiftId);
     if (!shiftDef) return { start: '', end: '' };
-    const start = `${day}T${shiftDef.start}`;
-    const end = `${day}T${shiftDef.end}`;
-    return { start, end };
+    const start = dayjs(`${day}T${shiftDef.start}:00`);
+    let end = dayjs(`${day}T${shiftDef.end}:00`);
+    if (!end.isAfter(start)) end = end.add(1, 'day');
+    return { start: start.toISOString(), end: end.toISOString() };
   };
 
   const buildTimeRange400 = (day: string, shiftId: string) => {
     const shiftDef = ESCORT400_SHIFTS.find((s) => s.id === shiftId);
     if (!shiftDef) return { start: '', end: '' };
-    const start = `${day}T${shiftDef.start}`;
-    const end = `${day}T${shiftDef.end}`;
-    return { start, end };
+    const start = dayjs(`${day}T${shiftDef.start}:00`);
+    let end = dayjs(`${day}T${shiftDef.end}:00`);
+    if (!end.isAfter(start)) end = end.add(1, 'day');
+    return { start: start.toISOString(), end: end.toISOString() };
   };
 
   const validation = useMemo(() => {
@@ -240,6 +268,137 @@ const RasarDutyView: React.FC<Props> = ({
                 break;
               }
             }
+          }
+        }
+      }
+    }
+
+    // Overlaps vs other duties (guards/BW/kitchen/escort) and between rasar & 400
+    const rangesByPerson = new Map<number, { start: string; end: string; label: string }[]>();
+    const addRange = (personId: number, start: string, end: string, label: string) => {
+      const arr = rangesByPerson.get(personId) || [];
+      arr.push({ start, end, label });
+      rangesByPerson.set(personId, arr);
+    };
+
+    // Guards
+    for (const a of guardAssignments) {
+      // Prefer label-derived range so "red" logic matches the exact guard label shown in the UI.
+      const range = buildRangeFromShiftLabel(a.day, a.shiftLabel) || (a.start && a.end ? { start: a.start, end: a.end } : null);
+      if (!range) continue;
+      addRange(a.personId, range.start, range.end, `${a.day} ${a.shiftLabel}`);
+    }
+
+    // BW
+    for (const b of bwAssignments) {
+      if (b.start && b.end) addRange(b.personId, b.start, b.end, `${b.day} BW ${b.slotId}`);
+      else {
+        const slot = BW_SLOT_DEFINITIONS.find(s => s.id === b.slotId);
+        if (!slot) continue;
+        const start = dayjs(`${b.day}T${String(slot.startHour).padStart(2, '0')}:${String(slot.startMinute).padStart(2, '0')}:00`);
+        let end = dayjs(`${b.day}T${String(slot.endHour).padStart(2, '0')}:${String(slot.endMinute).padStart(2, '0')}:00`);
+        if (!end.isAfter(start)) end = end.add(1, 'day');
+        addRange(b.personId, start.toISOString(), end.toISOString(), `${b.day} BW ${slot.label}`);
+      }
+    }
+
+    const parseHHmm = (value: string | undefined, fallback: string) => {
+      const str = (value || fallback).toString();
+      const m = str.match(/^(\d{1,2}):(\d{2})$/);
+      if (!m) return fallback;
+      const h = Math.min(23, Math.max(0, Number(m[1])));
+      const mm = Math.min(59, Math.max(0, Number(m[2])));
+      return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    };
+    const kitchenShift2Start = parseHHmm(kitchenSettings?.shift2Start, '13:00');
+    const buildRangeFromDayTimes = (day: string, startHHmm: string, endHHmm: string) => {
+      const start = dayjs(`${day}T${startHHmm}:00`);
+      let end = dayjs(`${day}T${endHHmm}:00`);
+      if (!end.isAfter(start)) end = end.add(1, 'day');
+      return { start: start.toISOString(), end: end.toISOString() };
+    };
+
+    // Kitchen + Escort (start/end may be missing after reload, so derive from day+shiftId)
+    for (const k of kitchenAssignments) {
+      const range =
+        (k.start && k.end)
+          ? { start: k.start, end: k.end }
+          : (k.shiftId === 'kitchen_1'
+              ? buildRangeFromDayTimes(k.day, '06:00', kitchenShift2Start)
+              : k.shiftId === 'kitchen_2'
+                ? buildRangeFromDayTimes(k.day, kitchenShift2Start, '21:00')
+                : null);
+      if (!range) continue;
+      addRange(k.personId, range.start, range.end, `${k.day} ${k.shiftId}`);
+    }
+    for (const e of escortAssignments) {
+      const range =
+        (e.start && e.end)
+          ? { start: e.start, end: e.end }
+          : (e.shiftId === 'escort_1'
+              ? buildRangeFromDayTimes(e.day, '07:00', '10:30')
+              : e.shiftId === 'escort_2'
+                ? buildRangeFromDayTimes(e.day, '10:30', '14:00')
+                : e.shiftId === 'escort_3'
+                  ? buildRangeFromDayTimes(e.day, '14:00', '17:00')
+                  : e.shiftId === 'escort_4'
+                    ? buildRangeFromDayTimes(e.day, '17:00', '19:00')
+                    : null);
+      if (!range) continue;
+      addRange(e.personId, range.start, range.end, `${e.day} ${e.shiftId}`);
+    }
+
+    // Compare rasar slots against other duty ranges
+    for (const day of days) {
+      for (const shift of RASAR_SHIFTS) {
+        const cellKey = `${day}|${shift.id}`;
+        const slotRange = buildTimeRange(day, shift.id);
+        for (const pid of getPersonIds(day, shift.id)) {
+          const others = rangesByPerson.get(pid) || [];
+          for (const r of others) {
+            if (overlaps(slotRange.start, slotRange.end, r.start, r.end)) {
+              invalidCells.add(cellKey);
+              const name = people.find(p => p.id === pid)?.name || String(pid);
+              issues.push(`${name}: ${t('Overlapping shift in this timeframe')} (${day} ${shift.label}) ⇄ ${r.label}`);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Compare 400 slots against other duty ranges + enforce female only already checked above
+    for (const day of days) {
+      for (const shift of ESCORT400_SHIFTS) {
+        const cellKey = `400|${day}|${shift.id}`;
+        const slotRange = buildTimeRange400(day, shift.id);
+        for (const pid of getPersonIds400(day, shift.id)) {
+          const others = rangesByPerson.get(pid) || [];
+          for (const r of others) {
+            if (overlaps(slotRange.start, slotRange.end, r.start, r.end)) {
+              invalidCells.add(cellKey);
+              const name = people.find(p => p.id === pid)?.name || String(pid);
+              issues.push(`${name}: ${t('Overlapping shift in this timeframe')} (${day} ${shift.label}) ⇄ ${r.label}`);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    // Rasar vs 400 overlap
+    for (const day of days) {
+      for (const rShift of RASAR_SHIFTS) {
+        const rRange = buildTimeRange(day, rShift.id);
+        for (const pid of getPersonIds(day, rShift.id)) {
+          for (const eShift of ESCORT400_SHIFTS) {
+            const eRange = buildTimeRange400(day, eShift.id);
+            if (!overlaps(rRange.start, rRange.end, eRange.start, eRange.end)) continue;
+            if (!getPersonIds400(day, eShift.id).includes(pid)) continue;
+            invalidCells.add(`${day}|${rShift.id}`);
+            invalidCells.add(`400|${day}|${eShift.id}`);
+            const name = people.find(p => p.id === pid)?.name || String(pid);
+            issues.push(`${name}: ${t('Overlapping shift in this timeframe')} (${day} ${rShift.label} & ${eShift.label})`);
           }
         }
       }
@@ -276,8 +435,51 @@ const RasarDutyView: React.FC<Props> = ({
       }
     }
 
+    // ES (כ"כ): members should not be assigned to rasar/escort400 at all.
+    const esMemberIds = new Set<number>();
+    for (const es of esAssignments) {
+      for (const pid of es.personIds) esMemberIds.add(pid);
+    }
+
+    for (const day of days) {
+      for (const shift of RASAR_SHIFTS) {
+        const cellKey = `${day}|${shift.id}`;
+        for (const pid of getPersonIds(day, shift.id)) {
+          if (!esMemberIds.has(pid)) continue;
+          invalidCells.add(cellKey);
+          const name = people.find(p => p.id === pid)?.name || String(pid);
+          issues.push(`${name}: כ"כ (${day} ${shift.label})`);
+        }
+      }
+    }
+
+    for (const day of days) {
+      for (const shift of ESCORT400_SHIFTS) {
+        const cellKey = `400|${day}|${shift.id}`;
+        for (const pid of getPersonIds400(day, shift.id)) {
+          if (!esMemberIds.has(pid)) continue;
+          invalidCells.add(cellKey);
+          const name = people.find(p => p.id === pid)?.name || String(pid);
+          issues.push(`${name}: כ"כ (${day} ${shift.label})`);
+        }
+      }
+    }
+
     return { invalidCells, issues };
-  }, [days, rasarAssignments, rasarOverrides, escort400Assignments, escort400Overrides, constraints, people]);
+  }, [
+    days,
+    rasarAssignments,
+    rasarOverrides,
+    escort400Assignments,
+    escort400Overrides,
+    constraints,
+    people,
+    guardAssignments,
+    bwAssignments,
+    kitchenAssignments,
+    escortAssignments,
+    esAssignments,
+  ]);
 
   const dayNames = lang === 'he' ? DAY_NAMES_HE : DAY_NAMES_EN;
 
@@ -358,7 +560,45 @@ const RasarDutyView: React.FC<Props> = ({
 
       {validation.issues.length > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          {t('Schedule is invalid')} — {validation.issues.length}
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+            <Typography variant="body2">
+              {t('Schedule is invalid')} — {validation.issues.length}
+            </Typography>
+            <Button size="small" onClick={() => setShowValidationDetails(v => !v)}>
+              {showValidationDetails ? t('Hide') : t('Show')}
+            </Button>
+          </Stack>
+          <Collapse in={showValidationDetails}>
+            <Box sx={{ mt: 1 }}>
+              {validation.issues.slice(0, 50).map((msg, idx) => (
+                <Typography key={idx} variant="caption" sx={{ display: 'block' }}>
+                  - {msg}
+                </Typography>
+              ))}
+              {validation.issues.length > 50 && (
+                <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>
+                  … {validation.issues.length - 50} more
+                </Typography>
+              )}
+            </Box>
+          </Collapse>
+        </Alert>
+      )}
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          <Box>
+            <Typography variant="body2">{error}</Typography>
+            {saveViolations.length > 0 && (
+              <Box sx={{ mt: 1 }}>
+                {saveViolations.map((v, idx) => (
+                  <Typography key={`${v.personId}-${idx}`} variant="caption" sx={{ display: 'block' }}>
+                    - {people.find(p => p.id === v.personId)?.name || v.personId}: {v.message}
+                  </Typography>
+                ))}
+              </Box>
+            )}
+          </Box>
         </Alert>
       )}
 
@@ -524,10 +764,16 @@ const RasarDutyView: React.FC<Props> = ({
         escortAssignments={escortAssignments}
         rasarAssignments={rasarAssignments}
         escort400Assignments={escort400Assignments}
+        kitchenSettings={kitchenSettings}
+        scheduleStart={apiStart}
+        scheduleEnd={apiEnd}
         dutyCountRangeStartISO={apiStart}
         dutyCountRangeEndISO={apiEnd}
         currentDay={editDialog.day}
         currentShiftId={editDialog.shiftId}
+        ineligiblePersonIds={[...esMemberIdSet(esAssignments)]}
+        ineligibleReasonLabel={'כ"כ'}
+        enableRestViolation={false}
       />
 
       <DutyEditDialog
@@ -547,10 +793,16 @@ const RasarDutyView: React.FC<Props> = ({
         escortAssignments={escortAssignments}
         rasarAssignments={rasarAssignments}
         escort400Assignments={escort400Assignments}
+        kitchenSettings={kitchenSettings}
+        scheduleStart={apiStart}
+        scheduleEnd={apiEnd}
         dutyCountRangeStartISO={apiStart}
         dutyCountRangeEndISO={apiEnd}
         currentDay={editDialog400.day}
         currentShiftId={editDialog400.shiftId}
+        ineligiblePersonIds={[...esMemberIdSet(esAssignments)]}
+        ineligibleReasonLabel={'כ"כ'}
+        enableRestViolation={false}
       />
 
       <DutyShiftSettingsDialog

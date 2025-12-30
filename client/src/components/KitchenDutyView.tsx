@@ -812,6 +812,7 @@ const KitchenDutyView: React.FC<Props> = ({
           bwAssignments={bwAssignments}
           kitchenAssignments={kitchenAssignments}
           escortAssignments={escortAssignments}
+          kitchenSettings={kitchenSettings}
           scheduleStart={start}
           scheduleEnd={end}
           dutyCountRangeStartISO={archiveStart || start}

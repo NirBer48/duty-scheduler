@@ -72,6 +72,7 @@ type ScheduleResponse = {
   escortSettings?: EscortSettings;
   error?: string;
   missingCount?: number;
+  violations?: Array<{ personId: number; message: string }>;
 };
 
 type ScheduleSnapshot = {
@@ -247,6 +248,11 @@ export const fetchScheduleByPeriod = (start: string, end: string) =>
 export const generateRasarSchedule = (
   rasarStartISO: string,
   rasarEndISO: string,
+  esAssignments: ESGroupAssignment[] = [],
+  existingAssignments: Assignment[] = [],
+  existingBwAssignments: BWAssignment[] = [],
+  existingKitchenAssignments: KitchenAssignment[] = [],
+  existingEscortAssignments: EscortAssignment[] = [],
   existingRasarAssignments: RasarAssignment[] = [],
   constraints: Constraint[] = [],
   rasarOverrides: RasarOverride[] = [],
@@ -262,6 +268,11 @@ export const generateRasarSchedule = (
       endISO: rasarEndISO,
       rasarStartISO,
       rasarEndISO,
+      esAssignments,
+      existingAssignments,
+      existingBwAssignments,
+      existingKitchenAssignments,
+      existingEscortAssignments,
       existingRasarAssignments,
       constraints,
       rasarOverrides,
@@ -271,10 +282,13 @@ export const generateRasarSchedule = (
   });
 
 export const saveRasarSchedule = (rasarAssignments: RasarAssignment[], escort400Assignments: Escort400Assignment[]) =>
-  request<{ ok: boolean; error?: string }>('/schedule/save-rasar', {
+  request<{ ok: boolean; error?: string; violations?: Array<{ personId: number; message: string }> }>(
+    '/schedule/save-rasar',
+    {
     method: 'POST',
     body: JSON.stringify({ rasarAssignments, escort400Assignments }),
-  });
+    }
+  );
 
 export const saveAllSchedules = (
   assignments: Assignment[],

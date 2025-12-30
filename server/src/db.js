@@ -5,7 +5,7 @@ const { Pool } = pkg;
 export const createDb = async () => {
   console.log(`DB: creating pool... ${process.env.DATABASE_URL}`);
 
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.DATABASE_URL || 'postgres://duty:duty@localhost:5432/duty';
   const isAzure = connectionString.includes('azure.com');
 
   const pool = new Pool({

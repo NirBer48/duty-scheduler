@@ -1,4 +1,5 @@
 import express from 'express';
+import dayjs from 'dayjs';
 import { scheduleGenerator } from '../scheduler.js';
 
 const router = express.Router();
@@ -478,6 +479,7 @@ router.post('/generate', async (req, res, next) => {
       existingKitchenAssignments = [],
       existingEscortAssignments = [],
       existingRasarAssignments = [],
+      existingEscort400Assignments = [],
       kitchenSettings,
       escortSettings,
       constraints = [],
@@ -490,8 +492,10 @@ router.post('/generate', async (req, res, next) => {
 
     const personIds = new Set(peopleRows.map(p => p.id));
     const postIds = new Set(postRows.map(p => p.id));
+    // For rasar generation we only need guard assignment PERSON+TIME for overlap prevention.
+    // Do NOT drop guard assignments just because their postId doesn't exist (or posts aren't loaded).
     const sanitizeAssignments = arr =>
-      (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
+      (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeBw = arr =>
       (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeKitchen = arr =>
@@ -499,6 +503,8 @@ router.post('/generate', async (req, res, next) => {
     const sanitizeEscort = arr =>
       (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeRasar = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEscort400 = arr =>
       (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
@@ -512,6 +518,7 @@ router.post('/generate', async (req, res, next) => {
     const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
     const sanitizedRasar = sanitizeRasar(existingRasarAssignments);
+    const sanitizedEscort400 = sanitizeEscort400(existingEscort400Assignments);
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
 
@@ -529,7 +536,7 @@ router.post('/generate', async (req, res, next) => {
       kitchenSettings,
       escortSettings,
       constraints,
-      { existingRasarAssignments: sanitizedRasar, rasarStartISO: startISO, rasarEndISO: endISO }
+      { existingRasarAssignments: sanitizedRasar, existingEscort400Assignments: sanitizedEscort400, rasarStartISO: startISO, rasarEndISO: endISO }
     );
 
     if (result.error) {
@@ -548,6 +555,7 @@ router.post('/generate', async (req, res, next) => {
       result.kitchenAssignments || [],
       result.escortAssignments || [],
       result.rasarAssignments || [],
+      result.escort400Assignments || [],
       result.kitchenSettings || kitchenSettings,
       result.escortSettings || escortSettings,
       req.user.id,
@@ -561,6 +569,7 @@ router.post('/generate', async (req, res, next) => {
       kitchenAssignments: result.kitchenAssignments || [],
       escortAssignments: result.escortAssignments || [],
       rasarAssignments: result.rasarAssignments || [],
+      escort400Assignments: result.escort400Assignments || [],
       kitchenSettings: result.kitchenSettings || kitchenSettings || { requiredPerShift: 36, shift2Start: '13:00' },
       escortSettings: result.escortSettings || escortSettings || { requiredPerShift: 4 },
     });
@@ -582,6 +591,7 @@ router.post('/generate-guards', async (req, res, next) => {
       existingKitchenAssignments = [],
       existingEscortAssignments = [],
       existingRasarAssignments = [],
+      existingEscort400Assignments = [],
       kitchenSettings,
       escortSettings,
       constraints = [],
@@ -604,6 +614,8 @@ router.post('/generate-guards', async (req, res, next) => {
       (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeRasar = arr =>
       (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEscort400 = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
@@ -616,6 +628,7 @@ router.post('/generate-guards', async (req, res, next) => {
     const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
     const sanitizedRasar = sanitizeRasar(existingRasarAssignments);
+    const sanitizedEscort400 = sanitizeEscort400(existingEscort400Assignments);
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
 
@@ -633,16 +646,17 @@ router.post('/generate-guards', async (req, res, next) => {
       kitchenSettings,
       escortSettings,
       constraints,
-      { mode: 'guards', existingRasarAssignments: sanitizedRasar, rasarStartISO: startISO, rasarEndISO: endISO }
+      { mode: 'guards', existingRasarAssignments: sanitizedRasar, existingEscort400Assignments: sanitizedEscort400, rasarStartISO: startISO, rasarEndISO: endISO }
     );
 
     if (result.error) return respondError(res, result.error, result.missingCount ?? null);
 
     await persistGuardsOnly(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id);
 
-    const [kitchenSnap, rasarSnap] = await Promise.all([
+    const [kitchenSnap, rasarSnap, escort400Snap] = await Promise.all([
       fetchKitchenEscortSnapshot(db, req.user.id),
       fetchRasarSnapshot(db, req.user.id),
+      fetchEscort400Snapshot(db, req.user.id),
     ]);
     res.json({
       assignments: result.assignments,
@@ -650,6 +664,7 @@ router.post('/generate-guards', async (req, res, next) => {
       esAssignments: sanitizedEs,
       ...kitchenSnap,
       ...rasarSnap,
+      ...escort400Snap,
     });
   } catch (err) {
     next(err);
@@ -670,6 +685,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
       existingKitchenAssignments = [],
       existingEscortAssignments = [],
       existingRasarAssignments = [],
+      existingEscort400Assignments = [],
       kitchenSettings,
       escortSettings,
       constraints = [],
@@ -692,6 +708,8 @@ router.post('/generate-kitchen', async (req, res, next) => {
       (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeRasar = arr =>
       (arr || []).filter(a => personIds.has(a.personId));
+    const sanitizeEscort400 = arr =>
+      (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
@@ -704,6 +722,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
     const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
     const sanitizedRasar = sanitizeRasar(existingRasarAssignments);
+    const sanitizedEscort400 = sanitizeEscort400(existingEscort400Assignments);
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
 
@@ -721,7 +740,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
       kitchenSettings,
       escortSettings,
       constraints,
-      { mode: 'kitchen', kitchenStartISO, kitchenEndISO, existingRasarAssignments: sanitizedRasar, rasarStartISO: startISO, rasarEndISO: endISO }
+      { mode: 'kitchen', kitchenStartISO, kitchenEndISO, existingRasarAssignments: sanitizedRasar, existingEscort400Assignments: sanitizedEscort400, rasarStartISO: startISO, rasarEndISO: endISO }
     );
 
     if (result.error) return respondError(res, result.error, result.missingCount ?? null);
@@ -735,9 +754,10 @@ router.post('/generate-kitchen', async (req, res, next) => {
       req.user.id
     );
 
-    const [guardsSnap, rasarSnap] = await Promise.all([
+    const [guardsSnap, rasarSnap, escort400Snap] = await Promise.all([
       fetchGuardsSnapshot(db, req.user.id),
       fetchRasarSnapshot(db, req.user.id),
+      fetchEscort400Snapshot(db, req.user.id),
     ]);
     res.json({
       ...guardsSnap,
@@ -745,6 +765,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
       kitchenAssignments: result.kitchenAssignments || [],
       escortAssignments: result.escortAssignments || [],
       ...rasarSnap,
+      ...escort400Snap,
       kitchenSettings: result.kitchenSettings || kitchenSettings || { requiredPerShift: 36, shift2Start: '13:00' },
       escortSettings: result.escortSettings || escortSettings || { requiredPerShift: 4 },
     });
@@ -787,18 +808,8 @@ router.post('/generate-rasar', async (req, res, next) => {
     ]);
 
     const personIds = new Set(peopleRows.map(p => p.id));
-    const postIds = new Set(postRows.map(p => p.id));
-    const sanitizeAssignments = arr =>
-      (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
-    const sanitizeBw = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
-    const sanitizeKitchen = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
-    const sanitizeEscort = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
-    const sanitizeRasar = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
-    const sanitizeEscort400 = arr =>
+    // For rasar generation, filter by personId only - we need all existing duties for overlap detection
+    const sanitizeByPerson = arr =>
       (arr || []).filter(a => personIds.has(a.personId));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
@@ -807,46 +818,293 @@ router.post('/generate-rasar', async (req, res, next) => {
       }));
 
     const sanitizedEs = sanitizeEs(esAssignments);
-    const sanitizedAssignments = sanitizeAssignments(existingAssignments);
-    const sanitizedBw = sanitizeBw(existingBwAssignments);
-    const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
-    const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
-    const sanitizedRasar = sanitizeRasar(existingRasarAssignments);
-    const sanitizedEscort400 = sanitizeEscort400(existingEscort400Assignments);
+    const sanitizedAssignments = sanitizeByPerson(existingAssignments);
+    const sanitizedBw = sanitizeByPerson(existingBwAssignments);
+    const sanitizedKitchen = sanitizeByPerson(existingKitchenAssignments);
+    const sanitizedEscort = sanitizeByPerson(existingEscortAssignments);
+    const sanitizedRasar = sanitizeByPerson(existingRasarAssignments);
+    const sanitizedEscort400 = sanitizeByPerson(existingEscort400Assignments);
 
-    const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+    const overlapsIso = (aStart, aEnd, bStart, bEnd) => {
+      const aS = dayjs(aStart);
+      const aE = dayjs(aEnd);
+      const bS = dayjs(bStart);
+      const bE = dayjs(bEnd);
+      if (
+        (aE.isSame(bS, 'minute') || aE.isBefore(bS, 'minute')) ||
+        (bE.isSame(aS, 'minute') || bE.isBefore(aS, 'minute'))
+      ) return false;
+      return aS.isBefore(bE) && bS.isBefore(aE);
+    };
+    const buildRasarRange = (day, shiftId) => {
+      const def =
+        shiftId === 'rasar_1' ? { start: '08:30', end: '11:30' } :
+        shiftId === 'rasar_2' ? { start: '13:30', end: '17:30' } :
+        shiftId === 'rasar_3' ? { start: '19:30', end: '20:30' } : null;
+      if (!def) return null;
+      return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
+    };
+    const buildEscort400Range = (day, shiftId) => {
+      const def =
+        shiftId === 'escort400_1' ? { start: '08:00', end: '12:30' } :
+        shiftId === 'escort400_2' ? { start: '12:30', end: '17:00' } : null;
+      if (!def) return null;
+      return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
+    };
+    const buildBwRange = (day, slotId) => {
+      const BW_SLOTS = [
+        { id: 'bw_morning', start: '08:30', end: '11:30' },
+        { id: 'bw_afternoon', start: '13:30', end: '17:30' },
+        { id: 'bw_evening', start: '18:30', end: '20:00' },
+      ];
+      if (!day || !slotId) return null;
+      const def = BW_SLOTS.find(s => s.id === slotId);
+      if (!def) return null;
+      const start = dayjs(`${day}T${def.start}:00`);
+      let end = dayjs(`${day}T${def.end}:00`);
+      if (!end.isAfter(start)) end = end.add(1, 'day');
+      return { start: start.toISOString(), end: end.toISOString() };
+    };
+    const buildKitchenRange = (day, shiftId, kitchenSettingsRow) => {
+      const shift2Start = (kitchenSettingsRow?.shift2start || kitchenSettings?.shift2Start || '13:00').toString();
+      const start1 = '06:00';
+      const end2 = '21:00';
+      const def =
+        shiftId === 'kitchen_1' ? { start: start1, end: shift2Start } :
+        shiftId === 'kitchen_2' ? { start: shift2Start, end: end2 } : null;
+      if (!def) return null;
+      return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
+    };
+    const buildEscortRange = (day, shiftId) => {
+      const def =
+        shiftId === 'escort_1' ? { start: '07:00', end: '10:30' } :
+        shiftId === 'escort_2' ? { start: '10:30', end: '14:00' } :
+        shiftId === 'escort_3' ? { start: '14:00', end: '17:00' } :
+        shiftId === 'escort_4' ? { start: '17:00', end: '19:00' } : null;
+      if (!def) return null;
+      return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
+    };
 
-    const result = scheduleGenerator(
-      shuffledPeople,
-      postRows.map(mapPost),
-      effectiveStartISO,
-      effectiveEndISO,
-      [], // no guard overrides needed
-      sanitizedEs,
-      sanitizedAssignments,
-      sanitizedBw,
-      sanitizedKitchen,
-      sanitizedEscort,
-      kitchenSettings,
-      escortSettings,
-      constraints,
-      {
-        mode: 'rasar',
-        existingRasarAssignments: sanitizedRasar,
-        rasarStartISO: effectiveStartISO,
-        rasarEndISO: effectiveEndISO,
-        rasarOverrides,
-        existingEscort400Assignments: sanitizedEscort400,
-        escort400Overrides,
+    const esMemberIds = new Set();
+    for (const es of sanitizedEs) for (const pid of es.personIds) esMemberIds.add(Number(pid));
+
+    const personGender = new Map(peopleRows.map(p => [Number(p.id), p.gender]));
+    const rasarShiftIds = ['rasar_1', 'rasar_2', 'rasar_3'];
+    const escort400ShiftIds = ['escort400_1', 'escort400_2'];
+    const rasarWeekDays = () => {
+      const out = [];
+      const base = dayjs(effectiveStartISO).startOf('day');
+      for (let i = 0; i < 5; i += 1) out.push(base.add(i, 'day').format('YYYY-MM-DD'));
+      return out;
+    };
+    const requiredForRasar = (day, shiftId) => {
+      const o = (rasarOverrides || []).find(x => x?.day === day && x?.shiftId === shiftId);
+      const v = Number(o?.required ?? o?.requiredPerShift ?? 1);
+      return Number.isFinite(v) ? Math.max(0, v) : 1;
+    };
+    const requiredForEscort400 = (day, shiftId) => {
+      const o = (escort400Overrides || []).find(x => x?.day === day && x?.shiftId === shiftId);
+      const v = Number(o?.required ?? o?.requiredPerShift ?? 1);
+      return Number.isFinite(v) ? Math.max(0, v) : 1;
+    };
+
+    const validateGeneratedRasar = (rasarAssignments = [], escort400Assignments = []) => {
+      // Build existing duty intervals by person (guards + bw + kitchen + escort)
+      const existingByPerson = new Map();
+      const addExisting = (pid, range) => {
+        if (!range) return;
+        const arr = existingByPerson.get(pid) || [];
+        arr.push(range);
+        existingByPerson.set(pid, arr);
+      };
+
+      for (const g of sanitizedAssignments) {
+        // Prefer shiftLabel+day (matches UI labels and avoids any stale/incorrect start-end)
+        if (g.day && g.shiftLabel) {
+          const m = (g.shiftLabel || '').match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+          if (m) {
+            const start = dayjs(`${g.day}T${m[1]}:${m[2]}:00`);
+            let end = dayjs(`${g.day}T${m[3]}:${m[4]}:00`);
+            if (!end.isAfter(start)) end = end.add(1, 'day');
+            addExisting(Number(g.personId), { start: start.toISOString(), end: end.toISOString() });
+            continue;
+          }
+        }
+        if (g.start && g.end) addExisting(Number(g.personId), { start: g.start, end: g.end });
       }
-    );
+      for (const b of sanitizedBw) addExisting(Number(b.personId), buildBwRange(b.day, b.slotId));
+      // kitchen/escort may or may not include start/end in payload; use canonical
+      for (const k of sanitizedKitchen) addExisting(Number(k.personId), buildKitchenRange(k.day, k.shiftId, null));
+      for (const e of sanitizedEscort) addExisting(Number(e.personId), buildEscortRange(e.day, e.shiftId));
 
-    if (result.error) return respondError(res, result.error, result.missingCount ?? null);
+      const incomingRanges = [];
+      for (const a of rasarAssignments) {
+        const range = a.start && a.end ? { start: a.start, end: a.end } : buildRasarRange(a.day, a.shiftId);
+        if (!range) continue;
+        incomingRanges.push({ personId: Number(a.personId), range, day: a.day, shiftId: a.shiftId });
+      }
+      for (const a of escort400Assignments) {
+        const range = a.start && a.end ? { start: a.start, end: a.end } : buildEscort400Range(a.day, a.shiftId);
+        if (!range) continue;
+        incomingRanges.push({ personId: Number(a.personId), range, day: a.day, shiftId: a.shiftId });
+      }
 
-    await Promise.all([
-      persistRasarOnly(db, result.rasarAssignments || [], req.user.id),
-      persistEscort400Only(db, result.escort400Assignments || [], req.user.id),
-    ]);
+      // Required-per-shift validation (otherwise client can show "schedule invalid" even if overlaps are fine)
+      const violations = [];
+      for (const day of rasarWeekDays()) {
+        for (const shiftId of rasarShiftIds) {
+          const required = requiredForRasar(day, shiftId);
+          const count = (rasarAssignments || []).filter(a => a.day === day && a.shiftId === shiftId).length;
+          if (count !== required) {
+            violations.push({ personId: 0, message: `Missing/extra in rasar: ${day} ${shiftId} required ${required} has ${count}` });
+          }
+        }
+        for (const shiftId of escort400ShiftIds) {
+          const required = requiredForEscort400(day, shiftId);
+          const count = (escort400Assignments || []).filter(a => a.day === day && a.shiftId === shiftId).length;
+          if (count !== required) {
+            violations.push({ personId: 0, message: `Missing/extra in escort400: ${day} ${shiftId} required ${required} has ${count}` });
+          }
+        }
+      }
+      if (violations.length) {
+        return { ok: false, error: 'Required counts mismatch', violations };
+      }
+
+      // Female-only rule for escort400
+      const bad400 = (escort400Assignments || [])
+        .map(a => Number(a.personId))
+        .filter(pid => (personGender.get(pid) || 'X') !== 'F');
+      if (bad400.length) {
+        const uniq = [...new Set(bad400)];
+        return {
+          ok: false,
+          error: 'Escort400 gender rule',
+          violations: uniq.map(pid => ({ personId: pid, message: 'Escort400 must be female' })),
+        };
+      }
+
+      // ES check (ineligible)
+      const esBad = [...new Set(incomingRanges.map(x => x.personId).filter(pid => esMemberIds.has(pid)))];
+      if (esBad.length) {
+        return {
+          ok: false,
+          error: `כ"כ`,
+          violations: esBad.map(pid => ({ personId: pid, message: `כ"כ` })),
+        };
+      }
+
+      // Constraint check
+      for (const inc of incomingRanges) {
+        for (const c of constraints || []) {
+          if (Number(c.personId) !== inc.personId) continue;
+          if (overlapsIso(inc.range.start, inc.range.end, c.startISO, c.endISO)) {
+            return {
+              ok: false,
+              error: `Constraint conflict`,
+              violations: [{ personId: inc.personId, message: `Constraint conflict (${inc.day} ${inc.shiftId})` }],
+            };
+          }
+        }
+      }
+
+      // Existing duties overlap check
+      for (const inc of incomingRanges) {
+        const list = existingByPerson.get(inc.personId) || [];
+        for (const ex of list) {
+          if (overlapsIso(inc.range.start, inc.range.end, ex.start, ex.end)) {
+            return {
+              ok: false,
+              error: `Overlap`,
+              violations: [{ personId: inc.personId, message: `Overlap (${inc.day} ${inc.shiftId})` }],
+            };
+          }
+        }
+      }
+
+      // Internal overlap check (same person in two incoming slots)
+      const byPerson = new Map();
+      for (const inc of incomingRanges) {
+        const arr = byPerson.get(inc.personId) || [];
+        arr.push(inc);
+        byPerson.set(inc.personId, arr);
+      }
+      for (const [pid, list] of byPerson.entries()) {
+        for (let i = 0; i < list.length; i += 1) {
+          for (let j = i + 1; j < list.length; j += 1) {
+            if (overlapsIso(list[i].range.start, list[i].range.end, list[j].range.start, list[j].range.end)) {
+              return {
+                ok: false,
+                error: `Overlap`,
+                violations: [{ personId: pid, message: `Overlap between ${list[i].day} ${list[i].shiftId} and ${list[j].day} ${list[j].shiftId}` }],
+              };
+            }
+          }
+        }
+      }
+
+      return { ok: true };
+    };
+
+    let result = null;
+    let lastValidation = null;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+      result = scheduleGenerator(
+        shuffledPeople,
+        postRows.map(mapPost),
+        effectiveStartISO,
+        effectiveEndISO,
+        [], // no guard overrides needed
+        sanitizedEs,
+        sanitizedAssignments,
+        sanitizedBw,
+        sanitizedKitchen,
+        sanitizedEscort,
+        kitchenSettings,
+        escortSettings,
+        constraints,
+        {
+          mode: 'rasar',
+          existingRasarAssignments: sanitizedRasar,
+          rasarStartISO: effectiveStartISO,
+          rasarEndISO: effectiveEndISO,
+          rasarOverrides,
+          existingEscort400Assignments: sanitizedEscort400,
+          escort400Overrides,
+        }
+      );
+
+      if (result?.error) return respondError(res, result.error, result.missingCount ?? null);
+
+      const v = validateGeneratedRasar(result?.rasarAssignments || [], result?.escort400Assignments || []);
+      if (v.ok) {
+        await Promise.all([
+          persistRasarOnly(db, result.rasarAssignments || [], req.user.id),
+          persistEscort400Only(db, result.escort400Assignments || [], req.user.id),
+        ]);
+        lastValidation = null;
+        break;
+      }
+      lastValidation = v;
+    }
+
+    if (lastValidation) {
+      const [guardsSnap, kitchenSnap] = await Promise.all([
+        fetchGuardsSnapshot(db, req.user.id),
+        fetchKitchenEscortSnapshot(db, req.user.id),
+      ]);
+      return res.json({
+        ...guardsSnap,
+        ...kitchenSnap,
+        rasarAssignments: [],
+        escort400Assignments: [],
+        kitchenSettings: kitchenSnap.kitchenSettings,
+        escortSettings: kitchenSnap.escortSettings,
+        error: `Invalid rasar schedule: ${lastValidation.error}`,
+        violations: lastValidation.violations || [],
+      });
+    }
 
     const [guardsSnap, kitchenSnap] = await Promise.all([
       fetchGuardsSnapshot(db, req.user.id),
@@ -870,11 +1128,189 @@ router.post('/save-rasar', async (req, res, next) => {
   try {
     const db = getDb(req);
     const { rasarAssignments = [], escort400Assignments = [] } = req.body || {};
-    const peopleRows = await db.all('SELECT id, gender FROM people WHERE userId = $1', [req.user.id]);
+    const peopleRows = await db.all('SELECT id, name, gender FROM people WHERE userId = $1', [req.user.id]);
     const personIds = new Set(peopleRows.map(p => p.id));
     const femaleIds = new Set(peopleRows.filter(p => p.gender === 'F').map(p => p.id));
     const sanitized = (rasarAssignments || []).filter(a => personIds.has(a.personId));
     const sanitized400 = (escort400Assignments || []).filter(a => femaleIds.has(a.personId));
+
+    // Reject overlaps with existing duties before persisting.
+    const overlapsIso = (aStart, aEnd, bStart, bEnd) => {
+      const aS = dayjs(aStart);
+      const aE = dayjs(aEnd);
+      const bS = dayjs(bStart);
+      const bE = dayjs(bEnd);
+      if (
+        (aE.isSame(bS, 'minute') || aE.isBefore(bS, 'minute')) ||
+        (bE.isSame(aS, 'minute') || bE.isBefore(aS, 'minute'))
+      ) return false;
+      return aS.isBefore(bE) && bS.isBefore(aE);
+    };
+    const buildRasarRange = (day, shiftId) => {
+      const def =
+        shiftId === 'rasar_1' ? { start: '08:30', end: '11:30' } :
+        shiftId === 'rasar_2' ? { start: '13:30', end: '17:30' } :
+        shiftId === 'rasar_3' ? { start: '19:30', end: '20:30' } : null;
+      if (!def) return null;
+      return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
+    };
+    const buildEscort400Range = (day, shiftId) => {
+      const def =
+        shiftId === 'escort400_1' ? { start: '08:00', end: '12:30' } :
+        shiftId === 'escort400_2' ? { start: '12:30', end: '17:00' } : null;
+      if (!def) return null;
+      return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
+    };
+    const buildKitchenRange = (day, shiftId, kitchenSettingsRow) => {
+      const shift2Start = (kitchenSettingsRow?.shift2start || '13:00').toString();
+      const start1 = '06:00';
+      const end2 = '21:00';
+      const def =
+        shiftId === 'kitchen_1' ? { start: start1, end: shift2Start } :
+        shiftId === 'kitchen_2' ? { start: shift2Start, end: end2 } : null;
+      if (!def) return null;
+      return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
+    };
+    const buildEscortRange = (day, shiftId) => {
+      const def =
+        shiftId === 'escort_1' ? { start: '07:00', end: '10:30' } :
+        shiftId === 'escort_2' ? { start: '10:30', end: '14:00' } :
+        shiftId === 'escort_3' ? { start: '14:00', end: '17:00' } :
+        shiftId === 'escort_4' ? { start: '17:00', end: '19:00' } : null;
+      if (!def) return null;
+      return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
+    };
+
+    const [guardsRows, bwRows, kitchenRows, escortRows, kitchenSettingsRows, esRows] = await Promise.all([
+      db.all('SELECT personId, startISO, endISO FROM assignments WHERE userId = $1', [req.user.id]),
+      // bw_assignments table does NOT store start/end timestamps (day+slotId only)
+      db.all('SELECT personId, day, slotId FROM bw_assignments WHERE userId = $1', [req.user.id]),
+      db.all('SELECT personId, day, shiftId FROM kitchen_assignments WHERE userId = $1', [req.user.id]),
+      db.all('SELECT personId, day, shiftId FROM escort_assignments WHERE userId = $1', [req.user.id]),
+      db.all('SELECT * FROM kitchen_settings WHERE userId = $1 LIMIT 1', [req.user.id]),
+      db.all('SELECT groupId, personId FROM es_assignments WHERE userId = $1', [req.user.id]),
+    ]);
+    const kitchenSettingsRow = kitchenSettingsRows?.[0] || null;
+
+    // Build ES group membership map
+    const personToESGroup = new Map();
+    for (const row of esRows) {
+      personToESGroup.set(Number(row.personid), row.groupid);
+    }
+    const esMemberIds = new Set([...personToESGroup.keys()]);
+
+    const BW_SLOTS = [
+      { id: 'bw_morning', start: '08:30', end: '11:30' },
+      { id: 'bw_afternoon', start: '13:30', end: '17:30' },
+      { id: 'bw_evening', start: '18:30', end: '20:00' },
+    ];
+    const buildBwRange = (day, slotId) => {
+      if (!day || !slotId) return null;
+      const def = BW_SLOTS.find(s => s.id === slotId);
+      if (!def) return null;
+      const start = dayjs(`${day}T${def.start}:00`);
+      let end = dayjs(`${day}T${def.end}:00`);
+      if (!start.isValid() || !end.isValid()) return null;
+      if (!end.isAfter(start)) end = end.add(1, 'day');
+      return { start: start.toISOString(), end: end.toISOString() };
+    };
+
+    const existingByPerson = new Map(); // personId -> [{start,end,label}]
+    const addExisting = (pid, range, label) => {
+      if (!range) return;
+      const arr = existingByPerson.get(pid) || [];
+      arr.push({ ...range, label });
+      existingByPerson.set(pid, arr);
+    };
+
+    for (const r of guardsRows) {
+      if (r.startiso && r.endiso) addExisting(Number(r.personid), { start: r.startiso, end: r.endiso }, `Guards ${r.startiso}–${r.endiso}`);
+    }
+    for (const r of bwRows) {
+      addExisting(Number(r.personid), buildBwRange(r.day, r.slotid), `BW ${r.day} ${r.slotid}`);
+    }
+    for (const r of kitchenRows) {
+      addExisting(Number(r.personid), buildKitchenRange(r.day, r.shiftid, kitchenSettingsRow), `Kitchen ${r.day} ${r.shiftid}`);
+    }
+    for (const r of escortRows) {
+      addExisting(Number(r.personid), buildEscortRange(r.day, r.shiftid), `Escort ${r.day} ${r.shiftid}`);
+    }
+
+    const incomingRanges = [];
+    for (const a of sanitized) {
+      const range = buildRasarRange(a.day, a.shiftId);
+      if (!range) continue;
+      incomingRanges.push({ personId: Number(a.personId), day: a.day, shiftId: a.shiftId, range });
+    }
+    for (const a of sanitized400) {
+      const range = buildEscort400Range(a.day, a.shiftId);
+      if (!range) continue;
+      incomingRanges.push({ personId: Number(a.personId), day: a.day, shiftId: a.shiftId, range });
+    }
+
+    // Check overlaps inside the incoming rasar/escort400 payload itself (rasar vs rasar, 400 vs 400, rasar vs 400)
+    const incomingByPerson = new Map();
+    for (const inc of incomingRanges) {
+      const arr = incomingByPerson.get(inc.personId) || [];
+      arr.push(inc);
+      incomingByPerson.set(inc.personId, arr);
+    }
+    for (const [pid, list] of incomingByPerson.entries()) {
+      for (let i = 0; i < list.length; i += 1) {
+        for (let j = i + 1; j < list.length; j += 1) {
+          const a = list[i];
+          const b = list[j];
+          if (overlapsIso(a.range.start, a.range.end, b.range.start, b.range.end)) {
+            const personName = peopleRows.find(p => p.id === pid)?.name || String(pid);
+            return res.json({
+              ok: false,
+              error: `Overlap: ${personName}`,
+              violations: [
+                {
+                  personId: pid,
+                  message: `Overlap between ${a.day} ${a.shiftId} and ${b.day} ${b.shiftId}`,
+                },
+              ],
+            });
+          }
+        }
+      }
+    }
+
+    // ES (כ"כ): members should not be assigned to rasar/escort400 at all.
+    const esViolators = incomingRanges.map(x => x.personId).filter(pid => esMemberIds.has(pid));
+    if (esViolators.length > 0) {
+      const unique = [...new Set(esViolators)];
+      const names = unique.map(pid => peopleRows.find(p => p.id === pid)?.name || String(pid));
+      return res.json({
+        ok: false,
+        error: `כ"כ: ${names.join(', ')}`,
+        violations: unique.map(pid => ({
+          personId: pid,
+          message: `כ"כ`,
+        })),
+      });
+    }
+
+    for (const inc of incomingRanges) {
+      const list = existingByPerson.get(inc.personId) || [];
+      for (const ex of list) {
+        if (overlapsIso(inc.range.start, inc.range.end, ex.start, ex.end)) {
+          const personName = peopleRows.find(p => p.id === inc.personId)?.name || String(inc.personId);
+          return res.json({
+            ok: false,
+            error: `Overlap: ${personName}`,
+            violations: [
+              {
+                personId: inc.personId,
+                message: `Overlap with ${ex.label || 'existing duty'}`,
+              },
+            ],
+          });
+        }
+      }
+    }
+
     await Promise.all([
       persistRasarOnly(db, sanitized, req.user.id),
       persistEscort400Only(db, sanitized400, req.user.id),
