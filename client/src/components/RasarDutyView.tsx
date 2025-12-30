@@ -46,6 +46,8 @@ type Props = {
   onClear: () => void;
   onAddConstraint: () => void;
   isGenerating?: boolean;
+  isSaving?: boolean;
+  hasChanges?: boolean;
   readOnly?: boolean;
 };
 
@@ -91,6 +93,8 @@ const RasarDutyView: React.FC<Props> = ({
   onClear,
   onAddConstraint,
   isGenerating = false,
+  isSaving = false,
+  hasChanges = false,
   readOnly = false,
 }) => {
   const { t, lang } = useI18n();
@@ -286,14 +290,14 @@ const RasarDutyView: React.FC<Props> = ({
     <Box>
       {/* Week navigation */}
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
-        <IconButton onClick={prevWeek} disabled={isGenerating}>
-          <ChevronLeftIcon />
+        <IconButton onClick={nextWeek} disabled={isGenerating}>
+          <ChevronRightIcon />
         </IconButton>
         <Typography variant="h6">
           {weekStart.format('DD/MM/YYYY')} – {weekEndDisplay.format('DD/MM/YYYY')}
         </Typography>
-        <IconButton onClick={nextWeek} disabled={isGenerating}>
-          <ChevronRightIcon />
+        <IconButton onClick={prevWeek} disabled={isGenerating}>
+          <ChevronLeftIcon />
         </IconButton>
         {!readOnly && (
           <>
@@ -302,7 +306,7 @@ const RasarDutyView: React.FC<Props> = ({
               onClick={() =>
                 onGenerate(apiStart, apiEnd, rasarAssignments, rasarOverrides)
               }
-              disabled={isGenerating}
+              disabled={isGenerating || isSaving}
             >
               {isGenerating ? <CircularProgress size={20} /> : t('Generate')}
             </Button>
@@ -310,9 +314,9 @@ const RasarDutyView: React.FC<Props> = ({
               variant="contained"
               color="success"
               onClick={onSave}
-              disabled={isGenerating || validation.issues.length > 0}
+              disabled={isGenerating || isSaving || validation.issues.length > 0 || !hasChanges}
             >
-              {t('Save')}
+              {isSaving ? <CircularProgress size={20} /> : t('Save')}
             </Button>
             <Button variant="outlined" onClick={exportWeek} disabled={isGenerating}>
               {t('Export to Excel')}
@@ -320,12 +324,28 @@ const RasarDutyView: React.FC<Props> = ({
             <Button variant="outlined" onClick={onAddConstraint} disabled={isGenerating}>
               {t('Add Constraint')}
             </Button>
-            <Button variant="outlined" color="error" onClick={onClear} disabled={isGenerating}>
+            <Button variant="outlined" color="error" onClick={onClear} disabled={isGenerating || isSaving}>
               {t('Clear')}
             </Button>
           </>
         )}
       </Stack>
+
+      {/* Loading indicator during generate (same placement as ScheduleView: above the table) */}
+      {isGenerating && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mb: 2 }}>
+          <CircularProgress size="2rem" />
+          <Typography variant="h5">{t('Assigning')}</Typography>
+        </Box>
+      )}
+
+      {/* Loading indicator during save (same placement as ScheduleView: above the table) */}
+      {isSaving && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mb: 2 }}>
+          <CircularProgress size="2rem" />
+          <Typography variant="h5">{t('Saving')}</Typography>
+        </Box>
+      )}
 
       {validation.issues.length > 0 && (
         <Alert severity="warning" sx={{ mb: 2 }}>

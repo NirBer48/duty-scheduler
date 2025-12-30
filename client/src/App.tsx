@@ -145,6 +145,8 @@ const App: React.FC = () => {
   const [escort400Overrides, setEscort400Overrides] = useState<Escort400Override[]>(() =>
     loadFromStorage(STORAGE_KEY_ESCORT400_OVERRIDES, [])
   );
+  const [rasarHasChanges, setRasarHasChanges] = useState(false);
+  const [rasarIsSaving, setRasarIsSaving] = useState(false);
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [start, setStart] = useState(() => loadString(STORAGE_KEY_START, calculateDefaultStart()));
   const [end, setEnd] = useState(() => loadString(STORAGE_KEY_END, calculateDefaultEnd()));
@@ -207,6 +209,7 @@ const App: React.FC = () => {
         setEscortAssignments(snapshot.escortAssignments || []);
         setRasarAssignments(snapshot.rasarAssignments || []);
         setEscort400Assignments(snapshot.escort400Assignments || []);
+        setRasarHasChanges(false);
         if (snapshot.kitchenSettings) setKitchenSettings(snapshot.kitchenSettings);
         if (snapshot.escortSettings) setEscortSettings(snapshot.escortSettings);
         if (snapshot.esAssignments?.length) {
@@ -379,6 +382,7 @@ const App: React.FC = () => {
       );
       setRasarAssignments(res.rasarAssignments || []);
       setEscort400Assignments(res.escort400Assignments || []);
+      setRasarHasChanges(true);
       setError(res.error || '');
     } catch (e) {
       setError(t('Save failed'));
@@ -391,14 +395,15 @@ const App: React.FC = () => {
     if (!user) return;
     setError('');
     setMissingCount(null);
-    setIsGenerating(true);
+    setRasarIsSaving(true);
     try {
       const res = await saveRasarSchedule(rasarAssignments, escort400Assignments);
       if (!res.ok) setError(res.error || t('Save failed'));
+      else setRasarHasChanges(false);
     } catch (e) {
       setError(t('Save failed'));
     } finally {
-      setIsGenerating(false);
+      setRasarIsSaving(false);
     }
   };
 
@@ -407,6 +412,7 @@ const App: React.FC = () => {
     if (window.confirm(t('Are you sure you want to clear the schedule?'))) {
       setRasarAssignments([]);
       setEscort400Assignments([]);
+      setRasarHasChanges(true);
       setError('');
       setMissingCount(null);
       await clearSchedule('rasar');
@@ -651,13 +657,13 @@ const App: React.FC = () => {
                   <RasarDutyView
                     people={people}
                     rasarAssignments={rasarAssignments}
-                    onRasarAssignmentsChange={setRasarAssignments}
+                    onRasarAssignmentsChange={(a) => { setRasarAssignments(a); setRasarHasChanges(true); }}
                     rasarOverrides={rasarOverrides}
-                    onRasarOverridesChange={setRasarOverrides}
+                    onRasarOverridesChange={(o) => { setRasarOverrides(o); setRasarHasChanges(true); }}
                     escort400Assignments={escort400Assignments}
-                    onEscort400AssignmentsChange={setEscort400Assignments}
+                    onEscort400AssignmentsChange={(a) => { setEscort400Assignments(a); setRasarHasChanges(true); }}
                     escort400Overrides={escort400Overrides}
-                    onEscort400OverridesChange={setEscort400Overrides}
+                    onEscort400OverridesChange={(o) => { setEscort400Overrides(o); setRasarHasChanges(true); }}
                     constraints={constraints}
                     onGenerate={handleGenerateRasar}
                     onGenerateEscort400={handleGenerateRasar}
@@ -665,6 +671,8 @@ const App: React.FC = () => {
                     onClear={handleClearRasar}
                     onAddConstraint={() => setConstraintDialogOpen(true)}
                     isGenerating={isGenerating}
+                    isSaving={rasarIsSaving}
+                    hasChanges={rasarHasChanges}
                   />
                 </Paper>
               )}
