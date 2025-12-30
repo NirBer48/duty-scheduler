@@ -18,9 +18,14 @@ import type { Constraint, Person, RasarAssignment, RasarOverride, Escort400Assig
 import DutyEditDialog from './schedule/DutyEditDialog';
 import { DutyShiftSettingsDialog } from './schedule/DutyShiftSettingsDialog';
 import { exportRasarToExcel } from './schedule/excelExport';
+import type { Assignment, BWAssignment, KitchenAssignment, EscortAssignment } from '../types';
 
 type Props = {
   people: Person[];
+  guardAssignments: Assignment[];
+  bwAssignments: BWAssignment[];
+  kitchenAssignments: KitchenAssignment[];
+  escortAssignments: EscortAssignment[];
   rasarAssignments: RasarAssignment[];
   onRasarAssignmentsChange: (a: RasarAssignment[]) => void;
   rasarOverrides: RasarOverride[];
@@ -78,6 +83,10 @@ const overlaps = (aStartISO: string, aEndISO: string, bStartISO: string, bEndISO
 
 const RasarDutyView: React.FC<Props> = ({
   people,
+  guardAssignments,
+  bwAssignments,
+  kitchenAssignments,
+  escortAssignments,
   rasarAssignments,
   onRasarAssignmentsChange,
   rasarOverrides,
@@ -509,10 +518,14 @@ const RasarDutyView: React.FC<Props> = ({
         currentPersonIds={editDialog.personIds}
         onSave={handleSave}
         constraints={constraints}
-        guardAssignments={[]}
-        bwAssignments={[]}
-        kitchenAssignments={[]}
-        escortAssignments={[]}
+        guardAssignments={guardAssignments}
+        bwAssignments={bwAssignments}
+        kitchenAssignments={kitchenAssignments}
+        escortAssignments={escortAssignments}
+        rasarAssignments={rasarAssignments}
+        escort400Assignments={escort400Assignments}
+        dutyCountRangeStartISO={apiStart}
+        dutyCountRangeEndISO={apiEnd}
         currentDay={editDialog.day}
         currentShiftId={editDialog.shiftId}
       />
@@ -528,10 +541,14 @@ const RasarDutyView: React.FC<Props> = ({
         currentPersonIds={editDialog400.personIds}
         onSave={handleSave400}
         constraints={constraints}
-        guardAssignments={[]}
-        bwAssignments={[]}
-        kitchenAssignments={[]}
-        escortAssignments={[]}
+        guardAssignments={guardAssignments}
+        bwAssignments={bwAssignments}
+        kitchenAssignments={kitchenAssignments}
+        escortAssignments={escortAssignments}
+        rasarAssignments={rasarAssignments}
+        escort400Assignments={escort400Assignments}
+        dutyCountRangeStartISO={apiStart}
+        dutyCountRangeEndISO={apiEnd}
         currentDay={editDialog400.day}
         currentShiftId={editDialog400.shiftId}
       />

@@ -656,6 +656,10 @@ const App: React.FC = () => {
                 <Paper sx={{ p: 2, overflow: 'auto' }}>
                   <RasarDutyView
                     people={people}
+                    guardAssignments={assignments}
+                    bwAssignments={bwAssignments}
+                    kitchenAssignments={kitchenAssignments}
+                    escortAssignments={escortAssignments}
                     rasarAssignments={rasarAssignments}
                     onRasarAssignmentsChange={(a) => { setRasarAssignments(a); setRasarHasChanges(true); }}
                     rasarOverrides={rasarOverrides}

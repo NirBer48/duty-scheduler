@@ -10,11 +10,13 @@ import {
     Box,
     Typography,
     TextField,
-    Chip
+    Chip,
+    Tooltip
 } from "@mui/material";
 import { useI18n } from "../../util/i18n";
-import { Assignment, ESGroup, ESGroupAssignment, Person } from "../../types";
+import { Assignment, BWAssignment, Escort400Assignment, EscortAssignment, KitchenAssignment, Person, RasarAssignment, ESGroup, ESGroupAssignment } from "../../types";
 import { BW_SLOT_DEFINITIONS, BW_REQUIRED_PER_SLOT, getShiftTimeWindow, getBwSlotRangeMinutes, hasTimeOverlap } from "./utils";
+import { buildDutyCountsByPerson } from "./dutyCounts";
 
 interface Props {
     open: boolean;
@@ -27,6 +29,13 @@ interface Props {
     assignments: Assignment[];
     esAssignments: ESGroupAssignment[];
     esGroups: ESGroup[];
+    bwAssignments: BWAssignment[];
+    rangeStartISO: string;
+    rangeEndISO: string;
+    kitchenAssignments: KitchenAssignment[];
+    escortAssignments: EscortAssignment[];
+    rasarAssignments: RasarAssignment[];
+    escort400Assignments: Escort400Assignment[];
 }
 
 export const BWEditDialog: React.FC<Props> = ({
@@ -40,6 +49,13 @@ export const BWEditDialog: React.FC<Props> = ({
     assignments,
     esAssignments,
     esGroups,
+    bwAssignments,
+    rangeStartISO,
+    rangeEndISO,
+    kitchenAssignments,
+    escortAssignments,
+    rasarAssignments,
+    escort400Assignments,
 }) => {
     const slot = BW_SLOT_DEFINITIONS.find(s => s.id === slotId);
     const { t, lang } = useI18n();
@@ -79,6 +95,49 @@ export const BWEditDialog: React.FC<Props> = ({
         });
         return map;
     }, [esAssignments, esGroups]);
+
+    const dutyCountsByPerson = useMemo(
+        () =>
+            buildDutyCountsByPerson({
+                people,
+                rangeStartISO,
+                rangeEndISO,
+                guardAssignments: assignments,
+                bwAssignments,
+                kitchenAssignments,
+                escortAssignments,
+                rasarAssignments,
+                escort400Assignments,
+            }),
+        [people, rangeStartISO, rangeEndISO, assignments, bwAssignments, kitchenAssignments, escortAssignments, rasarAssignments, escort400Assignments]
+    );
+
+    const tooltipForPerson = (person: Person) => {
+        const c = dutyCountsByPerson.get(person.id);
+        const lines: Array<{ label: string; count: number }> = [];
+        if (c?.guards) lines.push({ label: t('Guards'), count: c.guards });
+        if (c?.bw) lines.push({ label: t('BW Assignments'), count: c.bw });
+        if (c?.kitchen) lines.push({ label: t('Kitchen'), count: c.kitchen });
+        if (c?.escort) lines.push({ label: 'Escort', count: c.escort });
+        if (c?.rasar) lines.push({ label: t('Rasar'), count: c.rasar });
+        if (c?.escort400) lines.push({ label: t('Contractor escort - 400'), count: c.escort400 });
+
+        return (
+            <Box sx={{ whiteSpace: 'pre-line' }}>
+                <Typography variant="subtitle2">{person.name}</Typography>
+                <Box sx={{ height: 8 }} />
+                {lines.length === 0 ? (
+                    <Typography variant="body2">{t('No duties in range')}</Typography>
+                ) : (
+                    lines.map(l => (
+                        <Typography key={l.label} variant="body2">
+                            {l.label}: {l.count}
+                        </Typography>
+                    ))
+                )}
+            </Box>
+        );
+    };
 
     const hasShiftConflict = (personId: number) => {
         const conflicts = assignmentsForDay.filter(a => a.personId === personId);
@@ -201,11 +260,13 @@ export const BWEditDialog: React.FC<Props> = ({
                                         />
                                     }
                                     label={
-                                        <span>
-                                            {person.name} ({person.gender})
-                                            {person.sameGenderPreference && ' 👫'}
-                                            {esGroup && <Chip label={esGroup.name} size="small" sx={{ ml: 1 }} color="info" />}
-                                        </span>
+                                        <Tooltip title={tooltipForPerson(person)} placement="right" arrow>
+                                            <span>
+                                                {person.name} ({person.gender})
+                                                {person.sameGenderPreference && ' 👫'}
+                                                {esGroup && <Chip label={esGroup.name} size="small" sx={{ ml: 1 }} color="info" />}
+                                            </span>
+                                        </Tooltip>
                                     }
                                     sx={{ opacity: disabled ? 0.5 : 1 }}
                                 />

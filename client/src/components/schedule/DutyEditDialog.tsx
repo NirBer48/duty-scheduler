@@ -11,10 +11,12 @@ import {
   Box,
   Typography,
   TextField,
+  Tooltip,
 } from '@mui/material';
 import { useI18n } from '../../util/i18n';
-import type { Assignment, BWAssignment, Constraint, EscortAssignment, KitchenAssignment, Person } from '../../types';
+import type { Assignment, BWAssignment, Constraint, Escort400Assignment, EscortAssignment, KitchenAssignment, Person, RasarAssignment } from '../../types';
 import { BW_SLOT_DEFINITIONS, getBwSlotRangeMinutes, hasTimeOverlap, getShiftTimeWindow, getShiftsForPeriod, getShiftIndex } from './utils';
+import { buildDutyCountsByPerson } from './dutyCounts';
 
 type IsoRange = { start: string; end: string };
 
@@ -73,8 +75,12 @@ export type DutyEditDialogProps = {
   bwAssignments: BWAssignment[];
   kitchenAssignments: KitchenAssignment[];
   escortAssignments: EscortAssignment[];
+  rasarAssignments?: RasarAssignment[];
+  escort400Assignments?: Escort400Assignment[];
   scheduleStart?: string;
   scheduleEnd?: string;
+  dutyCountRangeStartISO?: string;
+  dutyCountRangeEndISO?: string;
   currentDay?: string;
   currentShiftId?: string;
 };
@@ -106,8 +112,12 @@ const DutyEditDialog: React.FC<DutyEditDialogProps> = ({
   bwAssignments,
   kitchenAssignments,
   escortAssignments,
+  rasarAssignments = [],
+  escort400Assignments = [],
   scheduleStart,
   scheduleEnd,
+  dutyCountRangeStartISO,
+  dutyCountRangeEndISO,
   currentDay,
   currentShiftId,
 }) => {
@@ -292,6 +302,62 @@ const DutyEditDialog: React.FC<DutyEditDialogProps> = ({
       return a.name.localeCompare(b.name);
     });
 
+  const countsRangeStart = dutyCountRangeStartISO || scheduleStart || timeRange.start;
+  const countsRangeEnd = dutyCountRangeEndISO || scheduleEnd || timeRange.end;
+
+  const dutyCountsByPerson = useMemo(
+    () =>
+      buildDutyCountsByPerson({
+        people,
+        rangeStartISO: countsRangeStart,
+        rangeEndISO: countsRangeEnd,
+        guardAssignments,
+        bwAssignments,
+        kitchenAssignments,
+        escortAssignments,
+        rasarAssignments,
+        escort400Assignments,
+      }),
+    [
+      people,
+      countsRangeStart,
+      countsRangeEnd,
+      guardAssignments,
+      bwAssignments,
+      kitchenAssignments,
+      escortAssignments,
+      rasarAssignments,
+      escort400Assignments,
+    ]
+  );
+
+  const tooltipForPerson = (person: Person) => {
+    const c = dutyCountsByPerson.get(person.id);
+    const lines: Array<{ label: string; count: number }> = [];
+    if (c?.guards) lines.push({ label: t('Guards'), count: c.guards });
+    if (c?.bw) lines.push({ label: t('BW Assignments'), count: c.bw });
+    if (c?.kitchen) lines.push({ label: t('Kitchen'), count: c.kitchen });
+    if (c?.escort) lines.push({ label: 'Escort', count: c.escort });
+    if (c?.rasar) lines.push({ label: t('Rasar'), count: c.rasar });
+    if (c?.escort400) lines.push({ label: t('Contractor escort - 400'), count: c.escort400 });
+
+    return (
+      <Box sx={{ whiteSpace: 'pre-line' }}>
+        <Typography variant="subtitle2">{person.name}</Typography>
+        <Box sx={{ height: 8 }} />
+        {lines.length === 0 ? (
+          <Typography variant="body2">{t('No duties in range')}</Typography>
+        ) : (
+          lines.map(l => (
+            <Typography key={l.label} variant="body2">
+              {l.label}: {l.count}
+            </Typography>
+          ))
+        )}
+      </Box>
+    );
+  };
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>{title}</DialogTitle>
@@ -339,7 +405,11 @@ const DutyEditDialog: React.FC<DutyEditDialogProps> = ({
                       disabled={disabled}
                     />
                   }
-                  label={<span>{person.name}</span>}
+                  label={
+                    <Tooltip title={tooltipForPerson(person)} placement="top" arrow>
+                      <span>{person.name}</span>
+                    </Tooltip>
+                  }
                   sx={{ opacity: disabled ? 0.5 : 1 }}
                 />
                 {hasConstraintConflict && (
