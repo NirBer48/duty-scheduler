@@ -11,32 +11,33 @@ services:
     ports:
       - '5432:5432'
 
-  server:
-    build: ./server
-    container_name: duty-scheduler-server
-    depends_on:
-      - postgres
-    ports:
-      - '4000:4000'
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgres://duty:duty@postgres:5432/duty
-      - PGSSLMODE=disable
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4000/api/people"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+  # server:
+  #   build: ./server
+  #   container_name: duty-scheduler-server
+  #   depends_on:
+  #     - postgres
+  #   ports:
+  #     - '4000:4000'
+  #   environment:
+  #     - NODE_ENV=production
+  #     - DATABASE_URL=postgres://duty:duty@postgres:5432/duty
+  #     - PGSSLMODE=disable
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "wget", "-q", "--spider", "http://localhost:4000/api/people"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
 
-  client:
-    build: ./client
-    container_name: duty-scheduler-client
-    ports:
-      - '80:80'
-    depends_on:
-      - server
-    restart: unless-stopped
+  # client:
+  #   build: ./client
+  #   container_name: duty-scheduler-client
+  #   ports:
+  #     - '80:80'
+  #   depends_on:
+  #     - server
+  #   restart: unless-stopped
 
 volumes:
   pgdata:
+`

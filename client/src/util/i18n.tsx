@@ -128,6 +128,11 @@ const translations: Record<Language, TranslationMap> = {
     'BW conflict': 'BW conflict',
     'in BW at this time': 'in BW at this time',
     'Missing about X people to complete the task': 'Missing about {count} people to complete the task',
+    'Manpower Shortage': 'Manpower Shortage',
+    'Not enough people available': 'Not enough people available',
+    'Missing X people': 'people missing',
+    'Create schedule with empty cells?': 'Do you want to create a schedule with empty cells?',
+    'Continue': 'Continue',
   },
   he: {
     'History': 'היסטוריה',
@@ -254,6 +259,11 @@ const translations: Record<Language, TranslationMap> = {
     'BW conflict': 'חפיפה עם עב"ס',
     'in BW at this time': 'בעב"ס בזמן זה',
     'Missing about X people to complete the task': 'חסרים כ{count} אנשים לביצוע המשימה',
+    'Manpower Shortage': 'חוסר בכוח אדם',
+    'Not enough people available': 'אין מספיק אנשים זמינים',
+    'Missing X people': 'אנשים חסרים',
+    'Create schedule with empty cells?': 'האם ליצור סידור עם תאים ריקים?',
+    'Continue': 'המשך',
   }
 };
 
