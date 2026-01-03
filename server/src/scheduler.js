@@ -510,26 +510,48 @@ export const scheduleGenerator = (
   const scheduleStart = parseLocalDateTime(startISO);
   const scheduleEnd = parseLocalDateTime(endISO);
 
-  const seedKitchenEscortIntervals = () => {
-    // Kitchen settings
-    const parseHHmm = (value, fallback) => {
-      const str = (value || fallback || '').toString();
-      const m = str.match(/^(\d{1,2}):(\d{2})$/);
-      if (!m) return { hour: 13, minute: 0, str: '13:00' };
-      let hour = Number(m[1]);
-      let minute = Number(m[2]);
-      if (Number.isNaN(hour) || Number.isNaN(minute)) return { hour: 13, minute: 0, str: '13:00' };
-      hour = Math.min(23, Math.max(0, hour));
-      minute = Math.min(59, Math.max(0, minute));
-      const out = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-      return { hour, minute, str: out };
-    };
-    const kitchenShift2Start = parseHHmm(kitchenSettings?.shift2Start, '13:00');
+  const parseHHmmToHM = (value, fallback) => {
+    const str = (value || fallback || '').toString();
+    const m = str.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return { hour: 0, minute: 0, str: (fallback || '00:00').toString() };
+    let hour = Number(m[1]);
+    let minute = Number(m[2]);
+    if (Number.isNaN(hour) || Number.isNaN(minute)) return { hour: 0, minute: 0, str: (fallback || '00:00').toString() };
+    hour = Math.min(23, Math.max(0, hour));
+    minute = Math.min(59, Math.max(0, minute));
+    const out = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    return { hour, minute, str: out };
+  };
 
-    const kitchenDefs = [
-      { id: 'kitchen_1', startHour: 6, startMinute: 0, endHour: kitchenShift2Start.hour, endMinute: kitchenShift2Start.minute },
-      { id: 'kitchen_2', startHour: kitchenShift2Start.hour, startMinute: kitchenShift2Start.minute, endHour: 21, endMinute: 0 },
-    ];
+  const normalizeKitchenShiftList = (ks) => {
+    const raw = Array.isArray(ks?.shifts) ? ks.shifts : null;
+    const shifts = (raw && raw.length) ? raw : [{ id: 'default', start: '06:00', end: '21:00', required: 36 }];
+    return shifts.map((s, idx) => ({
+      id: (s?.id ?? `kitchen_${idx}`).toString(),
+      start: parseHHmmToHM(s?.start, idx === 0 ? '06:00' : '06:00').str,
+      end: parseHHmmToHM(s?.end, idx === shifts.length - 1 ? '21:00' : '21:00').str,
+      required: Math.max(0, Number(s?.required ?? 36) || 0),
+    }));
+  };
+
+  const kitchenShiftList = normalizeKitchenShiftList(kitchenSettings);
+  const kitchenShiftDefsAll = kitchenShiftList
+    .map(s => {
+      const st = parseHHmmToHM(s.start, '06:00');
+      const en = parseHHmmToHM(s.end, '21:00');
+      return {
+        id: s.id,
+        startHour: st.hour,
+        startMinute: st.minute,
+        endHour: en.hour,
+        endMinute: en.minute,
+        label: `${st.str}-${en.str}`,
+        required: s.required,
+      };
+    })
+    .filter(d => (d.startHour * 60 + d.startMinute) < (d.endHour * 60 + d.endMinute));
+
+  const seedKitchenEscortIntervals = () => {
     const escortDefs = [
       { id: 'escort_1', startHour: 7, startMinute: 0, endHour: 10, endMinute: 30 },
       { id: 'escort_2', startHour: 10, startMinute: 30, endHour: 14, endMinute: 0 },
@@ -549,7 +571,7 @@ export const scheduleGenerator = (
     };
 
     for (const a of existingKitchenAssignments || []) {
-      const def = kitchenDefs.find(d => d.id === a.shiftId);
+      const def = kitchenShiftDefsAll.find(d => d.id === a.shiftId);
       if (!def) continue;
       const times = build(a.day, def);
       if (!times) continue;
@@ -574,9 +596,6 @@ export const scheduleGenerator = (
       let s = dayjs(`${day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
       let e = dayjs(`${day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
       if (!e.isAfter(s)) e = e.add(1, 'day');
-      if (s.isBefore(scheduleStart)) s = scheduleStart;
-      if (e.isAfter(scheduleEnd)) e = scheduleEnd;
-      if (!e.isAfter(s)) return null;
       return { start: s.toISOString(), end: e.toISOString() };
     };
     for (const a of existingRasarAssignments || []) {
@@ -597,9 +616,6 @@ export const scheduleGenerator = (
       let s = dayjs(`${day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
       let e = dayjs(`${day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
       if (!e.isAfter(s)) e = e.add(1, 'day');
-      if (s.isBefore(scheduleStart)) s = scheduleStart;
-      if (e.isAfter(scheduleEnd)) e = scheduleEnd;
-      if (!e.isAfter(s)) return null;
       return { start: s.toISOString(), end: e.toISOString() };
     };
     for (const a of existingEscort400Assignments || []) {
@@ -1036,23 +1052,7 @@ export const scheduleGenerator = (
   }
 
   // ---- Kitchen Duty + Escort Duty ----
-  const parseHHmmKitchen = (value, fallback) => {
-    const str = (value || fallback || '').toString();
-    const m = str.match(/^(\d{1,2}):(\d{2})$/);
-    if (!m) return { hour: 13, minute: 0, str: '13:00' };
-    let hour = Number(m[1]);
-    let minute = Number(m[2]);
-    if (Number.isNaN(hour) || Number.isNaN(minute)) return { hour: 13, minute: 0, str: '13:00' };
-    hour = Math.min(23, Math.max(0, hour));
-    minute = Math.min(59, Math.max(0, minute));
-    const out = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-    return { hour, minute, str: out };
-  };
-
-  const kitchenShift2Start = parseHHmmKitchen(kitchenSettings?.shift2Start, '13:00');
-  const kitchenRequiredShift1 = Number(kitchenSettings?.requiredShift1 ?? kitchenSettings?.requiredPerShift ?? 36);
-  const kitchenRequiredShift2 = Number(kitchenSettings?.requiredShift2 ?? kitchenSettings?.requiredPerShift ?? 36);
-  const kitchenSettingsOut = { requiredShift1: kitchenRequiredShift1, requiredShift2: kitchenRequiredShift2, shift2Start: kitchenShift2Start.str };
+  const kitchenSettingsOut = { shifts: kitchenShiftList.map(s => ({ id: s.id, start: s.start, end: s.end, required: s.required })) };
 
   const escortRequiredShift1 = Number(escortSettings?.requiredShift1 ?? escortSettings?.requiredPerShift ?? 4);
   const escortRequiredShift2 = Number(escortSettings?.requiredShift2 ?? escortSettings?.requiredPerShift ?? 4);
@@ -1065,10 +1065,8 @@ export const scheduleGenerator = (
     requiredShift4: escortRequiredShift4,
   };
 
-  const kitchenShifts = [
-    { id: 'kitchen_1', startHour: 6, startMinute: 0, endHour: kitchenShift2Start.hour, endMinute: kitchenShift2Start.minute, label: `06:00-${kitchenShift2Start.str}` },
-    { id: 'kitchen_2', startHour: kitchenShift2Start.hour, startMinute: kitchenShift2Start.minute, endHour: 21, endMinute: 0, label: `${kitchenShift2Start.str}-21:00` },
-  ].filter(s => (s.startHour * 60 + s.startMinute) < (s.endHour * 60 + s.endMinute)); // ignore invalid split
+  const kitchenShifts = kitchenShiftDefsAll;
+  const kitchenRequiredById = new Map(kitchenShifts.map(s => [s.id, Math.max(0, Number(s.required ?? 36))]));
 
   const escortShifts = [
     { id: 'escort_1', startHour: 7, startMinute: 0, endHour: 10, endMinute: 30, label: '07:00-10:30' },
@@ -1235,9 +1233,7 @@ export const scheduleGenerator = (
 
   const requiredForDuty = (type, shiftId) => {
     if (type === 'kitchen') {
-      if (shiftId === 'kitchen_1') return Math.max(0, kitchenRequiredShift1);
-      if (shiftId === 'kitchen_2') return Math.max(0, kitchenRequiredShift2);
-      return 0;
+      return Math.max(0, Number(kitchenRequiredById.get(shiftId) ?? 0));
     }
     if (type === 'escort') {
       if (shiftId === 'escort_1') return Math.max(0, escortRequiredShift1);
@@ -1352,15 +1348,6 @@ export const scheduleGenerator = (
   // Hard "can assign" check for rasar/escort400:
   // Before assigning a person, scan ALL their duties + constraints and ensure no overlap.
   // This is the ground truth (no reliance on internal trackers).
-  const parseHHmmRasar = (value, fallback) => {
-    const str = (value || fallback || '').toString();
-    const m = str.match(/^(\d{1,2}):(\d{2})$/);
-    if (!m) return { hour: 13, minute: 0 };
-    const hour = Math.min(23, Math.max(0, Number(m[1])));
-    const minute = Math.min(59, Math.max(0, Number(m[2])));
-    return { hour, minute };
-  };
-
   const buildBwInterval = (bw) => {
     const def = (BW_SLOTS || []).find(s => s.id === bw.slotId);
     if (!def) return null;
@@ -1369,14 +1356,8 @@ export const scheduleGenerator = (
     if (!end.isAfter(start)) end = end.add(1, 'day');
     return { start: start.toISOString(), end: end.toISOString() };
   };
-
-  const kitchenShift2 = parseHHmmRasar(kitchenSettings?.shift2Start, '13:00');
-  const kitchenDefs = [
-    { id: 'kitchen_1', startHour: 6, startMinute: 0, endHour: kitchenShift2.hour, endMinute: kitchenShift2.minute },
-    { id: 'kitchen_2', startHour: kitchenShift2.hour, startMinute: kitchenShift2.minute, endHour: 21, endMinute: 0 },
-  ];
   const buildKitchenInterval = (k) => {
-    const def = kitchenDefs.find(d => d.id === k.shiftId);
+    const def = kitchenShiftDefsAll.find(d => d.id === k.shiftId);
     if (!def) return null;
     const start = dayjs(`${k.day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
     let end = dayjs(`${k.day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);

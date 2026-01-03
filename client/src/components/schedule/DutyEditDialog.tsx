@@ -256,7 +256,7 @@ const DutyEditDialog: React.FC<DutyEditDialogProps> = ({
       const mm = Math.min(59, Math.max(0, Number(m[2])));
       return `${pad(h)}:${pad(mm)}`;
     };
-    const kitchenShift2Start = parseHHmm(kitchenSettings?.shift2Start, '13:00');
+    const kitchenShiftById = new Map((kitchenSettings?.shifts || []).map(s => [s.id, s]));
 
     const buildRangeFromDayTimes = (day: string, startHHmm: string, endHHmm: string): IsoRange => {
       const start = dayjs(`${day}T${startHHmm}:00`);
@@ -266,9 +266,9 @@ const DutyEditDialog: React.FC<DutyEditDialogProps> = ({
     };
 
     const kitchenRangeFor = (day: string, shiftId: string): IsoRange | null => {
-      if (shiftId === 'kitchen_1') return buildRangeFromDayTimes(day, '06:00', kitchenShift2Start);
-      if (shiftId === 'kitchen_2') return buildRangeFromDayTimes(day, kitchenShift2Start, '21:00');
-      return null;
+      const s = kitchenShiftById.get(shiftId);
+      if (!s) return null;
+      return buildRangeFromDayTimes(day, s.start, s.end);
     };
 
     const escortRangeFor = (day: string, shiftId: string): IsoRange | null => {
@@ -310,7 +310,8 @@ const DutyEditDialog: React.FC<DutyEditDialogProps> = ({
       if (currentDay && currentShiftId && k.day === currentDay && k.shiftId === currentShiftId) continue;
       const kitchenRange = (k.start && k.end) ? { start: k.start, end: k.end } : kitchenRangeFor(k.day, k.shiftId);
       if (kitchenRange && overlaps(kitchenRange, timeRange)) {
-        return `${t('Overlapping shift in this timeframe')}: ${t('Kitchen')} ${k.day} ${t(k.shiftId)}`;
+        const hhmm = formatRangeHHmm(kitchenRange) || k.shiftId;
+        return `${t('Overlapping shift in this timeframe')}: ${t('Kitchen')} ${k.day} ${hhmm}`;
       }
     }
     
@@ -414,7 +415,7 @@ const DutyEditDialog: React.FC<DutyEditDialogProps> = ({
     if (c?.guards) lines.push({ label: t('Guards'), count: c.guards });
     if (c?.bw) lines.push({ label: t('BW Assignments'), count: c.bw });
     if (c?.kitchen) lines.push({ label: t('Kitchen'), count: c.kitchen });
-    if (c?.escort) lines.push({ label: 'Escort', count: c.escort });
+    if (c?.escort) lines.push({ label: t('Escort'), count: c.escort });
     if (c?.rasar) lines.push({ label: t('Rasar'), count: c.rasar });
     if (c?.escort400) lines.push({ label: t('Contractor escort - 400'), count: c.escort400 });
 
