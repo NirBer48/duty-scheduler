@@ -100,11 +100,14 @@ export const exportKitchenToExcel = ({
     const endDt = dayjs(kitchenEnd);
     const days = listDays(kitchenStart, kitchenEnd);
 
-    const shift2Start = clampKitchenShift2Start(kitchenSettings.shift2Start || '13:00');
-    const kitchenShifts = [
-        { id: 'kitchen_1', label: `06:00-${shift2Start}`, required: Number(kitchenSettings.requiredShift1 ?? 36) },
-        { id: 'kitchen_2', label: `${shift2Start}-21:00`, required: Number(kitchenSettings.requiredShift2 ?? 36) },
-    ];
+    const kitchenShifts = (kitchenSettings?.shifts && kitchenSettings.shifts.length > 0
+      ? kitchenSettings.shifts
+      : [{ id: 'default', start: '06:00', end: '21:00', required: 36 }]
+    ).map(s => ({
+      id: s.id,
+      label: `${String(s.start || '06:00')}-${String(s.end || '21:00')}`,
+      required: Number(s.required ?? 36),
+    }));
     const escortShifts = [
         { id: 'escort_1', label: '07:00-10:30', required: Number(escortSettings.requiredShift1 ?? 4) },
         { id: 'escort_2', label: '10:30-14:00', required: Number(escortSettings.requiredShift2 ?? 4) },

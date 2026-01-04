@@ -83,7 +83,7 @@ const ScheduleCalendar: React.FC<Props> = ({
     onBWAssignmentsChange,
     kitchenAssignments: externalKitchenAssignments = [],
     escortAssignments: externalEscortAssignments = [],
-    kitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+    kitchenSettings = { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
     escortSettings = {
         requiredShift1: 4,
         requiredShift2: 4,

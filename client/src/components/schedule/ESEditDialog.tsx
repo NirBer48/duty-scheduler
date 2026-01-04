@@ -134,7 +134,7 @@ export const ESEditDialog: React.FC<Props> = ({
         if (c?.guards) lines.push({ label: t('Guards'), count: c.guards });
         if (c?.bw) lines.push({ label: t('BW Assignments'), count: c.bw });
         if (c?.kitchen) lines.push({ label: t('Kitchen'), count: c.kitchen });
-        if (c?.escort) lines.push({ label: 'Escort', count: c.escort });
+        if (c?.escort) lines.push({ label: t('Escort'), count: c.escort });
         if (c?.rasar) lines.push({ label: t('Rasar'), count: c.rasar });
         if (c?.escort400) lines.push({ label: t('Contractor escort - 400'), count: c.escort400 });
 
