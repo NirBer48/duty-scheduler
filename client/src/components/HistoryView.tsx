@@ -44,7 +44,14 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
+const MONTH_NAMES_HE = [
+  'ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני',
+  'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'
+];
+
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const DAY_NAMES_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
 
 const HistoryView: React.FC<Props> = ({ people, posts }) => {
@@ -64,7 +71,10 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
   const [calendarAnchor, setCalendarAnchor] = useState<HTMLElement | null>(null);
 
-  const { t, rtl } = useI18n();
+  const { t, rtl, lang } = useI18n();
+
+  const monthNames = lang === 'he' ? MONTH_NAMES_HE : MONTH_NAMES;
+  const dayNames = lang === 'he' ? DAY_NAMES_HE : DAY_NAMES;
 
   // Compute all dates that have history (only the start date of each period)
   const historyDates = useMemo(() => {
@@ -347,8 +357,8 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
                     '& .MuiSelect-select': { py: 0, pr: 2 }
                   }}
                 >
-                  {MONTH_NAMES.map((month, idx) => (
-                    <MenuItem key={idx} value={idx}>{t(month)}</MenuItem>
+                  {monthNames.map((month, idx) => (
+                    <MenuItem key={idx} value={idx}>{month}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
@@ -379,7 +389,7 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
 
             {/* Day names header */}
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 32px)', gap: 0.5, mb: 0.5 }}>
-              {DAY_NAMES.map(day => (
+              {dayNames.map(day => (
                 <Box
                   key={day}
                   sx={{
