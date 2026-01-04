@@ -287,10 +287,11 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
               onClick={(e) => setCalendarAnchor(e.currentTarget)}
               variant="outlined"
               size="small"
-              startIcon={<CalendarMonthIcon />}
-              sx={{ minWidth: 150, textTransform: 'none' }}
+              sx={{ minWidth: 150, textTransform: 'none', display: 'flex', alignItems: 'center', gap: 1 }}
             >
+              {!rtl && <CalendarMonthIcon sx={{ fontSize: 20 }} />}
               {selectedDate ? new Date(selectedDate + 'T00:00:00').toLocaleDateString() : t("Select date")}
+              {rtl && <CalendarMonthIcon sx={{ fontSize: 20 }} />}
             </Button>
             
             <IconButton 
