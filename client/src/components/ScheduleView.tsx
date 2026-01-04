@@ -753,12 +753,12 @@ const ScheduleCalendar: React.FC<Props> = ({
                             </th>
                             {posts.map(post => (
                                 <th key={post.id} style={{ border: "1px solid #888", background: "#f0f0f0", minWidth: 130, padding: "8px 4px" }}>
-                                    {post.name} ({post.requiredPerShift})
+                                    <span dir="ltr">{post.name} ({post.requiredPerShift})</span>
                                 </th>
                             ))}
                             {esGroups.map(group => (
                                 <th key={group.id} style={{ border: "1px solid #888", background: "#e3f2fd", minWidth: 150, padding: "8px 4px" }}>
-                                    {group.name} ({group.totalPeople})
+                                    <span dir="ltr">{group.name} ({group.totalPeople})</span>
                                 </th>
                             ))}
                         </tr>
