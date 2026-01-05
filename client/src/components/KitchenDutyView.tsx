@@ -169,37 +169,49 @@ const KitchenDutyView: React.FC<Props> = ({
 
   const clampBoundary = (mins: number, min: number, max: number) => Math.min(max, Math.max(min, mins));
 
-  const updateBoundaryAfter = (idx: number, newBoundaryHHmm: string) => {
-    // Updates shifts[idx].end and shifts[idx+1].start to the same boundary time.
-    const shifts = [...kitchenShiftList];
-    if (idx < 0 || idx >= shifts.length - 1) return;
-    const prev = shifts[idx];
-    const next = shifts[idx + 1];
-    const prevStart = hhmmToMinutes(parseHHmm(prev.start, '06:00'));
-    const nextEnd = hhmmToMinutes(parseHHmm(next.end, '21:00'));
-    const desired = hhmmToMinutes(parseHHmm(newBoundaryHHmm, prev.end));
-    // keep at least 1 minute duration for both sides
-    const boundary = clampBoundary(desired, prevStart + 1, nextEnd - 1);
-    const hhmm = `${pad2(Math.floor(boundary / 60))}:${pad2(boundary % 60)}`;
-    shifts[idx] = { ...prev, end: hhmm };
-    shifts[idx + 1] = { ...next, start: hhmm };
-    setKitchenShifts(shifts);
-  };
+  const applyKitchenShiftSettings = (
+    shiftId: string,
+    required: number,
+    newStartHHmm?: string,
+    newEndHHmm?: string
+  ) => {
+    // IMPORTANT: apply all edits (required + boundaries) in ONE update.
+    // Previously we updated required and then updated boundaries from stale state, overwriting required.
+    const shifts = kitchenShiftList.map(s => ({ ...s }));
+    const idx = shifts.findIndex(s => s.id === shiftId);
+    if (idx < 0) return;
 
-  const updateBoundaryBefore = (idx: number, newBoundaryHHmm: string) => {
-    // Updates shifts[idx-1].end and shifts[idx].start to the same boundary time.
-    const shifts = [...kitchenShiftList];
-    if (idx <= 0 || idx >= shifts.length) return;
-    const prev = shifts[idx - 1];
-    const cur = shifts[idx];
-    const prevStart = hhmmToMinutes(parseHHmm(prev.start, '06:00'));
-    const curEnd = hhmmToMinutes(parseHHmm(cur.end, '21:00'));
-    const desired = hhmmToMinutes(parseHHmm(newBoundaryHHmm, cur.start));
-    // keep at least 1 minute duration for both sides
-    const boundary = clampBoundary(desired, prevStart + 1, curEnd - 1);
-    const hhmm = `${pad2(Math.floor(boundary / 60))}:${pad2(boundary % 60)}`;
-    shifts[idx - 1] = { ...prev, end: hhmm };
-    shifts[idx] = { ...cur, start: hhmm };
+    // Always update required on the target shift.
+    shifts[idx] = { ...shifts[idx], required };
+
+    // Update boundary BEFORE (prev.end + cur.start)
+    if (idx > 0 && newStartHHmm) {
+      const prev = shifts[idx - 1];
+      const cur = shifts[idx];
+      const prevStart = hhmmToMinutes(parseHHmm(prev.start, '06:00'));
+      const curEnd = hhmmToMinutes(parseHHmm(cur.end, '21:00'));
+      const desired = hhmmToMinutes(parseHHmm(newStartHHmm, cur.start));
+      // keep at least 1 minute duration for both sides
+      const boundary = clampBoundary(desired, prevStart + 1, curEnd - 1);
+      const hhmm = `${pad2(Math.floor(boundary / 60))}:${pad2(boundary % 60)}`;
+      shifts[idx - 1] = { ...prev, end: hhmm };
+      shifts[idx] = { ...cur, start: hhmm };
+    }
+
+    // Update boundary AFTER (cur.end + next.start)
+    if (idx < shifts.length - 1 && newEndHHmm) {
+      const cur = shifts[idx];
+      const next = shifts[idx + 1];
+      const curStart = hhmmToMinutes(parseHHmm(cur.start, '06:00'));
+      const nextEnd = hhmmToMinutes(parseHHmm(next.end, '21:00'));
+      const desired = hhmmToMinutes(parseHHmm(newEndHHmm, cur.end));
+      // keep at least 1 minute duration for both sides
+      const boundary = clampBoundary(desired, curStart + 1, nextEnd - 1);
+      const hhmm = `${pad2(Math.floor(boundary / 60))}:${pad2(boundary % 60)}`;
+      shifts[idx] = { ...cur, end: hhmm };
+      shifts[idx + 1] = { ...next, start: hhmm };
+    }
+
     setKitchenShifts(shifts);
   };
 
@@ -258,11 +270,6 @@ const KitchenDutyView: React.FC<Props> = ({
     shifts[idx + 1] = { ...shifts[idx + 1], start: midHHmm };
     shifts.splice(idx, 1);
     setKitchenShifts(shifts, filteredAssignments);
-  };
-
-  const updateRequiredForShift = (shiftId: string, required: number) => {
-    const next = kitchenShiftList.map(s => (s.id === shiftId ? { ...s, required } : s));
-    setKitchenShifts(next);
   };
 
   const kitchenShifts = useMemo(
@@ -1000,12 +1007,7 @@ const KitchenDutyView: React.FC<Props> = ({
           }}
           onSave={(required, newStartHHmm, newEndHHmm) => {
             if (shiftSettingsDialog.type === 'kitchen') {
-              updateRequiredForShift(shiftSettingsDialog.shiftId, required);
-              const idx = kitchenShiftList.findIndex(s => s.id === shiftSettingsDialog.shiftId);
-              if (idx >= 0) {
-                if (idx > 0 && newStartHHmm) updateBoundaryBefore(idx, newStartHHmm);
-                if (idx < kitchenShiftList.length - 1 && newEndHHmm) updateBoundaryAfter(idx, newEndHHmm);
-              }
+              applyKitchenShiftSettings(shiftSettingsDialog.shiftId, required, newStartHHmm, newEndHHmm);
             } else {
               if (shiftSettingsDialog.shiftId === 'escort_1') onEscortSettingsChange({ ...escortSettings, requiredShift1: required });
               if (shiftSettingsDialog.shiftId === 'escort_2') onEscortSettingsChange({ ...escortSettings, requiredShift2: required });
