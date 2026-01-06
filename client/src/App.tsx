@@ -48,6 +48,7 @@ import {
 import ConstraintsEditor from './components/ConstraintsEditor';
 import HistoryView from './components/HistoryView';
 import ManpowerShortageDialog from './components/ManpowerShortageDialog';
+import JusticeTableView from './components/JusticeTableView';
 
 const STORAGE_KEY_START = 'duty_scheduler_start';
 const STORAGE_KEY_END = 'duty_scheduler_end';
@@ -62,6 +63,8 @@ const STORAGE_KEY_ESCORT_SETTINGS = 'duty_scheduler_escort_settings';
 const STORAGE_KEY_KITCHEN_DAY = 'duty_scheduler_kitchen_day';
 const STORAGE_KEY_RASAR_OVERRIDES = 'duty_scheduler_rasar_overrides';
 const STORAGE_KEY_ESCORT400_OVERRIDES = 'duty_scheduler_escort400_overrides';
+const STORAGE_KEY_MAIN_TAB = 'duty_scheduler_main_tab';
+const STORAGE_KEY_ASSIGNMENTS_TAB = 'duty_scheduler_assignments_tab';
 
 const formatLocalDateTime = (date: Date) => {
   const year = date.getFullYear();
@@ -164,7 +167,10 @@ const App: React.FC = () => {
   const [constraintStart, setConstraintStart] = useState('');
   const [constraintEnd, setConstraintEnd] = useState('');
   const [constraintError, setConstraintError] = useState('');
-  const [tab, setTab] = useState(0);
+  // Top tab bar: Assignments / History / Justice Table
+  const [mainTab, setMainTab] = useState(() => loadFromStorage<number>(STORAGE_KEY_MAIN_TAB, 0));
+  // Sub tabs under Assignments: Guards / Kitchen / Rasar
+  const [assignmentsTab, setAssignmentsTab] = useState(() => loadFromStorage<number>(STORAGE_KEY_ASSIGNMENTS_TAB, 0));
   const [user, setUser] = useState<{ id: number; email: string } | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authLoading, setAuthLoading] = useState(false);
@@ -200,6 +206,14 @@ const App: React.FC = () => {
     if (!user) return;
     fetchConstraints().then(setConstraints).catch(() => { });
   }, [user]);
+
+  // Persist selected tabs across refresh.
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY_MAIN_TAB, JSON.stringify(mainTab)); } catch {}
+  }, [mainTab]);
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY_ASSIGNMENTS_TAB, JSON.stringify(assignmentsTab)); } catch {}
+  }, [assignmentsTab]);
 
   useEffect(() => {
     const loadLastSchedule = async () => {
@@ -267,7 +281,7 @@ const App: React.FC = () => {
     // Clear previous error state before generating
     setError('');
     setMissingCount(null);
-    
+
     // Send as local (no timezone shift) to keep boundaries exact
     const startISO = start;
     const endISO = end;
@@ -544,7 +558,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await logout().catch(() => {});
+    await logout().catch(() => { });
     setUser(null);
     setAssignments([]);
     setBWAssignments([]);
@@ -572,21 +586,57 @@ const App: React.FC = () => {
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f3f4f6' }}>
       <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>{t('MyTurn')}</Typography>
+        <Toolbar sx={{ gap: 2 }}>
+          <Typography
+            variant="h6"
+            noWrap
+            sx={{ display: 'flex', alignItems: 'center' }}
+          >
+            {t('MyTurn')}
+          </Typography>
+
           {user && (
-            <Typography variant="body2" sx={{ mr: 2 }}>
-            היי  {user.email} !
-            </Typography>
+            <Tabs
+              value={mainTab}
+              onChange={(_, v) => setMainTab(v)}
+              textColor="inherit"
+              indicatorColor="secondary"
+              variant="scrollable"
+              allowScrollButtonsMobile
+              sx={{
+                flexGrow: 1,
+                minHeight: 0,
+                '& .MuiTabs-scrollButtons': { color: 'rgba(255,255,255,0.9)' },
+                '& .MuiTab-root': {
+                  minHeight: 48,
+                  color: 'rgba(255,255,255,0.9)',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                },
+                '& .Mui-selected': { color: '#fff' },
+              }}
+            >
+              <Tab label={t('Assignments')} />
+              <Tab label={t('History')} />
+              <Tab label={t('Justice Table')} />
+            </Tabs>
           )}
-          {user && (
-            <Button color="inherit" onClick={handleLogout}>
-              {t('Logout')}
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 'auto' }}>
+            {user && (
+              <Typography variant="body2" sx={{ mr: 1, whiteSpace: 'nowrap' }}>
+                היי {user.email} !
+              </Typography>
+            )}
+            {user && (
+              <Button color="inherit" onClick={handleLogout}>
+                {t('Logout')}
+              </Button>
+            )}
+            <Button color="inherit" onClick={() => setLang(lang === 'en' ? 'he' : 'en')}>
+              {lang === 'en' ? 'עברית' : 'EN'}
             </Button>
-          )}
-          <Button color="inherit" onClick={() => setLang(lang === 'en' ? 'he' : 'en')}>
-            {lang === 'en' ? 'עברית' : 'EN'}
-          </Button>
+          </Box>
         </Toolbar>
       </AppBar>
       {!user && (
@@ -632,24 +682,26 @@ const App: React.FC = () => {
 
       {user && (
         <Container maxWidth={false} sx={{ mt: 2, px: 3 }}>
-          <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-            <Tab label={t('Guards')} />
-            <Tab label={t('Kitchen')} />
-            <Tab label={t('Rasar')} />
-            <Tab label={t('History')} />
-          </Tabs>
-        <Box display="flex" gap={3} alignItems="flex-start">
-          <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
-            <PeopleEditor onUpdate={handlePeopleUpdate} />
-            {tab === 0 && <PostsEditor onUpdate={handlePostsUpdate} />}
-            <ConstraintsEditor people={people} />
-          </Box>
+          {mainTab === 0 && (
+            <>
+              <Tabs value={assignmentsTab} onChange={(_, v) => setAssignmentsTab(v)} sx={{ mb: 2 }}>
+                <Tab label={t('Guards')} />
+                <Tab label={t('Kitchen')} />
+                <Tab label={t('Rasar')} />
+              </Tabs>
 
-            <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-              {tab === 0 && (
+              <Box display="flex" gap={3} alignItems="flex-start">
+                <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
+                  <PeopleEditor onUpdate={handlePeopleUpdate} />
+                  {assignmentsTab === 0 && <PostsEditor onUpdate={handlePostsUpdate} />}
+                  <ConstraintsEditor people={people} />
+                </Box>
+
+                <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                  {assignmentsTab === 0 && (
                 <>
                   <Paper sx={{ p: 2, mb: 2 }}>
-                    <Typography variant="h5"  gutterBottom>{t('Scheduler')}</Typography>
+                    <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
                       <TextField
                         type="datetime-local"
@@ -669,16 +721,16 @@ const App: React.FC = () => {
                         inputProps={{ step: 14400 }}
                         size="small"
                       />
-                     
+
                       <Button
                         onClick={handleScheduleGuards}
                         variant="contained"
                         disabled={isGenerating}
-                        
+
                       >
                         {isGenerating ? t('Assigning') : t('Generate')}
                       </Button>
-                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating} sx={{mr: "8px"}}>
+                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating} sx={{ mr: "8px" }}>
                         {t('Clear')}
                       </Button>
                       <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
@@ -687,7 +739,7 @@ const App: React.FC = () => {
                     </Stack>
                     {error && (
                       <Typography color="error" sx={{ mt: 2 }}>
-                        {missingCount != null && missingCount > 0 
+                        {missingCount != null && missingCount > 0
                           ? t('Missing about X people to complete the task').replace('{count}', String(missingCount))
                           : t(error)
                         }
@@ -720,7 +772,7 @@ const App: React.FC = () => {
                   </Paper>
                 </>
               )}
-              {tab === 1 && (
+                  {assignmentsTab === 1 && (
                 <Paper sx={{ p: 2, overflow: 'auto' }}>
                   <KitchenDutyView
                     people={people}
@@ -746,8 +798,8 @@ const App: React.FC = () => {
                     isGenerating={isGenerating}
                   />
                 </Paper>
-            )}
-              {tab === 2 && (
+              )}
+              {assignmentsTab === 2 && (
                 <Paper sx={{ p: 2, overflow: 'auto' }}>
                   <RasarDutyView
                     people={people}
@@ -779,11 +831,32 @@ const App: React.FC = () => {
                   />
                 </Paper>
               )}
-              {tab === 3 && (
-                  <HistoryView people={people} posts={posts} />
-                )}
-            </Box>
-          </Box>
+                </Box>
+              </Box>
+            </>
+          )}
+
+          {mainTab === 1 && (
+            <Paper sx={{ p: 2 }}>
+              <HistoryView people={people} posts={posts} />
+            </Paper>
+          )}
+
+          {mainTab === 2 && (
+            <Paper sx={{ p: 2 }}>
+              <JusticeTableView
+                people={people}
+                startISO={start}
+                endISO={end}
+                assignments={assignments}
+                bwAssignments={bwAssignments}
+                kitchenAssignments={kitchenAssignments}
+                escortAssignments={escortAssignments}
+                rasarAssignments={rasarAssignments}
+                escort400Assignments={escort400Assignments}
+              />
+            </Paper>
+          )}
         </Container>
       )}
       <Dialog open={constraintDialogOpen} onClose={() => setConstraintDialogOpen(false)} maxWidth="sm" fullWidth>

@@ -13,6 +13,8 @@ const mapPerson = row => ({
   standingExemption: Boolean(row.standingexemption || row.standingExemption),
   duelGuard: Boolean(row.duelguard || row.duelGuard),
   nightGuardExemption: Boolean(row.nightguardexemption || row.nightGuardExemption),
+  asthmaExemption: Boolean(row.asthmaexemption || row.asthmaExemption),
+  kitchenExemption: Boolean(row.kitchenexemption || row.kitchenExemption),
 });
 
 const mapPost = row => ({
@@ -89,6 +91,267 @@ const mapEsAssignmentRows = rows => {
     groupId,
     personIds,
   }));
+};
+
+const parseHHmmToMinutes = (hhmm, fallback = null) => {
+  const m = (hhmm || '').toString().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return fallback;
+  const hh = Math.min(23, Math.max(0, Number(m[1])));
+  const mm = Math.min(59, Math.max(0, Number(m[2])));
+  if (Number.isNaN(hh) || Number.isNaN(mm)) return fallback;
+  return hh * 60 + mm;
+};
+
+const parseShiftLabelMinutes = (shiftLabel) => {
+  const m = (shiftLabel || '').match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const sh = Number(m[1]);
+  const sm = Number(m[2]);
+  const eh = Number(m[3]);
+  const em = Number(m[4]);
+  if ([sh, sm, eh, em].some(x => Number.isNaN(x))) return null;
+  const start = sh * 60 + sm;
+  let end = eh * 60 + em;
+  if (end <= start) end += 24 * 60;
+  return { start, end, minutes: end - start };
+};
+
+const existingTables = async (db, names = []) => {
+  if (!names.length) return new Set();
+  const rows = await db.all(
+    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ANY($1::text[])",
+    [names]
+  );
+  return new Set(rows.map(r => (r.table_name || r.tableName || '').toString()));
+};
+
+const overlapMinutes = (aStartISO, aEndISO, rangeStartISO, rangeEndISO) => {
+  const aS = dayjs(aStartISO).second(0).millisecond(0);
+  const aE = dayjs(aEndISO).second(0).millisecond(0);
+  const rS = dayjs(rangeStartISO).second(0).millisecond(0);
+  const rE = dayjs(rangeEndISO).second(0).millisecond(0);
+  const start = aS.isAfter(rS) ? aS : rS;
+  const end = aE.isBefore(rE) ? aE : rE;
+  const diff = end.diff(start, 'minute');
+  return diff > 0 ? diff : 0;
+};
+
+const dutyHoursFromArchived = async (db, userId, rangeStartISO = null, rangeEndISO = null) => {
+  // Returns rows: [{ personId, name, guardsHours, bwHours, kitchenHours, escortHours, rasarHours, escort400Hours, totalHours }]
+  // If rangeStartISO/rangeEndISO provided: counts ONLY overlap with that time window.
+
+  const isRange = !!(rangeStartISO && rangeEndISO);
+  const startDay = isRange ? dayjs(rangeStartISO).format('YYYY-MM-DD') : null;
+  const endDay = isRange ? dayjs(rangeEndISO).format('YYYY-MM-DD') : null;
+
+  const where = isRange
+    ? 'userId = $1 AND schedule_end >= $2 AND schedule_start <= $3'
+    : 'userId = $1';
+  const params = isRange ? [userId, startDay, endDay] : [userId];
+
+  // Some deployments might not have all archive tables yet (e.g. rasar/escort400).
+  // Avoid querying missing tables (Postgres logs errors even if the client catches them).
+  const tableSet = await existingTables(db, [
+    'archived_rasar_assignments',
+    'archived_escort400_assignments',
+    'archived_kitchen_shifts',
+  ]);
+  const hasArchivedRasar = tableSet.has('archived_rasar_assignments');
+  const hasArchivedEscort400 = tableSet.has('archived_escort400_assignments');
+  const hasArchivedKitchenShifts = tableSet.has('archived_kitchen_shifts');
+
+  const [
+    peopleRows,
+    guardRows,
+    bwRows,
+    kitchenRows,
+    escortRows,
+    rasarRows,
+    escort400Rows,
+    kitchenShiftRows,
+  ] = await Promise.all([
+    db.all('SELECT id, name FROM people WHERE userId = $1', [userId]),
+    db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, shiftLabel, startISO, endISO, day FROM archived_assignments WHERE ${where}`, params),
+    db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, slotId, day FROM archived_bw_assignments WHERE ${where}`, params),
+    db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, shiftId, day FROM archived_kitchen_assignments WHERE ${where}`, params),
+    db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, shiftId, day FROM archived_escort_assignments WHERE ${where}`, params),
+    hasArchivedRasar
+      ? db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, shiftId, day FROM archived_rasar_assignments WHERE ${where}`, params)
+      : Promise.resolve([]),
+    hasArchivedEscort400
+      ? db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, shiftId, day FROM archived_escort400_assignments WHERE ${where}`, params)
+      : Promise.resolve([]),
+    hasArchivedKitchenShifts
+      ? db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, shiftId, startHHmm, endHHmm FROM archived_kitchen_shifts WHERE ${where} ORDER BY idx ASC`, params)
+      : Promise.resolve([]),
+  ]);
+
+  const init = () => ({
+    guardsHours: 0,
+    bwHours: 0,
+    kitchenHours: 0,
+    escortHours: 0,
+    rasarHours: 0,
+    escort400Hours: 0,
+    totalHours: 0,
+  });
+
+  const out = new Map();
+  for (const p of peopleRows) out.set(Number(p.id), init());
+
+  const add = (personId, key, hours) => {
+    const pid = Number(personId);
+    if (!out.has(pid)) out.set(pid, init());
+    out.get(pid)[key] += hours;
+  };
+
+  const inRangeHours = (startISO, endISO) => {
+    const s = dayjs(startISO);
+    const e = dayjs(endISO);
+    if (!e.isAfter(s)) return 0;
+    if (!isRange) return e.diff(s, 'minute') / 60;
+    return overlapMinutes(startISO, endISO, rangeStartISO, rangeEndISO) / 60;
+  };
+
+  const makeDayRange = (day, startHHmm, endHHmm) => {
+    const s = dayjs(`${day}T${startHHmm}:00`);
+    let e = dayjs(`${day}T${endHHmm}:00`);
+    if (!e.isAfter(s)) e = e.add(1, 'day');
+    return { start: s.toISOString(), end: e.toISOString() };
+  };
+
+  // Guards: prefer start/end ISO if present, else parse shiftLabel on that day.
+  for (const r of guardRows) {
+    const pid = Number(r.personid ?? r.personId);
+    const startISO = r.startiso ?? r.startISO;
+    const endISO = r.endiso ?? r.endISO;
+    if (startISO && endISO) {
+      const h = inRangeHours(startISO, endISO);
+      if (h > 0) add(pid, 'guardsHours', h);
+      continue;
+    }
+    const parsed = parseShiftLabelMinutes(r.shiftlabel ?? r.shiftLabel);
+    const day = (r.day || '').toString();
+    if (!parsed || !day) continue;
+    const startHH = `${String(Math.floor(parsed.start / 60)).padStart(2, '0')}:${String(parsed.start % 60).padStart(2, '0')}`;
+    const endHHm = parsed.end % (24 * 60);
+    const endHH = `${String(Math.floor(endHHm / 60)).padStart(2, '0')}:${String(endHHm % 60).padStart(2, '0')}`;
+    const rng = makeDayRange(day, startHH, endHH);
+    const h = inRangeHours(rng.start, rng.end);
+    if (h > 0) add(pid, 'guardsHours', h);
+  }
+
+  // BW: fixed slot definitions.
+  const BW_SLOT_DEFS = [
+    { id: 'bw_morning', start: '08:30', end: '11:30' }, // 3h
+    { id: 'bw_afternoon', start: '13:30', end: '17:30' }, // 4h
+    { id: 'bw_evening', start: '18:30', end: '20:00' }, // 1.5h
+  ];
+  const bwSlotById = new Map(BW_SLOT_DEFS.map(d => [d.id, d]));
+  for (const r of bwRows) {
+    const pid = Number(r.personid ?? r.personId);
+    const slotId = (r.slotid ?? r.slotId)?.toString();
+    const day = (r.day || '').toString();
+    const def = bwSlotById.get(slotId);
+    if (!day || !def) continue;
+    const rng = makeDayRange(day, def.start, def.end);
+    const h = inRangeHours(rng.start, rng.end);
+    if (h > 0) add(pid, 'bwHours', h);
+  }
+
+  // Kitchen: use archived_kitchen_shifts for durations.
+  const kitchenShiftByPeriodAndId = new Map(); // `${schedule_start}|${schedule_end}|${shiftId}` -> {start,end}
+  for (const s of kitchenShiftRows) {
+    const scheduleStart = (s.schedule_start ?? s.scheduleStart ?? '').toString();
+    const scheduleEnd = (s.schedule_end ?? s.scheduleEnd ?? '').toString();
+    const id = (s.shiftid ?? s.shiftId)?.toString();
+    const startHHmm = (s.starthhmm ?? s.startHHmm)?.toString();
+    const endHHmm = (s.endhhmm ?? s.endHHmm)?.toString();
+    if (!scheduleStart || !scheduleEnd || !id || !startHHmm || !endHHmm) continue;
+    kitchenShiftByPeriodAndId.set(`${scheduleStart}|${scheduleEnd}|${id}`, { startHHmm, endHHmm });
+  }
+  // Fallback if shift definition missing (older archives): assume 06:00-21:00 = 15h.
+  const kitchenFallback = { startHHmm: '06:00', endHHmm: '21:00' };
+  for (const r of kitchenRows) {
+    const pid = Number(r.personid ?? r.personId);
+    const shiftId = (r.shiftid ?? r.shiftId)?.toString();
+    const scheduleStart = (r.schedule_start ?? r.scheduleStart ?? '').toString();
+    const scheduleEnd = (r.schedule_end ?? r.scheduleEnd ?? '').toString();
+    const day = (r.day || '').toString();
+    if (!day) continue;
+    const def = kitchenShiftByPeriodAndId.get(`${scheduleStart}|${scheduleEnd}|${shiftId}`) || kitchenFallback;
+    const rng = makeDayRange(day, def.startHHmm, def.endHHmm);
+    const h = inRangeHours(rng.start, rng.end);
+    if (h > 0) add(pid, 'kitchenHours', h);
+  }
+
+  // Escort: fixed shifts
+  const escortRangesByShiftId = new Map([
+    ['escort_1', { start: '07:00', end: '10:30' }],
+    ['escort_2', { start: '10:30', end: '14:00' }],
+    ['escort_3', { start: '14:00', end: '17:00' }],
+    ['escort_4', { start: '17:00', end: '19:00' }],
+  ]);
+  for (const r of escortRows) {
+    const pid = Number(r.personid ?? r.personId);
+    const shiftId = (r.shiftid ?? r.shiftId)?.toString();
+    const day = (r.day || '').toString();
+    const def = escortRangesByShiftId.get(shiftId);
+    if (!day || !def) continue;
+    const rng = makeDayRange(day, def.start, def.end);
+    const h = inRangeHours(rng.start, rng.end);
+    if (h > 0) add(pid, 'escortHours', h);
+  }
+
+  // Rasar: fixed shifts
+  const rasarRangesByShiftId = new Map([
+    ['rasar_1', { start: '08:30', end: '11:30' }],
+    ['rasar_2', { start: '13:30', end: '17:30' }],
+    ['rasar_3', { start: '19:30', end: '20:30' }],
+  ]);
+  for (const r of rasarRows || []) {
+    const pid = Number(r.personid ?? r.personId);
+    const shiftId = (r.shiftid ?? r.shiftId)?.toString();
+    const day = (r.day || '').toString();
+    const def = rasarRangesByShiftId.get(shiftId);
+    if (!day || !def) continue;
+    const rng = makeDayRange(day, def.start, def.end);
+    const h = inRangeHours(rng.start, rng.end);
+    if (h > 0) add(pid, 'rasarHours', h);
+  }
+
+  // Escort400: fixed shifts
+  const escort400RangesByShiftId = new Map([
+    ['escort400_1', { start: '08:00', end: '12:30' }],
+    ['escort400_2', { start: '12:30', end: '17:00' }],
+  ]);
+  for (const r of escort400Rows || []) {
+    const pid = Number(r.personid ?? r.personId);
+    const shiftId = (r.shiftid ?? r.shiftId)?.toString();
+    const day = (r.day || '').toString();
+    const def = escort400RangesByShiftId.get(shiftId);
+    if (!day || !def) continue;
+    const rng = makeDayRange(day, def.start, def.end);
+    const h = inRangeHours(rng.start, rng.end);
+    if (h > 0) add(pid, 'escort400Hours', h);
+  }
+
+  // Totals
+  for (const [pid, v] of out.entries()) {
+    v.totalHours =
+      v.guardsHours + v.bwHours + v.kitchenHours + v.escortHours + v.rasarHours + v.escort400Hours;
+    out.set(pid, v);
+  }
+
+  // Attach names
+  const nameById = new Map(peopleRows.map(p => [Number(p.id), p.name]));
+  const rows = Array.from(out.entries()).map(([personId, v]) => ({
+    personId,
+    name: nameById.get(personId) || String(personId),
+    ...v,
+  }));
+
+  return rows;
 };
 
 const respondError = (res, message = 'not enough manpower', missingCount = null) =>
@@ -323,6 +586,8 @@ const archiveAssignments = async (
   esAssignments = [],
   kitchenAssignments = [],
   escortAssignments = [],
+  rasarAssignments = [],
+  escort400Assignments = [],
   kitchenSettings,
   escortSettings,
   userId,
@@ -362,6 +627,9 @@ const archiveAssignments = async (
   await db.run('DELETE FROM archived_kitchen_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_escort_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_escort_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
+  // Optional tables (may not exist in older deployments)
+  try { await db.run('DELETE FROM archived_rasar_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]); } catch {}
+  try { await db.run('DELETE FROM archived_escort400_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]); } catch {}
 
   // Insert new archives (filtered)
   for (const a of filteredAssignments) {
@@ -433,6 +701,24 @@ const archiveAssignments = async (
       [scheduleStart, scheduleEnd, Number(e.personId), e.day, e.shiftId, userId]
     );
   }
+
+  // Archive rasar + escort400 too (if tables exist)
+  for (const r of rasarAssignments || []) {
+    try {
+      await db.run(
+        'INSERT INTO archived_rasar_assignments (schedule_start, schedule_end, personId, day, shiftId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+        [scheduleStart, scheduleEnd, Number(r.personId), r.day, r.shiftId, userId]
+      );
+    } catch {}
+  }
+  for (const a of escort400Assignments || []) {
+    try {
+      await db.run(
+        'INSERT INTO archived_escort400_assignments (schedule_start, schedule_end, personId, day, shiftId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+        [scheduleStart, scheduleEnd, Number(a.personId), a.day, a.shiftId, userId]
+      );
+    } catch {}
+  }
   console.log('Archived successfully');
 };
 
@@ -477,6 +763,8 @@ const persistAllAssignments = async (
     esAssignments,
     kitchenAssignments,
     escortAssignments,
+    rasarAssignments,
+    escort400Assignments,
     kitchenSettings,
     escortSettings,
     userId,
@@ -1202,15 +1490,15 @@ router.post('/generate-rasar', async (req, res, next) => {
     const buildRasarRange = (day, shiftId) => {
       const def =
         shiftId === 'rasar_1' ? { start: '08:30', end: '11:30' } :
-        shiftId === 'rasar_2' ? { start: '13:30', end: '17:30' } :
-        shiftId === 'rasar_3' ? { start: '19:30', end: '20:30' } : null;
+          shiftId === 'rasar_2' ? { start: '13:30', end: '17:30' } :
+            shiftId === 'rasar_3' ? { start: '19:30', end: '20:30' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
     const buildEscort400Range = (day, shiftId) => {
       const def =
         shiftId === 'escort400_1' ? { start: '08:00', end: '12:30' } :
-        shiftId === 'escort400_2' ? { start: '12:30', end: '17:00' } : null;
+          shiftId === 'escort400_2' ? { start: '12:30', end: '17:00' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
@@ -1236,9 +1524,9 @@ router.post('/generate-rasar', async (req, res, next) => {
     const buildEscortRange = (day, shiftId) => {
       const def =
         shiftId === 'escort_1' ? { start: '07:00', end: '10:30' } :
-        shiftId === 'escort_2' ? { start: '10:30', end: '14:00' } :
-        shiftId === 'escort_3' ? { start: '14:00', end: '17:00' } :
-        shiftId === 'escort_4' ? { start: '17:00', end: '19:00' } : null;
+          shiftId === 'escort_2' ? { start: '10:30', end: '14:00' } :
+            shiftId === 'escort_3' ? { start: '14:00', end: '17:00' } :
+              shiftId === 'escort_4' ? { start: '17:00', end: '19:00' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
@@ -1507,24 +1795,24 @@ router.post('/save-rasar', async (req, res, next) => {
     const buildRasarRange = (day, shiftId) => {
       const def =
         shiftId === 'rasar_1' ? { start: '08:30', end: '11:30' } :
-        shiftId === 'rasar_2' ? { start: '13:30', end: '17:30' } :
-        shiftId === 'rasar_3' ? { start: '19:30', end: '20:30' } : null;
+          shiftId === 'rasar_2' ? { start: '13:30', end: '17:30' } :
+            shiftId === 'rasar_3' ? { start: '19:30', end: '20:30' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
     const buildEscort400Range = (day, shiftId) => {
       const def =
         shiftId === 'escort400_1' ? { start: '08:00', end: '12:30' } :
-        shiftId === 'escort400_2' ? { start: '12:30', end: '17:00' } : null;
+          shiftId === 'escort400_2' ? { start: '12:30', end: '17:00' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
     const buildEscortRange = (day, shiftId) => {
       const def =
         shiftId === 'escort_1' ? { start: '07:00', end: '10:30' } :
-        shiftId === 'escort_2' ? { start: '10:30', end: '14:00' } :
-        shiftId === 'escort_3' ? { start: '14:00', end: '17:00' } :
-        shiftId === 'escort_4' ? { start: '17:00', end: '19:00' } : null;
+          shiftId === 'escort_2' ? { start: '10:30', end: '14:00' } :
+            shiftId === 'escort_3' ? { start: '14:00', end: '17:00' } :
+              shiftId === 'escort_4' ? { start: '17:00', end: '19:00' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
@@ -1691,6 +1979,35 @@ router.post('/save-rasar', async (req, res, next) => {
       persistRasarOnly(db, sanitized, req.user.id),
       persistEscort400Only(db, sanitized400, req.user.id),
     ]);
+
+    // Archive rasar/escort400 so they appear in Justice table.
+    // Infer schedule period from assignments (min/max day).
+    const allDays = [...sanitized.map(a => a.day), ...sanitized400.map(a => a.day)].filter(Boolean).sort();
+    if (allDays.length > 0) {
+      const scheduleStart = allDays[0];
+      const scheduleEnd = allDays[allDays.length - 1];
+      // Clear existing archives for this period
+      try { await db.run('DELETE FROM archived_rasar_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, req.user.id]); } catch {}
+      try { await db.run('DELETE FROM archived_escort400_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, req.user.id]); } catch {}
+      // Insert new archives
+      for (const r of sanitized) {
+        try {
+          await db.run(
+            'INSERT INTO archived_rasar_assignments (schedule_start, schedule_end, personId, day, shiftId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+            [scheduleStart, scheduleEnd, Number(r.personId), r.day, r.shiftId, req.user.id]
+          );
+        } catch {}
+      }
+      for (const a of sanitized400) {
+        try {
+          await db.run(
+            'INSERT INTO archived_escort400_assignments (schedule_start, schedule_end, personId, day, shiftId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+            [scheduleStart, scheduleEnd, Number(a.personId), a.day, a.shiftId, req.user.id]
+          );
+        } catch {}
+      }
+    }
+
     res.json({ ok: true });
   } catch (err) {
     next(err);
@@ -1883,7 +2200,7 @@ router.get('/history-periods', async (req, res, next) => {
         WHERE userId = $1
       `, [req.user.id]),
     ]);
-    
+
     // Combine and deduplicate by creating a map
     const periodMap = new Map();
     const allPeriods = [...assignmentPeriods, ...bwPeriods, ...esPeriods, ...kitchenPeriods, ...escortPeriods];
@@ -1893,12 +2210,12 @@ router.get('/history-periods', async (req, res, next) => {
         periodMap.set(key, { start: p.schedule_start, end: p.schedule_end });
       }
     }
-    
+
     // Sort by start date descending
-    const periods = Array.from(periodMap.values()).sort((a, b) => 
+    const periods = Array.from(periodMap.values()).sort((a, b) =>
       new Date(b.start) - new Date(a.start)
     );
-    
+
     res.json({ periods });
   } catch (err) {
     console.error('Error in history-periods:', err.message);
@@ -1985,6 +2302,28 @@ router.get('/history', async (req, res, next) => {
       kitchenSettings,
       escortSettings,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/justice', async (req, res, next) => {
+  try {
+    const db = getDb(req);
+    const mode = (req.query?.mode || 'all').toString(); // 'all' | 'range'
+    const startISO = (req.query?.startISO || req.query?.start || '').toString();
+    const endISO = (req.query?.endISO || req.query?.end || '').toString();
+    if (mode === 'range' && (!startISO || !endISO)) {
+      return res.status(400).json({ error: 'startISO and endISO query parameters required' });
+    }
+
+    const rows = await dutyHoursFromArchived(
+      db,
+      req.user.id,
+      mode === 'range' ? startISO : null,
+      mode === 'range' ? endISO : null
+    );
+    res.json({ rows });
   } catch (err) {
     next(err);
   }

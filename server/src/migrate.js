@@ -26,6 +26,8 @@ const createTables = async db => {
       standingExemption BOOLEAN NOT NULL DEFAULT false,
       duelGuard BOOLEAN NOT NULL DEFAULT false,
       nightGuardExemption BOOLEAN NOT NULL DEFAULT false,
+      asthmaExemption BOOLEAN NOT NULL DEFAULT false,
+      kitchenExemption BOOLEAN NOT NULL DEFAULT false,
       userId INTEGER REFERENCES users(id)
     );
   `);
@@ -166,9 +168,8 @@ const createTables = async db => {
   `);
 
   // Archived tables for history lookback
-  await db.run(`DROP TABLE IF EXISTS archived_assignments`);
   await db.run(`
-    CREATE TABLE archived_assignments (
+    CREATE TABLE IF NOT EXISTS archived_assignments (
       schedule_start DATE NOT NULL,
       schedule_end DATE NOT NULL,
       personId INTEGER NOT NULL,
@@ -182,9 +183,8 @@ const createTables = async db => {
     );
   `);
 
-  await db.run(`DROP TABLE IF EXISTS archived_bw_assignments`);
   await db.run(`
-    CREATE TABLE archived_bw_assignments (
+    CREATE TABLE IF NOT EXISTS archived_bw_assignments (
       schedule_start DATE NOT NULL,
       schedule_end DATE NOT NULL,
       personId INTEGER NOT NULL,
@@ -195,9 +195,8 @@ const createTables = async db => {
     );
   `);
 
-  await db.run(`DROP TABLE IF EXISTS archived_es_assignments`);
   await db.run(`
-    CREATE TABLE archived_es_assignments (
+    CREATE TABLE IF NOT EXISTS archived_es_assignments (
       schedule_start DATE NOT NULL,
       schedule_end DATE NOT NULL,
       groupId TEXT NOT NULL,
@@ -207,9 +206,8 @@ const createTables = async db => {
     );
   `);
 
-  await db.run(`DROP TABLE IF EXISTS archived_kitchen_settings`);
   await db.run(`
-    CREATE TABLE archived_kitchen_settings (
+    CREATE TABLE IF NOT EXISTS archived_kitchen_settings (
       schedule_start DATE NOT NULL,
       schedule_end DATE NOT NULL,
       requiredPerShift INTEGER NOT NULL,
@@ -221,9 +219,8 @@ const createTables = async db => {
     );
   `);
 
-  await db.run(`DROP TABLE IF EXISTS archived_kitchen_shifts`);
   await db.run(`
-    CREATE TABLE archived_kitchen_shifts (
+    CREATE TABLE IF NOT EXISTS archived_kitchen_shifts (
       schedule_start DATE NOT NULL,
       schedule_end DATE NOT NULL,
       shiftId TEXT NOT NULL,
@@ -236,9 +233,8 @@ const createTables = async db => {
     );
   `);
 
-  await db.run(`DROP TABLE IF EXISTS archived_kitchen_assignments`);
   await db.run(`
-    CREATE TABLE archived_kitchen_assignments (
+    CREATE TABLE IF NOT EXISTS archived_kitchen_assignments (
       schedule_start DATE NOT NULL,
       schedule_end DATE NOT NULL,
       personId INTEGER NOT NULL,
@@ -249,9 +245,8 @@ const createTables = async db => {
     );
   `);
 
-  await db.run(`DROP TABLE IF EXISTS archived_escort_settings`);
   await db.run(`
-    CREATE TABLE archived_escort_settings (
+    CREATE TABLE IF NOT EXISTS archived_escort_settings (
       schedule_start DATE NOT NULL,
       schedule_end DATE NOT NULL,
       requiredPerShift INTEGER NOT NULL,
@@ -264,9 +259,33 @@ const createTables = async db => {
     );
   `);
 
-  await db.run(`DROP TABLE IF EXISTS archived_escort_assignments`);
   await db.run(`
-    CREATE TABLE archived_escort_assignments (
+    CREATE TABLE IF NOT EXISTS archived_escort_assignments (
+      schedule_start DATE NOT NULL,
+      schedule_end DATE NOT NULL,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      shiftId TEXT NOT NULL,
+      userId INTEGER,
+      PRIMARY KEY (schedule_start, schedule_end, personId, day, shiftId)
+    );
+  `);
+
+  // NEW: archived rasar + escort400 so justice/history can include them across restarts
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS archived_rasar_assignments (
+      schedule_start DATE NOT NULL,
+      schedule_end DATE NOT NULL,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      shiftId TEXT NOT NULL,
+      userId INTEGER,
+      PRIMARY KEY (schedule_start, schedule_end, personId, day, shiftId)
+    );
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS archived_escort400_assignments (
       schedule_start DATE NOT NULL,
       schedule_end DATE NOT NULL,
       personId INTEGER NOT NULL,
@@ -283,6 +302,8 @@ const ensureBooleanColumns = async db => {
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS standingExemption BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS duelGuard BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS nightGuardExemption BOOLEAN NOT NULL DEFAULT false;');
+  await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS asthmaExemption BOOLEAN NOT NULL DEFAULT false;');
+  await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS kitchenExemption BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS sameGenderPref BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE posts ADD COLUMN IF NOT EXISTS optional BOOLEAN NOT NULL DEFAULT false;');
 };
@@ -303,21 +324,38 @@ const ensureKitchenShiftsColumns = async db => {
   await db.run('ALTER TABLE kitchen_shifts ADD COLUMN IF NOT EXISTS startHHmm TEXT;');
   await db.run('ALTER TABLE kitchen_shifts ADD COLUMN IF NOT EXISTS endHHmm TEXT;');
   await db.run('ALTER TABLE kitchen_shifts ADD COLUMN IF NOT EXISTS required INTEGER NOT NULL DEFAULT 36;');
+
+  // Avoid noisy Postgres errors: only run legacy-healing statements if the legacy columns exist.
+  const columnRows = await db.all(
+    "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'kitchen_shifts'"
+  );
+  const cols = new Set((columnRows || []).map(r => (r.column_name || '').toString()));
+
   // Heal older schemas that used shiftIndex/shiftindex (often NOT NULL) instead of idx.
   // We keep the legacy column if present, but ensure it won't block inserts going forward.
-  try { await db.run('UPDATE kitchen_shifts SET idx = COALESCE(idx, shiftindex) WHERE idx IS NULL'); } catch {}
-  try { await db.run('UPDATE kitchen_shifts SET idx = COALESCE(idx, "shiftIndex") WHERE idx IS NULL'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN shiftindex DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN "shiftIndex" DROP NOT NULL;'); } catch {}
+  if (cols.has('shiftindex')) {
+    await db.run('UPDATE kitchen_shifts SET idx = COALESCE(idx, shiftindex) WHERE idx IS NULL');
+    await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN shiftindex DROP NOT NULL');
+  }
+  // Quoted camelCase legacy column (rare) would appear as shiftIndex in information_schema
+  if (cols.has('shiftIndex')) {
+    await db.run('UPDATE kitchen_shifts SET idx = COALESCE(idx, "shiftIndex") WHERE idx IS NULL');
+    await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN "shiftIndex" DROP NOT NULL');
+  }
+
   // Heal older schemas that stored hour/min columns and enforced NOT NULL.
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN starthour DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startminute DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endhour DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endminute DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startHour DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startMinute DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endHour DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endMinute DROP NOT NULL;'); } catch {}
+  // (Some schemas used lowercase, others used camelCase without quoting -> becomes lowercase in Postgres)
+  if (cols.has('starthour')) await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN starthour DROP NOT NULL');
+  if (cols.has('startminute')) await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startminute DROP NOT NULL');
+  if (cols.has('endhour')) await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endhour DROP NOT NULL');
+  if (cols.has('endminute')) await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endminute DROP NOT NULL');
+
+  // Some older versions used camelCase but without quoting (=> starthour/startminute/etc), so these are mostly redundant,
+  // but we keep them gated so they never generate errors.
+  if (cols.has('startHour')) await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startHour DROP NOT NULL');
+  if (cols.has('startMinute')) await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startMinute DROP NOT NULL');
+  if (cols.has('endHour')) await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endHour DROP NOT NULL');
+  if (cols.has('endMinute')) await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endMinute DROP NOT NULL');
 };
 
 const ensureUserIdColumn = async (db, table) => {

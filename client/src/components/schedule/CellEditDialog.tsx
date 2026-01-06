@@ -15,7 +15,7 @@ import {
 import Tooltip from "@mui/material/Tooltip";
 import { useI18n } from "../../util/i18n";
 import { Person, Post, Assignment, ESGroup, ESGroupAssignment, BWAssignment, Constraint, KitchenAssignment, EscortAssignment, RasarAssignment, Escort400Assignment } from "../../types";
-import { ShiftSlot, getShiftIndex, BW_SLOT_DEFINITIONS, getShiftTimeWindow, getBwSlotRangeMinutes, hasTimeOverlap, isNightShift, isStandingExemptPost } from "./utils";
+import { ShiftSlot, getShiftIndex, BW_SLOT_DEFINITIONS, getShiftTimeWindow, getBwSlotRangeMinutes, hasTimeOverlap, isNightShift, isStandingExemptPost, isAsthmaAllowedPost } from "./utils";
 import dayjs from "dayjs";
 import { buildDutyCountsByPerson } from "./dutyCounts";
 
@@ -209,6 +209,14 @@ export const CellEditDialog: React.FC<Props> = ({
         return t('Night guard exemption - cannot work night shifts');
     };
 
+    const hasAsthmaExemptionConflict = (personId: number): string | null => {
+        const person = people.find(p => p.id === personId);
+        if (!person) return null;
+        if (!person.asthmaExemption) return null;
+        if (isAsthmaAllowedPost(post.name)) return null;
+        return t('Asthma exemption - can only work lookout post');
+    };
+
     const hasConstraintConflict = (personId: number): string | null => {
         const cList = constraints.filter(c => c.personId === personId);
         if (cList.length === 0) return null;
@@ -217,7 +225,7 @@ export const CellEditDialog: React.FC<Props> = ({
         const shiftStart = dayjs(`${day}T00:00`).add(window.start, 'minute');
         let shiftEnd = dayjs(`${day}T00:00`).add(window.end, 'minute');
         if (!shiftEnd.isAfter(shiftStart)) shiftEnd = shiftEnd.add(1, 'day');
-        
+
         for (const c of cList) {
             const cStart = dayjs(c.startISO);
             const cEnd = dayjs(c.endISO);
@@ -314,6 +322,7 @@ export const CellEditDialog: React.FC<Props> = ({
         if (hasESBWConflict(personId)) count++;
         if (hasStandingExemptionConflict(personId)) count++;
         if (hasNightGuardExemptionConflict(personId)) count++;
+        if (hasAsthmaExemptionConflict(personId)) count++;
         if (hasConstraintConflict(personId)) count++;
         const person = people.find(p => p.id === personId);
         const assignedCountWithPerson = (isSelected => {
@@ -386,6 +395,7 @@ export const CellEditDialog: React.FC<Props> = ({
                                 const esBwConflict = hasESBWConflict(person.id);
                                 const standingConflict = hasStandingExemptionConflict(person.id);
                                 const nightGuardConflict = hasNightGuardExemptionConflict(person.id);
+                                const asthmaConflict = hasAsthmaExemptionConflict(person.id);
                                 const constraintConflict = hasConstraintConflict(person.id);
                                 const assignedCountWithPerson = isSelected ? selected.length : selected.length + 1;
                                 const duelGuardConflict = person.duelGuard && assignedCountWithPerson < Math.max(2, requiredCount);
@@ -406,8 +416,8 @@ export const CellEditDialog: React.FC<Props> = ({
                                                 <Tooltip title={tooltipForPerson(person)} placement="top" arrow>
                                                     <span>
                                                         {person.name} ({person.gender})
-                                                    {person.sameGenderPreference && ' 👫'}
-                                                    {esGroup && <Chip label={esGroup.name} size="small" sx={{ ml: 1 }} color="info" />}
+                                                        {person.sameGenderPreference && ' 👫'}
+                                                        {esGroup && <Chip label={esGroup.name} size="small" sx={{ ml: 1 }} color="info" />}
                                                     </span>
                                                 </Tooltip>
                                             }
@@ -441,6 +451,11 @@ export const CellEditDialog: React.FC<Props> = ({
                                         {nightGuardConflict && (
                                             <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
                                                 ⚠️ {nightGuardConflict}
+                                            </Typography>
+                                        )}
+                                        {asthmaConflict && (
+                                            <Typography variant="caption" color="error" sx={{ ml: 4, display: 'block' }}>
+                                                ⚠️ {asthmaConflict}
                                             </Typography>
                                         )}
                                         {constraintConflict && (

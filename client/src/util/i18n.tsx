@@ -92,6 +92,12 @@ const translations: Record<Language, TranslationMap> = {
     'Night guard exemption note short': 'Night guard exemption',
     'Duel guard - cannot be alone in this shift': 'Duel guard - cannot be alone in this shift',
     'Night guard exemption': 'Night guard exemption',
+    'Asthma exemption (AE)': 'Asthma exemption (AE)',
+    'Asthma exemption note short': 'Asthma exemption',
+    'Asthma exemption - can only work lookout post': 'Asthma exemption - can only work lookout post (תצפיתן)',
+    'Kitchen exemption (KE)': 'Kitchen exemption (KE)',
+    'Kitchen exemption note short': 'Kitchen exemption',
+    'Kitchen exemption - cannot work kitchen duty': 'Kitchen exemption - cannot work kitchen duty',
     'Add Constraint': 'Add Constraint',
     'Activity name': 'Activity name',
     'Constraint conflict': 'Constraint conflict',
@@ -121,6 +127,7 @@ const translations: Record<Language, TranslationMap> = {
     'Email already exists': 'Email already exists',
     'Shifts': 'Shifts',
     'Hours': 'Hours',
+    'Loading': 'Loading',
     'BW Assignments': 'BW Assignments',
     'BW Slot': 'BW Slot',
     'Edit BW Slot': 'Edit BW Slot',
@@ -137,6 +144,13 @@ const translations: Record<Language, TranslationMap> = {
     'Continue': 'Continue',
     'Not enough people available': 'Not enough people available',
     'Rasar': 'Rasar',
+    'Assignments': 'Assignments',
+    'Justice Table': 'Justice Table',
+    'Total': 'Total',
+    'All time': 'All time',
+    'By date range': 'By date range',
+    'From': 'From',
+    'To': 'To',
     'Contractor escort - 400': 'Contractor escort - 400',
     'Invalid rasar schedule': 'Invalid rasar schedule',
     'Required counts mismatch': 'Required counts mismatch',
@@ -239,6 +253,12 @@ const translations: Record<Language, TranslationMap> = {
     'Night guard exemption note short': 'פטור לילה',
     'Duel guard - cannot be alone in this shift': 'שמירה זוגית - לא ניתן לשבץ לבד במשמרת',
     'Night guard exemption': 'פטור שמירה לילה',
+    'Asthma exemption (AE)': 'פטור אסטמה',
+    'Asthma exemption note short': 'פטור אסטמה',
+    'Asthma exemption - can only work lookout post': 'פטור אסטמה - ניתן לשבץ רק לתצפיתן',
+    'Kitchen exemption (KE)': 'פטור מטבח',
+    'Kitchen exemption note short': 'פטור מטבח',
+    'Kitchen exemption - cannot work kitchen duty': 'פטור מטבח - לא ניתן לשבץ למטבח',
     'Add Constraint': 'הוספת אילוץ',
     'Activity name': 'שם פעילות',
     'Constraint conflict': 'התנגשות אילוץ',
@@ -249,13 +269,13 @@ const translations: Record<Language, TranslationMap> = {
     'No constraints yet': 'אין אילוצים עדיין',
     'Fetch failed': 'השליפה נכשלה',
     'Kitchen': 'מטבח',
-    'Escort': 'ליווי',
+    'Escort': 'ליווי קבלנים',
     'kitchen_1': 'מטבח_1',
     'kitchen_2': 'מטבח_2',
-    'escort_1': 'ליווי_1',
-    'escort_2': 'ליווי_2',
-    'escort_3': 'ליווי_3',
-    'escort_4': 'ליווי_4',
+    'escort_1': 'ליווי קבלנים_1',
+    'escort_2': 'ליווי קבלנים_2',
+    'escort_3': 'ליווי קבלנים_3',
+    'escort_4': 'ליווי קבלנים_4',
     'Coming soon': 'בקרוב',
     'Login': 'התחברות',
     'Register': 'הרשמה',
@@ -269,6 +289,7 @@ const translations: Record<Language, TranslationMap> = {
     'Shifts': 'משמרות',
     'Guards': 'שמירות',
     'Hours': 'שעות',
+    'Loading': 'טוען',
     'BW Assignments': 'עב"ס',
     'BW Slot': 'שורת עב"ס',
     'Edit BW Slot': 'עריכת עב"ס',
@@ -285,7 +306,14 @@ const translations: Record<Language, TranslationMap> = {
     'Create schedule with empty cells?': 'האם ליצור סידור עם תאים ריקים?',
     'Continue': 'המשך',
     'Rasar': 'רס"ר',
+    'Assignments': 'שיבוצים',
     'Contractor escort - 400': 'ליווי קבלנים - 400',
+    'Justice Table': 'טבלת צדק',
+    'Total': 'סה״כ',
+    'All time': 'כל הזמנים',
+    'By date range': 'טווח תאריכים',
+    'From': 'מ-',
+    'To': 'עד',
     'Invalid rasar schedule': 'סידור רס"ר לא תקין',
     'Required counts mismatch': 'חוסר התאמה במספר הנדרשים',
     'Missing/extra in rasar': 'חסר/עודף ברס"ר',
@@ -309,18 +337,18 @@ type I18nContextValue = {
 const I18nContext = createContext<I18nContextValue>({
   lang: 'he',
   rtl: true,
-  setLang: () => {},
+  setLang: () => { },
   t: (k) => k
 });
 
 export const I18nProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [lang, setLang] = useState<Language>('he');
   const rtl = lang === 'he';
-  
+
   const theme = useMemo(() => createTheme({ direction: rtl ? 'rtl' : 'ltr' }), [rtl]);
   const t = (k: string) => translations[lang][k] || k;
 
-    useEffect(() => {
+  useEffect(() => {
     document.documentElement.dir = rtl ? 'rtl' : 'ltr';
     document.body.style.direction = rtl ? 'rtl' : 'ltr';
   }, [rtl]);
@@ -329,7 +357,7 @@ export const I18nProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     <I18nContext.Provider value={{ lang, rtl, setLang, t }}>
       <ThemeProvider theme={theme}>
         {/* <div dir={rtl ? 'rtl' : 'ltr'} style={{ width: '100%' }}> */}
-          {children}
+        {children}
         {/* </div> */}
       </ThemeProvider>
     </I18nContext.Provider>

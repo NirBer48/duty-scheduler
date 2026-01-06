@@ -92,6 +92,8 @@ type AddPersonPayload = {
   standingExemption: boolean;
   duelGuard: boolean;
   nightGuardExemption: boolean;
+  asthmaExemption: boolean;
+  kitchenExemption: boolean;
 };
 
 type AddPostPayload = {
@@ -126,6 +128,18 @@ type ScheduleSnapshot = {
   escort400Assignments?: Escort400Assignment[];
   kitchenSettings?: KitchenSettings;
   escortSettings?: EscortSettings;
+};
+
+export type JusticeRow = {
+  personId: number;
+  name: string;
+  guardsHours: number;
+  bwHours: number;
+  kitchenHours: number;
+  escortHours: number;
+  rasarHours: number;
+  escort400Hours: number;
+  totalHours: number;
 };
 
 export const register = (email: string, password: string) =>
@@ -340,8 +354,8 @@ export const saveRasarSchedule = (rasarAssignments: RasarAssignment[], escort400
   request<{ ok: boolean; error?: string; violations?: Array<{ personId: number; message: string }> }>(
     '/schedule/save-rasar',
     {
-    method: 'POST',
-    body: JSON.stringify({ rasarAssignments, escort400Assignments }),
+      method: 'POST',
+      body: JSON.stringify({ rasarAssignments, escort400Assignments }),
     }
   );
 
@@ -370,3 +384,13 @@ export const saveAllSchedules = (
       end,
     }),
   });
+
+export const fetchJustice = (params: { mode: 'all' | 'range'; startISO?: string; endISO?: string }) => {
+  const qs = new URLSearchParams();
+  qs.set('mode', params.mode);
+  if (params.mode === 'range') {
+    if (params.startISO) qs.set('startISO', params.startISO);
+    if (params.endISO) qs.set('endISO', params.endISO);
+  }
+  return request<{ rows: JusticeRow[] }>(`/schedule/justice?${qs.toString()}`);
+};
