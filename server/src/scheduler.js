@@ -247,6 +247,25 @@ export const scheduleGenerator = (
 
   const formatShiftLabel = (start, end) => `${start.format('HH:mm')}-${end.format('HH:mm')}`;
 
+  // Calculate rest time in hours since last shift ended
+  const getRestTimeSince = (personId, slotStartISO) => {
+    const shifts = personShifts.get(personId) || [];
+    if (shifts.length === 0) return Infinity; // Never worked = maximum rest
+    
+    const slotStart = dayjs(slotStartISO);
+    let maxRest = Infinity;
+    
+    for (const shift of shifts) {
+      const shiftEnd = dayjs(shift.end);
+      if (shiftEnd.isBefore(slotStart) || shiftEnd.isSame(slotStart)) {
+        const restHours = slotStart.diff(shiftEnd, 'hour', true);
+        maxRest = Math.min(maxRest, restHours);
+      }
+    }
+    
+    return maxRest;
+  };
+
   // Add the first partial shift (from custom start to next 4-hour boundary)
   const addFirstShift = () => {
     const startMinutes = startDt.hour() * 60 + startDt.minute();
@@ -782,7 +801,7 @@ export const scheduleGenerator = (
       
       // For each unfilled slot, try to find a candidate
       for (const slot of unfilledSlots) {
-        // First, try non-ES members sorted by shift count
+        // First, try non-ES members sorted by shift count and rest time
         const nonESCandidates = nonESMembers
           .filter(p => canWork(p, slot))
           .filter(p => {
@@ -790,7 +809,16 @@ export const scheduleGenerator = (
             const existingInSlot = existingBySlot.get(slotKey) || [];
             return !existingInSlot.includes(p.id);
           })
-          .sort((a, b) => shiftCountByPerson[a.id] - shiftCountByPerson[b.id]);
+          .sort((a, b) => {
+            // Primary: workload (fewer shifts = higher priority)
+            const workDiff = shiftCountByPerson[a.id] - shiftCountByPerson[b.id];
+            if (workDiff !== 0) return workDiff;
+            
+            // Secondary: rest time (more rest = higher priority)
+            const restA = getRestTimeSince(a.id, slot.start);
+            const restB = getRestTimeSince(b.id, slot.start);
+            return restB - restA; // More rest = lower number (higher priority)
+          });
         
         let assigned = false;
         for (const candidate of nonESCandidates) {
@@ -810,7 +838,16 @@ export const scheduleGenerator = (
               const existingInSlot = existingBySlot.get(slotKey) || [];
               return !existingInSlot.includes(p.id);
             })
-            .sort((a, b) => shiftCountByPerson[a.id] - shiftCountByPerson[b.id]);
+            .sort((a, b) => {
+              // Primary: workload
+              const workDiff = shiftCountByPerson[a.id] - shiftCountByPerson[b.id];
+              if (workDiff !== 0) return workDiff;
+              
+              // Secondary: rest time
+              const restA = getRestTimeSince(a.id, slot.start);
+              const restB = getRestTimeSince(b.id, slot.start);
+              return restB - restA;
+            });
           
           for (const candidate of esCandidates) {
             if (tryAssignToSlot(candidate, slot)) {
@@ -1027,7 +1064,15 @@ export const scheduleGenerator = (
               (bwAssignmentCount[b.id] || 0) +
               (kitchenAssignmentCount[b.id] || 0) +
               (escortAssignmentCount[b.id] || 0);
-            return workA - workB;
+            
+            // Primary: total workload
+            const workDiff = workA - workB;
+            if (workDiff !== 0) return workDiff;
+            
+            // Secondary: rest time (more rest = higher priority)
+            const restA = getRestTimeSince(a.id, start);
+            const restB = getRestTimeSince(b.id, start);
+            return restB - restA;
           });
 
         for (const candidate of candidates) {
@@ -1271,7 +1316,15 @@ export const scheduleGenerator = (
               (bwAssignmentCount[b.id] || 0) +
               (kitchenAssignmentCount[b.id] || 0) +
               (escortAssignmentCount[b.id] || 0);
-            return workA - workB;
+            
+            // Primary: total workload
+            const workDiff = workA - workB;
+            if (workDiff !== 0) return workDiff;
+            
+            // Secondary: rest time (more rest = higher priority)
+            const restA = getRestTimeSince(a.id, times.start);
+            const restB = getRestTimeSince(b.id, times.start);
+            return restB - restA;
           });
 
         for (const candidate of candidates) {
@@ -1474,8 +1527,17 @@ export const scheduleGenerator = (
               (kitchenAssignmentCount[b.id] || 0) +
               (escortAssignmentCount[b.id] || 0) +
               (rasarAssignmentCount[b.id] || 0);
-            const diff = workA - workB;
-            if (diff !== 0) return diff;
+            
+            // Primary: total workload
+            const workDiff = workA - workB;
+            if (workDiff !== 0) return workDiff;
+            
+            // Secondary: rest time (more rest = higher priority)
+            const restA = getRestTimeSince(a.id, times.start);
+            const restB = getRestTimeSince(b.id, times.start);
+            if (restA !== restB) return restB - restA;
+            
+            // Tertiary: random tie-breaker
             return tieBreakRandom(a, b);
           });
 
@@ -1523,8 +1585,17 @@ export const scheduleGenerator = (
               (escortAssignmentCount[b.id] || 0) +
               (rasarAssignmentCount[b.id] || 0) +
               (escort400AssignmentCount[b.id] || 0);
-            const diff = workA - workB;
-            if (diff !== 0) return diff;
+            
+            // Primary: total workload
+            const workDiff = workA - workB;
+            if (workDiff !== 0) return workDiff;
+            
+            // Secondary: rest time (more rest = higher priority)
+            const restA = getRestTimeSince(a.id, times.start);
+            const restB = getRestTimeSince(b.id, times.start);
+            if (restA !== restB) return restB - restA;
+            
+            // Tertiary: random tie-breaker
             return tieBreakRandom(a, b);
           });
 
