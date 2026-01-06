@@ -260,8 +260,8 @@ const translations: Record<Language, TranslationMap> = {
     'in BW at this time': 'בעב"ס בזמן זה',
     'Missing about X people to complete the task': 'חסרים כ{count} אנשים לביצוע המשימה',
     'Manpower Shortage': 'חוסר בכוח אדם',
-    'Not enough people available': 'אין מספיק אנשים זמינים',
-    'Missing X people': 'אנשים חסרים',
+    'Not enough people available': 'אין מספיק צוערים זמינים',
+    'Missing X people': 'צוערים חסרים',
     'Create schedule with empty cells?': 'האם ליצור סידור עם תאים ריקים?',
     'Continue': 'המשך',
   }

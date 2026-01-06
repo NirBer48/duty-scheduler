@@ -517,6 +517,7 @@ router.post('/generate-guards', async (req, res, next) => {
       kitchenSettings,
       escortSettings,
       constraints = [],
+      allowPartial = false,
     } = req.body;
 
     const [peopleRows, postRows] = await Promise.all([
@@ -548,6 +549,8 @@ router.post('/generate-guards', async (req, res, next) => {
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
 
+    console.log('generate-guards called with allowPartial:', allowPartial);
+    
     const result = scheduleGenerator(
       shuffledPeople,
       postRows.map(mapPost),
@@ -562,8 +565,15 @@ router.post('/generate-guards', async (req, res, next) => {
       kitchenSettings,
       escortSettings,
       constraints,
-      { mode: 'guards' }
+      { mode: 'guards', allowPartial }
     );
+
+    console.log('scheduleGenerator result:', { 
+      error: result.error, 
+      missingCount: result.missingCount,
+      assignmentsCount: result.assignments?.length,
+      bwAssignmentsCount: result.bwAssignments?.length
+    });
 
     if (result.error) return respondError(res, result.error, result.missingCount ?? null);
 

@@ -106,6 +106,8 @@ export const scheduleGenerator = (
   options = {}
 ) => {
   const mode = options?.mode || 'all'; // 'all' | 'guards' | 'kitchen'
+  const allowPartial = options?.allowPartial || false; // allow partial schedule with empty cells
+  console.log('scheduleGenerator options:', { mode, allowPartial, optionsReceived: options });
   // Build all 4-hour shift time slots between start and end
   const shiftDefinitions = [
     { label: '00:00-04:00', startOffset: 0, endOffset: 4 },
@@ -564,7 +566,7 @@ export const scheduleGenerator = (
   // Check for unfilled mandatory slots and calculate minimum people needed
   const unfilledMandatorySlots = slotsToFill.filter(slot => slot.stillNeeded > 0 && !slot.optional);
     
-  if (unfilledMandatorySlots.length > 0) {
+  if (unfilledMandatorySlots.length > 0 && !allowPartial) {
     // Calculate total unfilled positions
     const totalUnfilledPositions = unfilledMandatorySlots.reduce((sum, slot) => sum + slot.stillNeeded, 0);
     
@@ -625,7 +627,7 @@ export const scheduleGenerator = (
     }
   }
 
-  if (duelGuardViolations > 0 || genderPrefViolations > 0) {
+  if ((duelGuardViolations > 0 || genderPrefViolations > 0) && !allowPartial) {
     return { 
       assignments: [], 
       bwAssignments: [], 

@@ -169,7 +169,8 @@ export const generateGuardsSchedule = (
   existingEscortAssignments: EscortAssignment[] = [],
   kitchenSettings: KitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
   escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
-  constraints: Constraint[] = []
+  constraints: Constraint[] = [],
+  allowPartial: boolean = false
 ) =>
   request<ScheduleResponse>('/schedule/generate-guards', {
     method: 'POST',
@@ -186,6 +187,7 @@ export const generateGuardsSchedule = (
       kitchenSettings,
       escortSettings,
       constraints,
+      allowPartial,
     }),
   });
 
