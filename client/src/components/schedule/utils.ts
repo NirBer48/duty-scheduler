@@ -47,8 +47,10 @@ export const getShiftsForPeriod = (start: string, end: string): ShiftSlot[] => {
 export const getShiftIndex = (day: string, shiftLabel: string, allShifts: ShiftSlot[]): number =>
     allShifts.findIndex(s => s.day === day && s.label === shiftLabel);
 
+// NOTE: backend/DB may return numeric IDs as strings; normalize to numbers here so
+// lookups like `people.find(p => ids.includes(p.id))` work reliably.
 const uniquePersonIds = (assignments: Assignment[], predicate: (assignment: Assignment) => boolean) =>
-    [...new Set(assignments.filter(predicate).map(a => a.personId))];
+    [...new Set(assignments.filter(predicate).map(a => Number((a as any).personId)))];
 
 export const getPersonIds = (
     assignments: Assignment[],

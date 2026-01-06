@@ -122,7 +122,7 @@ const ManpowerShortageDialog: React.FC<ManpowerShortageDialogProps> = ({
             }
           }}
         >
-          {t('Continue')}
+          {t('Generate')}
         </Button>
       </DialogActions>
     </Dialog>

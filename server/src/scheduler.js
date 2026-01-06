@@ -107,6 +107,10 @@ export const scheduleGenerator = (
 ) => {
   const mode = options?.mode || 'all'; // 'all' | 'guards' | 'kitchen'
   const allowPartial = options?.allowPartial || false; // allow partial schedule with empty cells
+  // In partial mode we still respect "hard" constraints (time constraints, rest, exemptions),
+  // but we relax "soft" rules that can otherwise prevent *any* assignments from being made.
+  // The client already highlights violations, so users can see problematic cells.
+  const relaxSoftRules = allowPartial;
   console.log('scheduleGenerator options:', { mode, allowPartial, optionsReceived: options });
   // Build all 4-hour shift time slots between start and end
   const shiftDefinitions = [
@@ -368,6 +372,7 @@ export const scheduleGenerator = (
   const getShiftKey = (day, shiftLabel) => `${day}|${shiftLabel}`;
 
   const canESMemberWorkAtShift = (personId, day, shiftLabel) => {
+    if (relaxSoftRules) return true;
     const groupId = personToESGroup.get(personId);
     if (!groupId) return true;
     
@@ -445,6 +450,7 @@ export const scheduleGenerator = (
   };
 
   const canPair = (p1, p2, shiftLabel) => {
+    if (relaxSoftRules) return true;
     if (!NIGHT_SHIFT_LABELS.has(shiftLabel)) return true;
     if (p1.sameGenderPref || p2.sameGenderPref) {
       return p1.gender === p2.gender;
@@ -471,7 +477,7 @@ export const scheduleGenerator = (
     }
 
     // Duel guard: cannot be alone in the post slot
-    if (candidate.duelGuard && assignedToThisPost.length === 0 && slot.stillNeeded <= 1) {
+    if (!relaxSoftRules && candidate.duelGuard && assignedToThisPost.length === 0 && slot.stillNeeded <= 1) {
       return false;
     }
     

@@ -249,6 +249,20 @@ const ScheduleCalendar: React.FC<Props> = ({
         return people.filter(p => ids.includes(p.id)).map(p => p.name).join(", ");
     };
 
+    const getPeopleDisplayLines = (postId: number, shiftLabel: string, day: string): { name: string; isEmpty: boolean }[] => {
+        const ids = getPersonIds(localAssignments, shiftLabel, day, postId);
+        const required = getRequiredCount(postId, day, shiftLabel);
+        const names = people
+            .filter(p => ids.includes(p.id))
+            .map(p => p.name);
+        const missing = Math.max(0, required - names.length);
+        return [
+            ...names.map(name => ({ name, isEmpty: false })),
+            // Use a visible placeholder so partial schedules are obvious
+            ...Array.from({ length: missing }, () => ({ name: '—', isEmpty: true })),
+        ];
+    };
+
     const getBWPersonIds = (day: string, slotId: string): number[] =>
         bwAssignments
             .filter(a => a.day === day && a.slotId === slotId)
@@ -773,7 +787,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                         {shift.day} {displayShiftLabel(shiftIdx, filteredShifts.length, shift.label)}
                                     </td>
                                     {posts.map(post => {
-                                        const names = getPeopleNames(post.id, shift.label, shift.day);
+                                        const displayLines = getPeopleDisplayLines(post.id, shift.label, shift.day);
                                         const required = getRequiredCount(post.id, shift.day, shift.label);
                                         const assignedCount = getPersonIds(localAssignments, shift.label, shift.day, post.id).length;
                                         const isInvalid = isInvalidCell(post.id, shift.label, shift.day);
@@ -783,6 +797,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                         if (isInvalid && validationErrors.length > 0) bgColor = '#ffcdd2';
                                         else if (required === 0) bgColor = '#e0e0e0';
                                         else if (assignedCount === 0) bgColor = '#ffebee';
+                                        else if (assignedCount < required) bgColor = '#fff8e1';
                                         else if (assignedCount >= required) bgColor = '#e8f5e9';
 
                                         return (
@@ -803,7 +818,41 @@ const ScheduleCalendar: React.FC<Props> = ({
                                                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = bgColor}
                                             >
                                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                    <span>{names || <span style={{ color: '#999' }}>—</span>}</span>
+                                                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, minWidth: 0 }}>
+                                                        {required === 0 ? (
+                                                            <Typography variant="body2" sx={{ color: '#777' }}>
+                                                                —
+                                                            </Typography>
+                                                        ) : (
+                                                            <>
+                                                                {displayLines.length > 0 ? (
+                                                                    displayLines.map((line, idx) => (
+                                                                        <Typography
+                                                                            key={idx}
+                                                                            variant="body2"
+                                                                            sx={{
+                                                                                lineHeight: 1.2,
+                                                                                color: line.isEmpty ? '#999' : 'text.primary',
+                                                                                fontStyle: line.isEmpty ? 'italic' : 'normal',
+                                                                                whiteSpace: 'nowrap',
+                                                                                overflow: 'hidden',
+                                                                                textOverflow: 'ellipsis',
+                                                                            }}
+                                                                        >
+                                                                            {line.name}
+                                                                        </Typography>
+                                                                    ))
+                                                                ) : (
+                                                                    <Typography variant="body2" sx={{ color: '#999' }}>
+                                                                        —
+                                                                    </Typography>
+                                                                )}
+                                                                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
+                                                                    {assignedCount} / {required}
+                                                                </Typography>
+                                                            </>
+                                                        )}
+                                                    </Box>
                                                     <IconButton size="small" onClick={(e) => handleSettingsClick(e, post, shift.day, shift.label)} sx={{ p: 0, ml: 0.5 }}>
                                                         <SettingsIcon fontSize="small" color={hasOverride ? "primary" : "disabled"} />
                                                     </IconButton>

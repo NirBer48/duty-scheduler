@@ -299,7 +299,7 @@ const App: React.FC = () => {
     
     try {
       // Generate with allowPartial=true to get partial schedule with empty cells
-      console.log('handleManpowerConfirm: calling with allowPartial=true');
+      console.log('handleManpowerConfirm v2: calling with allowPartial=true');
       const res = await generateGuardsSchedule(
         start,
         end,

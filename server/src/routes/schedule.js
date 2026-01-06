@@ -20,6 +20,23 @@ const mapPost = row => ({
   optional: Boolean(row.optional),
 });
 
+// Internal helper: normalize IDs coming from Postgres (may be strings) for the scheduler algorithm.
+// This does NOT change what we persist or return to clients; it only prevents string/number mismatches
+// inside the scheduling logic.
+const toSchedulerPerson = row => ({
+  ...mapPerson(row),
+  id: Number(row.id),
+});
+
+const toSchedulerPost = row => ({
+  ...mapPost(row),
+  id: Number(row.id),
+  requiredPerShift: Number(row.requiredpershift ?? row.requiredPerShift ?? 1),
+});
+
+// Internal helper: type-agnostic ID comparison (string vs number) when sanitizing incoming payloads.
+const idKey = v => String(v);
+
 const mapAssignment = row => ({
   postId: Number(row.postid),
   personId: Number(row.personid),
@@ -427,20 +444,20 @@ router.post('/generate', async (req, res, next) => {
       db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
     ]);
 
-    const personIds = new Set(peopleRows.map(p => p.id));
-    const postIds = new Set(postRows.map(p => p.id));
+    const personIds = new Set(peopleRows.map(p => idKey(p.id)));
+    const postIds = new Set(postRows.map(p => idKey(p.id)));
     const sanitizeAssignments = arr =>
-      (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)) && postIds.has(idKey(a.postId)));
     const sanitizeBw = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeKitchen = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEscort = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
-        personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
+        personIds: (es.personIds || []).filter(pid => personIds.has(idKey(pid))),
       }));
 
     const sanitizedEs = sanitizeEs(esAssignments);
@@ -449,11 +466,11 @@ router.post('/generate', async (req, res, next) => {
     const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
 
-    const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+    const shuffledPeople = shuffle(peopleRows).map(toSchedulerPerson);
 
     const result = scheduleGenerator(
       shuffledPeople,
-      postRows.map(mapPost),
+      postRows.map(toSchedulerPost),
       startISO,
       endISO,
       shiftOverrides,
@@ -525,20 +542,20 @@ router.post('/generate-guards', async (req, res, next) => {
       db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
     ]);
 
-    const personIds = new Set(peopleRows.map(p => p.id));
-    const postIds = new Set(postRows.map(p => p.id));
+    const personIds = new Set(peopleRows.map(p => idKey(p.id)));
+    const postIds = new Set(postRows.map(p => idKey(p.id)));
     const sanitizeAssignments = arr =>
-      (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)) && postIds.has(idKey(a.postId)));
     const sanitizeBw = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeKitchen = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEscort = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
-        personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
+        personIds: (es.personIds || []).filter(pid => personIds.has(idKey(pid))),
       }));
 
     const sanitizedEs = sanitizeEs(esAssignments);
@@ -547,13 +564,13 @@ router.post('/generate-guards', async (req, res, next) => {
     const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
 
-    const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+    const shuffledPeople = shuffle(peopleRows).map(toSchedulerPerson);
 
     console.log('generate-guards called with allowPartial:', allowPartial);
     
     const result = scheduleGenerator(
       shuffledPeople,
-      postRows.map(mapPost),
+      postRows.map(toSchedulerPost),
       startISO,
       endISO,
       shiftOverrides,
@@ -614,20 +631,20 @@ router.post('/generate-kitchen', async (req, res, next) => {
       db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
     ]);
 
-    const personIds = new Set(peopleRows.map(p => p.id));
-    const postIds = new Set(postRows.map(p => p.id));
+    const personIds = new Set(peopleRows.map(p => idKey(p.id)));
+    const postIds = new Set(postRows.map(p => idKey(p.id)));
     const sanitizeAssignments = arr =>
-      (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)) && postIds.has(idKey(a.postId)));
     const sanitizeBw = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeKitchen = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEscort = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
-        personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
+        personIds: (es.personIds || []).filter(pid => personIds.has(idKey(pid))),
       }));
 
     const sanitizedEs = sanitizeEs(esAssignments);
@@ -636,11 +653,11 @@ router.post('/generate-kitchen', async (req, res, next) => {
     const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
 
-    const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+    const shuffledPeople = shuffle(peopleRows).map(toSchedulerPerson);
 
     const result = scheduleGenerator(
       shuffledPeople,
-      postRows.map(mapPost),
+      postRows.map(toSchedulerPost),
       startISO,
       endISO,
       [], // no guard overrides needed for kitchen generation
