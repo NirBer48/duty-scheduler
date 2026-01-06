@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import dayjs from "dayjs";
 import {
     Assignment,
@@ -98,6 +98,7 @@ const ScheduleCalendar: React.FC<Props> = ({
     const shifts = getShiftsForPeriod(start, end);
     const { t, lang } = useI18n();
     const [showValidationDetails, setShowValidationDetails] = useState(false);
+    const generationInFlightRef = useRef(false);
 
     // ES Groups state - use external if provided
     const [localESGroups, setLocalESGroups] = useState<ESGroup[]>([
@@ -178,11 +179,19 @@ const ScheduleCalendar: React.FC<Props> = ({
     // Sync effects - only reset on initial assignments change (not BW changes)
     useEffect(() => {
         setLocalAssignments(initialAssignments);
-        setHasChanges(false);
+        // If these assignments arrived as a result of "Generate", treat them as unsaved changes
+        // so the user can immediately hit Save (even if partial/invalid).
+        setHasChanges(generationInFlightRef.current);
+        generationInFlightRef.current = false;
         const validation = validateAndMarkCells(undefined, initialAssignments);
         setValidationErrors(validation.errors);
         setShowValidationDetails(false);
     }, [initialAssignments]);
+
+    // Track whether we're in the middle of a generation cycle (parent-driven).
+    useEffect(() => {
+        if (isGenerating) generationInFlightRef.current = true;
+    }, [isGenerating]);
 
     // Sync BW assignments from external source (without resetting hasChanges)
     useEffect(() => {
@@ -790,7 +799,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                 variant="contained"
                                 color="success"
                                 onClick={handleSaveAll}
-                                disabled={isSaving || isGenerating}
+                                disabled={!hasChanges || isSaving || isGenerating}
                             >
                                 {t('Save Schedule')}
                             </Button>

@@ -132,13 +132,6 @@ const KitchenDutyView: React.FC<Props> = ({
     { id: newShiftId(), start: '06:00', end: '21:00', required: 36 },
   ]);
 
-  // Ensure we always have at least one valid shift array in settings.
-  React.useEffect(() => {
-    if (!kitchenSettings?.shifts || kitchenSettings.shifts.length < 1) {
-      onKitchenSettingsChange({ shifts: defaultKitchenShifts() });
-    }
-  }, [kitchenSettings, onKitchenSettingsChange]);
-
   const kitchenShiftList: KitchenShift[] = useMemo(() => {
     if (kitchenSettings?.shifts && kitchenSettings.shifts.length > 0) return kitchenSettings.shifts;
     return defaultKitchenShifts();
@@ -164,6 +157,7 @@ const KitchenDutyView: React.FC<Props> = ({
   const minutesBetween = (startHHmm: string, endHHmm: string) => hhmmToMinutes(endHHmm) - hhmmToMinutes(startHHmm);
 
   const setKitchenShifts = (next: KitchenShift[], baseAssignments: KitchenAssignment[] = kitchenAssignments) => {
+    setHasChanges(true);
     onKitchenSettingsChange({ shifts: next });
     onKitchenAssignmentsChange(recomputeKitchenAssignmentTimes(baseAssignments, next));
   };
@@ -572,8 +566,18 @@ const KitchenDutyView: React.FC<Props> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [showValidationDetails, setShowValidationDetails] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
   const [invalidKitchenCells, setInvalidKitchenCells] = useState<Set<string>>(new Set());
   const [invalidEscortCells, setInvalidEscortCells] = useState<Set<string>>(new Set());
+
+  // Ensure we always have at least one valid shift array in settings.
+  React.useEffect(() => {
+    if (!kitchenSettings?.shifts || kitchenSettings.shifts.length < 1) {
+      // Auto-fix old/empty settings; this is a real change that should be savable.
+      setHasChanges(true);
+      onKitchenSettingsChange({ shifts: defaultKitchenShifts() });
+    }
+  }, [kitchenSettings, onKitchenSettingsChange]);
 
   const [shiftSettingsDialog, setShiftSettingsDialog] = useState<{
     open: boolean;
@@ -599,6 +603,7 @@ const KitchenDutyView: React.FC<Props> = ({
   };
 
   const updateKitchenCell = (day: string, shiftId: string, personIds: number[], range: { start: string; end: string }) => {
+    setHasChanges(true);
     const filtered = kitchenAssignments.filter(a => !(a.day === day && a.shiftId === shiftId));
     const updated: KitchenAssignment[] = [
       ...filtered,
@@ -608,6 +613,7 @@ const KitchenDutyView: React.FC<Props> = ({
   };
 
   const updateEscortCell = (day: string, shiftId: string, personIds: number[], range: { start: string; end: string }) => {
+    setHasChanges(true);
     const filtered = escortAssignments.filter(a => !(a.day === day && a.shiftId === shiftId));
     const updated: EscortAssignment[] = [
       ...filtered,
@@ -638,6 +644,8 @@ const KitchenDutyView: React.FC<Props> = ({
       );
       if (!res.ok) {
         setSaveError(res.error || t('Save failed'));
+      } else {
+        setHasChanges(false);
       }
     } catch (e: any) {
       setSaveError(e?.message || t('Save failed'));
@@ -667,10 +675,25 @@ const KitchenDutyView: React.FC<Props> = ({
             InputLabelProps={{ shrink: true }}
             size="small"
           />
-          <Button variant="contained" onClick={onGenerate} disabled={isGenerating || isSaving}>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setHasChanges(true);
+              onGenerate();
+            }}
+            disabled={isGenerating || isSaving}
+          >
             {isGenerating ? t('Assigning') : t('Generate')}
           </Button>
-          <Button variant="outlined" color="error" onClick={onClear} disabled={isGenerating || isSaving}>
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={() => {
+              setHasChanges(true);
+              onClear();
+            }}
+            disabled={isGenerating || isSaving}
+          >
             {t('Clear')}
           </Button>
           <Button variant="outlined" onClick={onAddConstraint} disabled={isGenerating || isSaving}>
@@ -692,7 +715,7 @@ const KitchenDutyView: React.FC<Props> = ({
           >
             {t('Export to Excel')}
           </Button>
-          <Button variant="contained" color="success" onClick={handleSave} disabled={isGenerating || isSaving}>
+          <Button variant="contained" color="success" onClick={handleSave} disabled={!hasChanges || isGenerating || isSaving}>
             {t('Save Schedule')}
           </Button>
         </Stack>
