@@ -150,7 +150,7 @@ const JusticeTableView: React.FC<Props> = ({
         <Box sx={{ width: '100%' }}>
             <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2} sx={{ mb: 2 }}>
                 <Box>
-                    <Typography variant="h5">{t('Justice Table')}</Typography>
+                    <Typography variant="h3">{t('Justice Table')}</Typography>
                     <Typography variant="body2" color="text.secondary">
                         {mode === 'all' ? t('All time') : `${fromDate} → ${toDate}`}
                     </Typography>
@@ -195,7 +195,7 @@ const JusticeTableView: React.FC<Props> = ({
                 </Typography>
             )}
 
-            <TableContainer component={Paper} sx={{ overflowX: 'auto' }}>
+            <TableContainer component={Paper} sx={{ overflowX: 'auto', border: '2px solid #333' }}>
                 <Table
                     size="small"
                     stickyHeader
@@ -206,9 +206,11 @@ const JusticeTableView: React.FC<Props> = ({
                         '& .MuiTableCell-root': {
                             fontFamily: 'Calibri, "Segoe UI", Arial, sans-serif',
                             fontSize: '0.95rem',
+                            border: '1px solid #ccc',
                         },
                         '& .MuiTableCell-head': {
                             fontSize: '1.0rem',
+                            borderBottom: '2px solid #333',
                         },
                     }}
                 >
@@ -218,12 +220,13 @@ const JusticeTableView: React.FC<Props> = ({
                                 <TableCell
                                     key={col.key}
                                     align='center'
-                                    sx={{ fontWeight: 800, whiteSpace: 'nowrap', fontSize: '1rem' }}
+                                    sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}
                                 >
                                     <TableSortLabel
                                         active={orderBy === col.key}
                                         direction={orderBy === col.key ? order : 'asc'}
                                         onClick={() => onSort(col.key)}
+                                        sx={{ fontSize: '1.5rem' }}
                                     >
                                         {col.label}
                                     </TableSortLabel>
@@ -258,20 +261,18 @@ const JusticeTableView: React.FC<Props> = ({
                                         sx={{
                                             fontWeight: 700,
                                             whiteSpace: 'nowrap',
-                                            fontSize: '1rem',
+                                            fontSize: '1.25rem',
                                         }}
                                     >
                                         {name}
                                     </TableCell>
-                                    <TableCell align="center">{fmt(r.guardsHours)}</TableCell>
-                                    <TableCell align="center">{fmt(r.bwHours)}</TableCell>
-                                    <TableCell align="center">{fmt(r.kitchenHours)}</TableCell>
-                                    <TableCell align="center">{fmt(r.escortHours)}</TableCell>
-                                    <TableCell align="center">{fmt(r.rasarHours)}</TableCell>
-                                    <TableCell align="center">{fmt(r.escort400Hours)}</TableCell>
-                                    <TableCell align="center" sx={{ fontWeight: 800 }}>
-                                        {fmt(r.totalHours)}
-                                    </TableCell>
+                                    <TableCell sx={{ fontSize: '1.5rem' }} align="center">{fmt(r.guardsHours)}</TableCell>
+                                    <TableCell sx={{ fontSize: '1.5rem' }} align="center">{fmt(r.bwHours)}</TableCell>
+                                    <TableCell sx={{ fontSize: '1.5rem' }} align="center">{fmt(r.kitchenHours)}</TableCell>
+                                    <TableCell sx={{ fontSize: '1.5rem' }} align="center">{fmt(r.escortHours)}</TableCell>
+                                    <TableCell sx={{ fontSize: '1.5rem' }} align="center">{fmt(r.rasarHours)}</TableCell>
+                                    <TableCell sx={{ fontSize: '1.5rem' }} align="center">{fmt(r.escort400Hours)}</TableCell>
+                                    <TableCell sx={{ fontSize: '1.5rem', fontWeight: 800 }} align="center"> {fmt(r.totalHours)}</TableCell>
                                 </TableRow>
                             );
                         })}

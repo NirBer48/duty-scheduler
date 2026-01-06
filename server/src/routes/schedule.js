@@ -1945,6 +1945,35 @@ router.post('/save-rasar', async (req, res, next) => {
       persistRasarOnly(db, sanitized, req.user.id),
       persistEscort400Only(db, sanitized400, req.user.id),
     ]);
+
+    // Archive rasar/escort400 so they appear in Justice table.
+    // Infer schedule period from assignments (min/max day).
+    const allDays = [...sanitized.map(a => a.day), ...sanitized400.map(a => a.day)].filter(Boolean).sort();
+    if (allDays.length > 0) {
+      const scheduleStart = allDays[0];
+      const scheduleEnd = allDays[allDays.length - 1];
+      // Clear existing archives for this period
+      try { await db.run('DELETE FROM archived_rasar_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, req.user.id]); } catch {}
+      try { await db.run('DELETE FROM archived_escort400_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, req.user.id]); } catch {}
+      // Insert new archives
+      for (const r of sanitized) {
+        try {
+          await db.run(
+            'INSERT INTO archived_rasar_assignments (schedule_start, schedule_end, personId, day, shiftId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+            [scheduleStart, scheduleEnd, Number(r.personId), r.day, r.shiftId, req.user.id]
+          );
+        } catch {}
+      }
+      for (const a of sanitized400) {
+        try {
+          await db.run(
+            'INSERT INTO archived_escort400_assignments (schedule_start, schedule_end, personId, day, shiftId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+            [scheduleStart, scheduleEnd, Number(a.personId), a.day, a.shiftId, req.user.id]
+          );
+        } catch {}
+      }
+    }
+
     res.json({ ok: true });
   } catch (err) {
     next(err);
