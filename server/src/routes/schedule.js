@@ -282,16 +282,17 @@ const isBwSlotInRange = (day, slotId, rangeStart, rangeEnd) => {
   const slot = BW_SLOT_DEFINITIONS.find(s => s.id === slotId);
   if (!slot) return false;
 
-  const dayDate = new Date(day + 'T00:00:00.000Z');
+  // Use local time (not UTC) since rangeStart/rangeEnd are parsed as local time
+  const dayDate = new Date(day + 'T00:00:00');
   const slotStart = new Date(dayDate);
-  slotStart.setUTCHours(slot.startHour, slot.startMinute, 0, 0);
+  slotStart.setHours(slot.startHour, slot.startMinute, 0, 0);
 
   const slotEnd = new Date(dayDate);
-  slotEnd.setUTCHours(slot.endHour, slot.endMinute, 0, 0);
+  slotEnd.setHours(slot.endHour, slot.endMinute, 0, 0);
 
   // Handle slots that might span midnight
   if (slotEnd <= slotStart) {
-    slotEnd.setUTCDate(slotEnd.getUTCDate() + 1);
+    slotEnd.setDate(slotEnd.getDate() + 1);
   }
 
   // Check overlap: slot overlaps with range if slotEnd > rangeStart AND slotStart < rangeEnd
