@@ -92,6 +92,12 @@ const translations: Record<Language, TranslationMap> = {
     'Night guard exemption note short': 'Night guard exemption',
     'Duel guard - cannot be alone in this shift': 'Duel guard - cannot be alone in this shift',
     'Night guard exemption': 'Night guard exemption',
+    'Asthma exemption (AE)': 'Asthma exemption (AE)',
+    'Asthma exemption note short': 'Asthma exemption',
+    'Asthma exemption - can only work lookout post': 'Asthma exemption - can only work lookout post (תצפיתן)',
+    'Kitchen exemption (KE)': 'Kitchen exemption (KE)',
+    'Kitchen exemption note short': 'Kitchen exemption',
+    'Kitchen exemption - cannot work kitchen duty': 'Kitchen exemption - cannot work kitchen duty',
     'Add Constraint': 'Add Constraint',
     'Activity name': 'Activity name',
     'Constraint conflict': 'Constraint conflict',
@@ -234,6 +240,12 @@ const translations: Record<Language, TranslationMap> = {
     'Night guard exemption note short': 'פטור לילה',
     'Duel guard - cannot be alone in this shift': 'שמירה זוגית - לא ניתן לשבץ לבד במשמרת',
     'Night guard exemption': 'פטור שמירה לילה',
+    'Asthma exemption (AE)': 'פטור אסטמה',
+    'Asthma exemption note short': 'פטור אסטמה',
+    'Asthma exemption - can only work lookout post': 'פטור אסטמה - ניתן לשבץ רק לתצפיתן',
+    'Kitchen exemption (KE)': 'פטור מטבח',
+    'Kitchen exemption note short': 'פטור מטבח',
+    'Kitchen exemption - cannot work kitchen duty': 'פטור מטבח - לא ניתן לשבץ למטבח',
     'Add Constraint': 'הוספת אילוץ',
     'Activity name': 'שם פעילות',
     'Constraint conflict': 'התנגשות אילוץ',
@@ -299,18 +311,18 @@ type I18nContextValue = {
 const I18nContext = createContext<I18nContextValue>({
   lang: 'he',
   rtl: true,
-  setLang: () => {},
+  setLang: () => { },
   t: (k) => k
 });
 
 export const I18nProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [lang, setLang] = useState<Language>('he');
   const rtl = lang === 'he';
-  
+
   const theme = useMemo(() => createTheme({ direction: rtl ? 'rtl' : 'ltr' }), [rtl]);
   const t = (k: string) => translations[lang][k] || k;
 
-    useEffect(() => {
+  useEffect(() => {
     document.documentElement.dir = rtl ? 'rtl' : 'ltr';
     document.body.style.direction = rtl ? 'rtl' : 'ltr';
   }, [rtl]);
@@ -319,7 +331,7 @@ export const I18nProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     <I18nContext.Provider value={{ lang, rtl, setLang, t }}>
       <ThemeProvider theme={theme}>
         {/* <div dir={rtl ? 'rtl' : 'ltr'} style={{ width: '100%' }}> */}
-          {children}
+        {children}
         {/* </div> */}
       </ThemeProvider>
     </I18nContext.Provider>

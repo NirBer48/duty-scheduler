@@ -13,6 +13,8 @@ const mapPerson = row => ({
   standingExemption: Boolean(row.standingexemption || row.standingExemption),
   duelGuard: Boolean(row.duelguard || row.duelGuard),
   nightGuardExemption: Boolean(row.nightguardexemption || row.nightGuardExemption),
+  asthmaExemption: Boolean(row.asthmaexemption || row.asthmaExemption),
+  kitchenExemption: Boolean(row.kitchenexemption || row.kitchenExemption),
 });
 
 const mapPost = row => ({
@@ -1168,15 +1170,15 @@ router.post('/generate-rasar', async (req, res, next) => {
     const buildRasarRange = (day, shiftId) => {
       const def =
         shiftId === 'rasar_1' ? { start: '08:30', end: '11:30' } :
-        shiftId === 'rasar_2' ? { start: '13:30', end: '17:30' } :
-        shiftId === 'rasar_3' ? { start: '19:30', end: '20:30' } : null;
+          shiftId === 'rasar_2' ? { start: '13:30', end: '17:30' } :
+            shiftId === 'rasar_3' ? { start: '19:30', end: '20:30' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
     const buildEscort400Range = (day, shiftId) => {
       const def =
         shiftId === 'escort400_1' ? { start: '08:00', end: '12:30' } :
-        shiftId === 'escort400_2' ? { start: '12:30', end: '17:00' } : null;
+          shiftId === 'escort400_2' ? { start: '12:30', end: '17:00' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
@@ -1202,9 +1204,9 @@ router.post('/generate-rasar', async (req, res, next) => {
     const buildEscortRange = (day, shiftId) => {
       const def =
         shiftId === 'escort_1' ? { start: '07:00', end: '10:30' } :
-        shiftId === 'escort_2' ? { start: '10:30', end: '14:00' } :
-        shiftId === 'escort_3' ? { start: '14:00', end: '17:00' } :
-        shiftId === 'escort_4' ? { start: '17:00', end: '19:00' } : null;
+          shiftId === 'escort_2' ? { start: '10:30', end: '14:00' } :
+            shiftId === 'escort_3' ? { start: '14:00', end: '17:00' } :
+              shiftId === 'escort_4' ? { start: '17:00', end: '19:00' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
@@ -1473,24 +1475,24 @@ router.post('/save-rasar', async (req, res, next) => {
     const buildRasarRange = (day, shiftId) => {
       const def =
         shiftId === 'rasar_1' ? { start: '08:30', end: '11:30' } :
-        shiftId === 'rasar_2' ? { start: '13:30', end: '17:30' } :
-        shiftId === 'rasar_3' ? { start: '19:30', end: '20:30' } : null;
+          shiftId === 'rasar_2' ? { start: '13:30', end: '17:30' } :
+            shiftId === 'rasar_3' ? { start: '19:30', end: '20:30' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
     const buildEscort400Range = (day, shiftId) => {
       const def =
         shiftId === 'escort400_1' ? { start: '08:00', end: '12:30' } :
-        shiftId === 'escort400_2' ? { start: '12:30', end: '17:00' } : null;
+          shiftId === 'escort400_2' ? { start: '12:30', end: '17:00' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
     const buildEscortRange = (day, shiftId) => {
       const def =
         shiftId === 'escort_1' ? { start: '07:00', end: '10:30' } :
-        shiftId === 'escort_2' ? { start: '10:30', end: '14:00' } :
-        shiftId === 'escort_3' ? { start: '14:00', end: '17:00' } :
-        shiftId === 'escort_4' ? { start: '17:00', end: '19:00' } : null;
+          shiftId === 'escort_2' ? { start: '10:30', end: '14:00' } :
+            shiftId === 'escort_3' ? { start: '14:00', end: '17:00' } :
+              shiftId === 'escort_4' ? { start: '17:00', end: '19:00' } : null;
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
@@ -1849,7 +1851,7 @@ router.get('/history-periods', async (req, res, next) => {
         WHERE userId = $1
       `, [req.user.id]),
     ]);
-    
+
     // Combine and deduplicate by creating a map
     const periodMap = new Map();
     const allPeriods = [...assignmentPeriods, ...bwPeriods, ...esPeriods, ...kitchenPeriods, ...escortPeriods];
@@ -1859,12 +1861,12 @@ router.get('/history-periods', async (req, res, next) => {
         periodMap.set(key, { start: p.schedule_start, end: p.schedule_end });
       }
     }
-    
+
     // Sort by start date descending
-    const periods = Array.from(periodMap.values()).sort((a, b) => 
+    const periods = Array.from(periodMap.values()).sort((a, b) =>
       new Date(b.start) - new Date(a.start)
     );
-    
+
     res.json({ periods });
   } catch (err) {
     console.error('Error in history-periods:', err.message);

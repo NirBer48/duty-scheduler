@@ -263,7 +263,7 @@ const App: React.FC = () => {
     // Clear previous error state before generating
     setError('');
     setMissingCount(null);
-    
+
     // Send as local (no timezone shift) to keep boundaries exact
     const startISO = start;
     const endISO = end;
@@ -474,7 +474,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await logout().catch(() => {});
+    await logout().catch(() => { });
     setUser(null);
     setAssignments([]);
     setBWAssignments([]);
@@ -501,12 +501,12 @@ const App: React.FC = () => {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f3f4f6' }}>
-      <AppBar position="static">
+      <AppBar position="static" >
         <Toolbar>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>{t('MyTurn')}</Typography>
           {user && (
             <Typography variant="body2" sx={{ mr: 2 }}>
-            היי  {user.email} !
+              היי  {user.email} !
             </Typography>
           )}
           {user && (
@@ -568,18 +568,18 @@ const App: React.FC = () => {
             <Tab label={t('Rasar')} />
             <Tab label={t('History')} />
           </Tabs>
-        <Box display="flex" gap={3} alignItems="flex-start">
-          <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
-            <PeopleEditor onUpdate={handlePeopleUpdate} />
-            {tab === 0 && <PostsEditor onUpdate={handlePostsUpdate} />}
-            <ConstraintsEditor people={people} />
-          </Box>
+          <Box display="flex" gap={3} alignItems="flex-start">
+            <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
+              <PeopleEditor onUpdate={handlePeopleUpdate} />
+              {tab === 0 && <PostsEditor onUpdate={handlePostsUpdate} />}
+              <ConstraintsEditor people={people} />
+            </Box>
 
             <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
               {tab === 0 && (
                 <>
                   <Paper sx={{ p: 2, mb: 2 }}>
-                    <Typography variant="h5"  gutterBottom>{t('Scheduler')}</Typography>
+                    <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
                       <TextField
                         type="datetime-local"
@@ -599,16 +599,16 @@ const App: React.FC = () => {
                         inputProps={{ step: 14400 }}
                         size="small"
                       />
-                     
+
                       <Button
                         onClick={handleScheduleGuards}
                         variant="contained"
                         disabled={isGenerating}
-                        
+
                       >
                         {isGenerating ? t('Assigning') : t('Generate')}
                       </Button>
-                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating} sx={{mr: "8px"}}>
+                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating} sx={{ mr: "8px" }}>
                         {t('Clear')}
                       </Button>
                       <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
@@ -617,7 +617,7 @@ const App: React.FC = () => {
                     </Stack>
                     {error && (
                       <Typography color="error" sx={{ mt: 2 }}>
-                        {missingCount != null && missingCount > 0 
+                        {missingCount != null && missingCount > 0
                           ? t('Missing about X people to complete the task').replace('{count}', String(missingCount))
                           : t(error)
                         }
@@ -676,7 +676,7 @@ const App: React.FC = () => {
                     isGenerating={isGenerating}
                   />
                 </Paper>
-            )}
+              )}
               {tab === 2 && (
                 <Paper sx={{ p: 2, overflow: 'auto' }}>
                   <RasarDutyView
@@ -710,8 +710,8 @@ const App: React.FC = () => {
                 </Paper>
               )}
               {tab === 3 && (
-                  <HistoryView people={people} posts={posts} />
-                )}
+                <HistoryView people={people} posts={posts} />
+              )}
             </Box>
           </Box>
         </Container>

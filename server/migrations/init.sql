@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS people (
   standingExemption BOOLEAN NOT NULL DEFAULT false,
   duelGuard BOOLEAN NOT NULL DEFAULT false,
   nightGuardExemption BOOLEAN NOT NULL DEFAULT false,
+  asthmaExemption BOOLEAN NOT NULL DEFAULT false,
+  kitchenExemption BOOLEAN NOT NULL DEFAULT false,
   userId INTEGER REFERENCES users(id)
 );
 

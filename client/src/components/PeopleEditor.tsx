@@ -20,6 +20,8 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
   const [standingExemption, setStandingExemption] = useState(false);
   const [duelGuard, setDuelGuard] = useState(false);
   const [nightGuardExemption, setNightGuardExemption] = useState(false);
+  const [asthmaExemption, setAsthmaExemption] = useState(false);
+  const [kitchenExemption, setKitchenExemption] = useState(false);
   const [validationError, setValidationError] = useState('');
   const { t, lang } = useI18n();
   const dir = lang === 'he' ? 'rtl' : 'ltr';
@@ -47,13 +49,15 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
       return;
     }
     setValidationError('');
-    await addPerson({ name: trimmed, gender, sameGenderPref, limitedAbility, standingExemption, duelGuard, nightGuardExemption });
+    await addPerson({ name: trimmed, gender, sameGenderPref, limitedAbility, standingExemption, duelGuard, nightGuardExemption, asthmaExemption, kitchenExemption });
     setName('');
     setSameGenderPref(false);
     setLimitedAbility(false);
     setStandingExemption(false);
     setDuelGuard(false);
     setNightGuardExemption(false);
+    setAsthmaExemption(false);
+    setKitchenExemption(false);
     await refreshPeople();
   };
 
@@ -131,6 +135,28 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
       false
     );
 
+  const resolveAsthmaExemption = (row: any) =>
+    parseBool(
+      row.asthmaExemption ??
+      row.AsthmaExemption ??
+      row.AE ??
+      row['AE'] ??
+      row['אסטמה'] ??
+      row['פטור אסטמה'] ??
+      false
+    );
+
+  const resolveKitchenExemption = (row: any) =>
+    parseBool(
+      row.kitchenExemption ??
+      row.KitchenExemption ??
+      row.KE ??
+      row['KE'] ??
+      row['מטבח'] ??
+      row['פטור מטבח'] ??
+      false
+    );
+
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -166,6 +192,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
         const resolvedStandingExemption = resolveStandingExemption(row);
         const resolvedDuelGuard = resolveDuelGuard(row);
         const resolvedNightGuardExemption = resolveNightGuardExemption(row);
+        const resolvedAsthmaExemption = resolveAsthmaExemption(row);
 
         await addPerson({
           name: resolvedName,
@@ -175,6 +202,8 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
           standingExemption: resolvedStandingExemption,
           duelGuard: resolvedDuelGuard,
           nightGuardExemption: resolvedNightGuardExemption,
+          asthmaExemption: resolvedAsthmaExemption,
+          kitchenExemption: resolveKitchenExemption(row),
         });
         existingNames.add(resolvedName.toLowerCase());
         importedCount++;
@@ -240,7 +269,6 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
           flexWrap="wrap"
           alignItems="center"
           gap={1}
-          // sx={{ direction: dir }}
         >
           <FormControlLabel
             control={
@@ -285,6 +313,30 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
           <FormControlLabel
             control={
               <Checkbox
+                checked={asthmaExemption}
+                onChange={e => setAsthmaExemption(e.target.checked)}
+                size="small"
+                sx={{ px: 0 }}
+              />
+            }
+            label={<Typography variant="body2">{t('Asthma exemption (AE)')}</Typography>}
+            sx={{ mr: 0, ml: 1 }}
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={kitchenExemption}
+                onChange={e => setKitchenExemption(e.target.checked)}
+                size="small"
+                sx={{ px: 0 }}
+              />
+            }
+            label={<Typography variant="body2">{t('Kitchen exemption (KE)')}</Typography>}
+            sx={{ mr: 0, ml: 1 }}
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
                 checked={sameGenderPref}
                 onChange={e => setSameGenderPref(e.target.checked)}
                 size="small"
@@ -323,7 +375,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
       <Divider sx={{ mb: 1 }} />
 
       {/* People list */}
-      <Box sx={{ overflow: 'auto', flex: 1 }}>
+      <Box sx={{ overflow: 'auto', flex: 1, direction: 'rtl' }}>
         <List
           dense
           sx={{
@@ -338,44 +390,35 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
               p.standingExemption ? t('Standing exemption note short') : null,
               p.duelGuard ? t('Duel guard note short') : null,
               p.nightGuardExemption ? t('Night guard exemption note short') : null,
+              p.asthmaExemption ? t('Asthma exemption note short') : null,
+              p.kitchenExemption ? t('Kitchen exemption note short') : null,
             ].filter(Boolean);
 
             return (
               <ListItem
                 secondaryAction={
-                  <IconButton edge="end" onClick={() => handleDelete(p.id)} size="small">
+                  <IconButton edge="start" onClick={() => handleDelete(p.id)} size="small">
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 }
                 key={p.id}
                 sx={{
-                  py: 0.5,
-                  textAlign: align,
-                  direction: dir,
+                  py: 0.5
                 }}
               >
                 <ListItemText
-                  sx={{ textAlign: align }}
                   primary={
                     <Box
                       component="span"
                       sx={{
-                        display: 'inline-flex',
                         flexWrap: 'wrap',
                         alignItems: 'center',
                         columnGap: 0.75,
                         rowGap: 0.5,
-                        direction: dir,
                         width: '100%',
                       }}
                     >
-                      <Typography
-                        variant="body2"
-                        component="span"
-                        sx={{ direction: dir }}
-                      >
-                        {p.name} ({p.gender}){p.sameGenderPreference ? ' 👫' : ''}
-                      </Typography>
+
                       {p.limitedAbility && (
                         <Chip
                           label={t('Limited ability (LT)')}
@@ -408,6 +451,30 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                           sx={{ direction: 'ltr' }}
                         />
                       )}
+                      {p.asthmaExemption && (
+                        <Chip
+                          label={t('Asthma exemption note short')}
+                          size="small"
+                          color="error"
+                          sx={{ direction: 'ltr' }}
+                        />
+                      )}
+                      {p.kitchenExemption && (
+                        <Chip
+                          label={t('Kitchen exemption note short')}
+                          size="small"
+                          color="warning"
+                          sx={{ direction: 'ltr' }}
+                        />
+                      )}
+
+                      <Typography
+                        variant="body2"
+                        component="span"
+                        mr={1}
+                      >
+                        {p.name} ({p.gender}){p.sameGenderPreference ? ' 👫' : ''}
+                      </Typography>
                     </Box>
                   }
                   secondary={

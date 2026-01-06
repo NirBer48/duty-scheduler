@@ -26,6 +26,8 @@ const createTables = async db => {
       standingExemption BOOLEAN NOT NULL DEFAULT false,
       duelGuard BOOLEAN NOT NULL DEFAULT false,
       nightGuardExemption BOOLEAN NOT NULL DEFAULT false,
+      asthmaExemption BOOLEAN NOT NULL DEFAULT false,
+      kitchenExemption BOOLEAN NOT NULL DEFAULT false,
       userId INTEGER REFERENCES users(id)
     );
   `);
@@ -283,6 +285,8 @@ const ensureBooleanColumns = async db => {
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS standingExemption BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS duelGuard BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS nightGuardExemption BOOLEAN NOT NULL DEFAULT false;');
+  await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS asthmaExemption BOOLEAN NOT NULL DEFAULT false;');
+  await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS kitchenExemption BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE people ADD COLUMN IF NOT EXISTS sameGenderPref BOOLEAN NOT NULL DEFAULT false;');
   await db.run('ALTER TABLE posts ADD COLUMN IF NOT EXISTS optional BOOLEAN NOT NULL DEFAULT false;');
 };
@@ -305,19 +309,19 @@ const ensureKitchenShiftsColumns = async db => {
   await db.run('ALTER TABLE kitchen_shifts ADD COLUMN IF NOT EXISTS required INTEGER NOT NULL DEFAULT 36;');
   // Heal older schemas that used shiftIndex/shiftindex (often NOT NULL) instead of idx.
   // We keep the legacy column if present, but ensure it won't block inserts going forward.
-  try { await db.run('UPDATE kitchen_shifts SET idx = COALESCE(idx, shiftindex) WHERE idx IS NULL'); } catch {}
-  try { await db.run('UPDATE kitchen_shifts SET idx = COALESCE(idx, "shiftIndex") WHERE idx IS NULL'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN shiftindex DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN "shiftIndex" DROP NOT NULL;'); } catch {}
+  try { await db.run('UPDATE kitchen_shifts SET idx = COALESCE(idx, shiftindex) WHERE idx IS NULL'); } catch { }
+  try { await db.run('UPDATE kitchen_shifts SET idx = COALESCE(idx, "shiftIndex") WHERE idx IS NULL'); } catch { }
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN shiftindex DROP NOT NULL;'); } catch { }
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN "shiftIndex" DROP NOT NULL;'); } catch { }
   // Heal older schemas that stored hour/min columns and enforced NOT NULL.
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN starthour DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startminute DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endhour DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endminute DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startHour DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startMinute DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endHour DROP NOT NULL;'); } catch {}
-  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endMinute DROP NOT NULL;'); } catch {}
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN starthour DROP NOT NULL;'); } catch { }
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startminute DROP NOT NULL;'); } catch { }
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endhour DROP NOT NULL;'); } catch { }
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endminute DROP NOT NULL;'); } catch { }
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startHour DROP NOT NULL;'); } catch { }
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startMinute DROP NOT NULL;'); } catch { }
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endHour DROP NOT NULL;'); } catch { }
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endMinute DROP NOT NULL;'); } catch { }
 };
 
 const ensureUserIdColumn = async (db, table) => {

@@ -39,7 +39,8 @@ import {
     getBwDaysForRange,
     getBwSlotsForRange,
     isNightShift,
-    isStandingExemptPost
+    isStandingExemptPost,
+    isAsthmaAllowedPost,
 } from "./schedule";
 
 interface Props {
@@ -518,7 +519,18 @@ const ScheduleCalendar: React.FC<Props> = ({
             }
         }
 
-        // Check same gender pairing (ALL shifts)
+        // Asthma exemption - can only work lookout post (תצפיתן)
+        for (const assignment of localAssignments) {
+            const person = people.find(p => p.id === assignment.personId);
+            if (!person?.asthmaExemption) continue;
+            const post = posts.find(p => p.id === assignment.postId);
+            if (!isAsthmaAllowedPost(post?.name)) {
+                errors.push(`${assignment.day} ${assignment.shiftLabel} - ${post?.name || 'Unknown'}: ${t('Asthma exemption - can only work lookout post')}`);
+                newInvalidCells.add(getCellKey(assignment.postId, assignment.day, assignment.shiftLabel));
+            }
+        }
+
+        // Check same gender pairing (night shifts only)
         for (const shift of shifts) {
             for (const post of posts) {
                 const assignedIds = getPersonIds(localAssignments, shift.label, shift.day, post.id);
@@ -681,23 +693,6 @@ const ScheduleCalendar: React.FC<Props> = ({
 
     return (
         <>
-            {/* Action buttons */}
-            {!readOnly && (
-                <Box sx={{ mb: 0, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', flexDirection: 'row-reverse', mr: 5}}>
-                    <Button variant="outlined" onClick={handleExport} disabled={isSaving || isGenerating}>
-                        {t('Export to Excel')}
-                    </Button>
-                    <Button variant="contained" color="success" onClick={handleSaveAll} disabled={!hasChanges || isSaving || isGenerating}>
-                        {t('Save Schedule')}
-                    </Button>
-                    {hasChanges && !isSaving && (
-                        <Typography color="warning.main" variant="body2">
-                            {t('Unsaved changes')}
-                        </Typography>
-                    )}
-                </Box>
-            )}
-
             {/* Validation errors */}
             {validationErrors.length > 0 && (
                 <Alert severity="error" sx={{ mb: 2 }}>
@@ -740,9 +735,49 @@ const ScheduleCalendar: React.FC<Props> = ({
             )}
 
             {/* Schedule table */}
-            <Typography variant="h4" align="center" sx={{ mb: 1 }}>
-                {t('Shifts')}
-            </Typography>
+            <Box
+                sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto 1fr',
+                    alignItems: 'center',
+                    mb: 1,
+                }}
+            >
+                {/* Left spacer */}
+                <Box />
+
+                {/* Center title */}
+                <Typography variant="h4" align="center">
+                    {t('Shifts')}
+                </Typography>
+
+                {/* Action buttons */}
+                <Box sx={{ justifySelf: 'end' }}>
+                    {!readOnly && (
+                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <Button variant="outlined" onClick={handleExport} disabled={isSaving || isGenerating}>
+                                {t('Export to Excel')}
+                            </Button>
+
+                            <Button
+                                variant="contained"
+                                color="success"
+                                onClick={handleSaveAll}
+                                disabled={!hasChanges || isSaving || isGenerating}
+                            >
+                                {t('Save Schedule')}
+                            </Button>
+
+                            {hasChanges && !isSaving && (
+                                <Typography color="warning.main" variant="body2">
+                                    {t('Unsaved changes')}
+                                </Typography>
+                            )}
+                        </Box>
+                    )}
+                </Box>
+            </Box>
+            
             <Box sx={{ overflowX: "auto", width: "100%", minWidth: 600 }}>
                 <table style={{ borderCollapse: "collapse", minWidth: "100%", tableLayout: "fixed" }}>
                     <thead>
@@ -769,8 +804,8 @@ const ScheduleCalendar: React.FC<Props> = ({
                             return (
                                 <tr key={shift.day + shift.label} style={{ background: isPartialRow ? '#fbfcff' : undefined }}>
                                     <td style={{ border: "1px solid #888", minWidth: 140, padding: "4px 8px", background: hoursBg, position: "sticky", textAlign: 'center', zIndex: 1 }}>
-                                        {shift.displayDay} < br/>
-                                <span style={{fontWeight: "bold"}}>     {displayShiftLabel(shiftIdx, filteredShifts.length, shift.label)}</span>
+                                        {shift.displayDay} < br />
+                                        <span style={{ fontWeight: "bold" }}>     {displayShiftLabel(shiftIdx, filteredShifts.length, shift.label)}</span>
                                     </td>
                                     {posts.map(post => {
                                         const names = getPeopleNames(post.id, shift.label, shift.day);

@@ -51,6 +51,8 @@ type AddPersonPayload = {
   standingExemption: boolean;
   duelGuard: boolean;
   nightGuardExemption: boolean;
+  asthmaExemption: boolean;
+  kitchenExemption: boolean;
 };
 
 type AddPostPayload = {
@@ -297,8 +299,8 @@ export const saveRasarSchedule = (rasarAssignments: RasarAssignment[], escort400
   request<{ ok: boolean; error?: string; violations?: Array<{ personId: number; message: string }> }>(
     '/schedule/save-rasar',
     {
-    method: 'POST',
-    body: JSON.stringify({ rasarAssignments, escort400Assignments }),
+      method: 'POST',
+      body: JSON.stringify({ rasarAssignments, escort400Assignments }),
     }
   );
 
