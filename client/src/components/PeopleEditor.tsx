@@ -220,19 +220,6 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
             value={name}
             onChange={e => setName(e.target.value)}
             fullWidth
-
-//  inputProps={{
-//           style: { textAlign: 'right', direction: 'rtl' }, // input text aligned right
-//         }}
-//         InputLabelProps={{
-//           // shrink: true,               // ensures floating label stays above
-//           sx: { left: 'auto', right: 0, transformOrigin: 'top right' }, // label floats correctly
-//         }}
-//          sx={{
-//     '& .MuiOutlinedInput-notchedOutline': {
-//       paddingRight: '10px',      // optional: adjust padding to match gap
-//     },
-//   }}
           />
           <Select
             size="small"
@@ -251,8 +238,8 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
           flexWrap="wrap"
           alignItems="center"
           gap={1}
-         
-          // sx={{ direction: dir }}
+
+        // sx={{ direction: dir }}
         >
           <FormControlLabel
             control={
@@ -260,9 +247,9 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                 checked={standingExemption}
                 onChange={e => setStandingExemption(e.target.checked)}
                 size="small"
-                sx={{ px: 0}}
+                sx={{ px: 0 }}
 
-              
+
               />
             }
             label={<Typography variant="body2">{t('Standing exemption (SE)')}</Typography>}
@@ -274,7 +261,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                 checked={duelGuard}
                 onChange={e => setDuelGuard(e.target.checked)}
                 size="small"
-                sx={{ px: 0}}
+                sx={{ px: 0 }}
 
               />
             }
@@ -287,7 +274,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                 checked={nightGuardExemption}
                 onChange={e => setNightGuardExemption(e.target.checked)}
                 size="small"
-                sx={{ px: 0}}
+                sx={{ px: 0 }}
 
               />
             }
@@ -300,7 +287,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                 checked={sameGenderPref}
                 onChange={e => setSameGenderPref(e.target.checked)}
                 size="small"
-                sx={{ px: 0}}
+                sx={{ px: 0 }}
 
               />
             }
@@ -313,7 +300,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                 checked={limitedAbility}
                 onChange={e => setLimitedAbility(e.target.checked)}
                 size="small"
-                sx={{ px: 0}}
+                sx={{ px: 0 }}
               />
             }
             label={<Typography variant="body2">{t('Limited ability (LT)')}</Typography>}

@@ -54,63 +54,55 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
   return (
     <Paper sx={{ p: 2, mb: 2, maxHeight: 350, minWidth: 300, display: 'flex', flexDirection: 'column' }}>
       <Typography variant="h6" fontWeight={"bold"} mb={1}>{t('Posts')}</Typography>
-      
+
       <Divider sx={{ mb: 2 }} />
-      
+
       <Box display="flex" flexDirection="column" gap={1.5} mb={2}>
-        <TextField 
-          size="small" 
-          label={t('Name')} 
-          value={name} 
+        <TextField
+          size="small"
+          label={t('Name')}
+          value={name}
           onChange={e => setName(e.target.value)}
           fullWidth
         />
         <Box display="flex" gap={1} alignItems="center">
-          <TextField 
-            size="small" 
-            type="number" 
-            label={t('Required per shift')} 
-            value={required} 
-          onChange={e => setRequired(Math.max(1, Number(e.target.value)))} 
+          <TextField
+            size="small"
+            type="number"
+            label={t('Required per shift')}
+            value={required}
+            onChange={e => setRequired(Math.max(1, Number(e.target.value)))}
             InputProps={{ inputProps: { min: 1 } }}
             sx={{ flex: 1 }}
           />
           <Button onClick={handleAdd} variant="contained" size="small">{t('Add')}</Button>
         </Box>
       </Box>
-      
+
       {validationError && <Alert severity="error" sx={{ mb: 1 }}>{validationError}</Alert>}
-      
+
       <Divider sx={{ mb: 1 }} />
-      
+
       <Box sx={{ overflow: 'auto', flex: 1 }}>
         <List
           dense
-          sx={{
-            // direction: dir,
-            // textAlign: align,
-          }}
         >
           {posts.map(p => (
-            <ListItem 
+            <ListItem
               secondaryAction={
                 <IconButton edge="end" onClick={() => handleDelete(p.id)} size="small">
                   <DeleteIcon fontSize="small" />
                 </IconButton>
-              } 
+              }
               key={p.id}
               sx={{
                 py: 0.5,
-                // textAlign: align,
-                // direction: dir,
               }}
             >
               <ListItemText
-                // sx={{ textAlign: align }}
                 primary={
                   <Typography
                     variant="body2"
-                    // sx={{ direction: dir }}
                   >
                     {p.name}
                   </Typography>
@@ -119,7 +111,6 @@ const PostsEditor: React.FC<Props> = ({ onUpdate }) => {
                   <Typography
                     variant="caption"
                     component="span"
-                    // sx={{ direction: dir }}
                   >
                     {`${t('Required')}: ${p.requiredPerShift}`}
                   </Typography>
