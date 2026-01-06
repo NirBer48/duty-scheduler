@@ -401,23 +401,18 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                 }
                 key={p.id}
                 sx={{
-                  py: 0.5,
-                  // textAlign: align,
-                  // direction: dir,
+                  py: 0.5
                 }}
               >
                 <ListItemText
-                  // sx={{ textAlign: align }}
                   primary={
                     <Box
                       component="span"
                       sx={{
-                        //  display: 'inline-flex',
                         flexWrap: 'wrap',
                         alignItems: 'center',
                         columnGap: 0.75,
                         rowGap: 0.5,
-                        // direction: dir,
                         width: '100%',
                       }}
                     >
@@ -475,7 +470,6 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                         variant="body2"
                         component="span"
                         mr={1}
-                      // sx={{ direction: dir }}
                       >
                         {p.name} ({p.gender}){p.sameGenderPreference ? ' 👫' : ''}
                       </Typography>

@@ -694,23 +694,6 @@ const ScheduleCalendar: React.FC<Props> = ({
 
     return (
         <>
-            {/* Action buttons */}
-            {/* {!readOnly && (
-                <Box sx={{ mb: 0, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', flexDirection: 'row-reverse', mr: 5}}>
-                    <Button variant="outlined" onClick={handleExport} disabled={isSaving || isGenerating}>
-                        {t('Export to Excel')}
-                    </Button>
-                    <Button variant="contained" color="success" onClick={handleSaveAll} disabled={!hasChanges || isSaving || isGenerating}>
-                        {t('Save Schedule')}
-                    </Button>
-                    {hasChanges && !isSaving && (
-                        <Typography color="warning.main" variant="body2">
-                            {t('Unsaved changes')}
-                        </Typography>
-                    )}
-                </Box>
-            )} */}
-
             {/* Validation errors */}
             {validationErrors.length > 0 && (
                 <Alert severity="error" sx={{ mb: 2 }}>
@@ -795,14 +778,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                     )}
                 </Box>
             </Box>
-
-            {/* <div>
-            <Typography variant="h4" align="center" sx={{ mb: 1 }}>
-                {t('Shifts')}
-            </Typography>
-
-
-            </div> */}
+            
             <Box sx={{ overflowX: "auto", width: "100%", minWidth: 600 }}>
                 <table style={{ borderCollapse: "collapse", minWidth: "100%", tableLayout: "fixed" }}>
                     <thead>
