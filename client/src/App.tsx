@@ -501,7 +501,7 @@ const App: React.FC = () => {
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f3f4f6' }}>
-      <AppBar position="static">
+      <AppBar position="static" >
         <Toolbar>
           <Typography variant="h6" sx={{ flexGrow: 1 }}>{t('MyTurn')}</Typography>
           {user && (
@@ -569,7 +569,7 @@ const App: React.FC = () => {
             <Tab label={t('History')} />
           </Tabs>
         <Box display="flex" gap={3} alignItems="flex-start">
-          <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0 }}>
+          <Box sx={{ minWidth: 320, maxWidth: 380, flexShrink: 0}}>
             <PeopleEditor onUpdate={handlePeopleUpdate} />
             {tab === 0 && <PostsEditor onUpdate={handlePostsUpdate} />}
             <ConstraintsEditor people={people} />
@@ -579,7 +579,7 @@ const App: React.FC = () => {
               {tab === 0 && (
                 <>
                   <Paper sx={{ p: 2, mb: 2 }}>
-                    <Typography variant="h5"  gutterBottom>{t('Scheduler')}</Typography>
+                    <Typography variant="h6"  gutterBottom>{t('Scheduler')}</Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
                       <TextField
                         type="datetime-local"

@@ -10,6 +10,7 @@ export interface Person {
   standingExemption: boolean;
   duelGuard: boolean;
   nightGuardExemption: boolean;
+  asthmaExemption: boolean;
 }
 
 export interface Post {
