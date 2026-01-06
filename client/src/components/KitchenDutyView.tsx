@@ -617,13 +617,9 @@ const KitchenDutyView: React.FC<Props> = ({
   };
 
   const handleSave = async () => {
-    // Check for validation errors before saving
-    const isValid = validateKitchenAssignments();
-    if (!isValid) {
-      setSaveError(t('Cannot save: Please fix validation errors first'));
-      return; // Don't save if there are validation errors
-    }
-
+    // Allow saving even if the schedule is partial/invalid.
+    // Validation is still shown in the UI and used for cell highlighting.
+    validateKitchenAssignments();
     setIsSaving(true);
     setSaveError('');
     try {
@@ -642,10 +638,6 @@ const KitchenDutyView: React.FC<Props> = ({
       );
       if (!res.ok) {
         setSaveError(res.error || t('Save failed'));
-      } else {
-        setValidationErrors([]);
-        setInvalidKitchenCells(new Set());
-        setInvalidEscortCells(new Set());
       }
     } catch (e: any) {
       setSaveError(e?.message || t('Save failed'));

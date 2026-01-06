@@ -564,7 +564,7 @@ const RasarDutyView: React.FC<Props> = ({
               variant="contained"
               color="success"
               onClick={onSave}
-              disabled={isGenerating || isSaving || validation.issues.length > 0 || !hasChanges}
+              disabled={isGenerating || isSaving || !hasChanges}
             >
               {isSaving ? <CircularProgress size={20} /> : t('Save')}
             </Button>

@@ -645,13 +645,9 @@ const ScheduleCalendar: React.FC<Props> = ({
 
     const handleSaveAll = async () => {
         const validation = validateAndMarkCells();
-        if (!validation.valid) {
-            setValidationErrors(validation.errors);
-            return;
-        }
-
-        setInvalidCells(new Set());
-        setInvalidESGroups(new Set());
+        // Allow saving even if the schedule is partial/invalid.
+        // We still run validation so the UI can show issues and mark cells.
+        setValidationErrors(validation.errors);
         setIsSaving(true);
 
         try {
@@ -673,10 +669,8 @@ const ScheduleCalendar: React.FC<Props> = ({
 
             if (result.ok) {
                 setHasChanges(false);
-                setValidationErrors([]);
                 onAssignmentsChange?.(localAssignments);
                 onBWAssignmentsChange?.(bwAssignments);
-                setInvalidBWSlots(new Set());
             } else {
                 setValidationErrors([result.error || t('Save failed')]);
             }
@@ -796,7 +790,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                 variant="contained"
                                 color="success"
                                 onClick={handleSaveAll}
-                                disabled={!hasChanges || isSaving || isGenerating}
+                                disabled={isSaving || isGenerating}
                             >
                                 {t('Save Schedule')}
                             </Button>
