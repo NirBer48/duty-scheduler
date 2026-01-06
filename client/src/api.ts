@@ -276,7 +276,8 @@ export const generateKitchenSchedule = (
   existingEscort400Assignments: Escort400Assignment[] = [],
   kitchenSettings: KitchenSettings = { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
   escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
-  constraints: Constraint[] = []
+  constraints: Constraint[] = [],
+  allowPartial: boolean = false
 ) =>
   request<ScheduleResponse>('/schedule/generate-kitchen', {
     method: 'POST',
@@ -295,6 +296,7 @@ export const generateKitchenSchedule = (
       kitchenSettings,
       escortSettings,
       constraints,
+      allowPartial,
     }),
   }).then(normalizeScheduleResponse);
 
@@ -325,7 +327,8 @@ export const generateRasarSchedule = (
   constraints: Constraint[] = [],
   rasarOverrides: RasarOverride[] = [],
   existingEscort400Assignments: Escort400Assignment[] = [],
-  escort400Overrides: Escort400Override[] = []
+  escort400Overrides: Escort400Override[] = [],
+  allowPartial: boolean = false
 ) =>
   request<ScheduleResponse>('/schedule/generate-rasar', {
     method: 'POST',
@@ -347,6 +350,7 @@ export const generateRasarSchedule = (
       rasarOverrides,
       existingEscort400Assignments,
       escort400Overrides,
+      allowPartial,
     }),
   });
 

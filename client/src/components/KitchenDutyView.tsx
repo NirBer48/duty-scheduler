@@ -9,6 +9,7 @@ import {
   Stack,
   IconButton,
   CircularProgress,
+  Collapse,
 } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AddIcon from '@mui/icons-material/Add';
@@ -570,6 +571,7 @@ const KitchenDutyView: React.FC<Props> = ({
   const [saveError, setSaveError] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [showValidationDetails, setShowValidationDetails] = useState(false);
   const [invalidKitchenCells, setInvalidKitchenCells] = useState<Set<string>>(new Set());
   const [invalidEscortCells, setInvalidEscortCells] = useState<Set<string>>(new Set());
 
@@ -706,14 +708,29 @@ const KitchenDutyView: React.FC<Props> = ({
 
       {/* Validation errors */}
       {validationErrors.length > 0 && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          <Typography variant="subtitle2">{t('Schedule is invalid')}:</Typography>
-          <ul style={{ margin: 0, paddingLeft: 20 }}>
-            {validationErrors.slice(0, 10).map((err, i) => <li key={i}>{err}</li>)}
-            {validationErrors.length > 10 && (
-              <li>...{t('and')} {validationErrors.length - 10} {t('more errors')}</li>
-            )}
-          </ul>
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+            <Typography variant="body2">
+              {t('Schedule is invalid')} — {validationErrors.length}
+            </Typography>
+            <Button size="small" onClick={() => setShowValidationDetails(v => !v)}>
+              {showValidationDetails ? t('Hide') : t('Show')}
+            </Button>
+          </Stack>
+          <Collapse in={showValidationDetails}>
+            <Box sx={{ mt: 1 }}>
+              {validationErrors.slice(0, 50).map((msg, idx) => (
+                <Typography key={idx} variant="caption" sx={{ display: 'block' }}>
+                  - {msg}
+                </Typography>
+              ))}
+              {validationErrors.length > 50 && (
+                <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>
+                  … {validationErrors.length - 50} {t('more errors')}
+                </Typography>
+              )}
+            </Box>
+          </Collapse>
         </Alert>
       )}
 
