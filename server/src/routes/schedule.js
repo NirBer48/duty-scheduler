@@ -14,6 +14,7 @@ const mapPerson = row => ({
   duelGuard: Boolean(row.duelguard || row.duelGuard),
   nightGuardExemption: Boolean(row.nightguardexemption || row.nightGuardExemption),
   asthmaExemption: Boolean(row.asthmaexemption || row.asthmaExemption),
+  kitchenExemption: Boolean(row.kitchenexemption || row.kitchenExemption),
 });
 
 const mapPost = row => ({

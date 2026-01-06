@@ -1261,6 +1261,10 @@ export const scheduleGenerator = (
 
         const candidates = [...people]
           .filter(p => !set.has(p.id))
+          .filter(p => {
+            if (type === 'kitchen' && p.kitchenExemption) return false;
+            return true;
+          })
           .filter(p => !violatesConstraint(p.id, times.start, times.end))
           .filter(p => !overlapsWithAnyDuty(p.id, times.start, times.end))
           .sort((a, b) => {

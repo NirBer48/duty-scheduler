@@ -52,6 +52,7 @@ type AddPersonPayload = {
   duelGuard: boolean;
   nightGuardExemption: boolean;
   asthmaExemption: boolean;
+  kitchenExemption: boolean;
 };
 
 type AddPostPayload = {

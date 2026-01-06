@@ -11,6 +11,7 @@ export interface Person {
   duelGuard: boolean;
   nightGuardExemption: boolean;
   asthmaExemption: boolean;
+  kitchenExemption: boolean;
 }
 
 export interface Post {

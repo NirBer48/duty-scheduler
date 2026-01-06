@@ -21,6 +21,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
   const [duelGuard, setDuelGuard] = useState(false);
   const [nightGuardExemption, setNightGuardExemption] = useState(false);
   const [asthmaExemption, setAsthmaExemption] = useState(false);
+  const [kitchenExemption, setKitchenExemption] = useState(false);
   const [validationError, setValidationError] = useState('');
   const { t, lang } = useI18n();
   const dir = lang === 'he' ? 'rtl' : 'ltr';
@@ -48,7 +49,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
       return;
     }
     setValidationError('');
-    await addPerson({ name: trimmed, gender, sameGenderPref, limitedAbility, standingExemption, duelGuard, nightGuardExemption, asthmaExemption });
+    await addPerson({ name: trimmed, gender, sameGenderPref, limitedAbility, standingExemption, duelGuard, nightGuardExemption, asthmaExemption, kitchenExemption });
     setName('');
     setSameGenderPref(false);
     setLimitedAbility(false);
@@ -56,6 +57,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
     setDuelGuard(false);
     setNightGuardExemption(false);
     setAsthmaExemption(false);
+    setKitchenExemption(false);
     await refreshPeople();
   };
 
@@ -144,6 +146,17 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
       false
     );
 
+  const resolveKitchenExemption = (row: any) =>
+    parseBool(
+      row.kitchenExemption ??
+      row.KitchenExemption ??
+      row.KE ??
+      row['KE'] ??
+      row['מטבח'] ??
+      row['פטור מטבח'] ??
+      false
+    );
+
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -190,6 +203,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
           duelGuard: resolvedDuelGuard,
           nightGuardExemption: resolvedNightGuardExemption,
           asthmaExemption: resolvedAsthmaExemption,
+          kitchenExemption: resolveKitchenExemption(row),
         });
         existingNames.add(resolvedName.toLowerCase());
         importedCount++;
@@ -309,6 +323,18 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
           <FormControlLabel
             control={
               <Checkbox
+                checked={kitchenExemption}
+                onChange={e => setKitchenExemption(e.target.checked)}
+                size="small"
+                sx={{ px: 0 }}
+              />
+            }
+            label={<Typography variant="body2">{t('Kitchen exemption (KE)')}</Typography>}
+            sx={{ mr: 0, ml: 1 }}
+          />
+          <FormControlLabel
+            control={
+              <Checkbox
                 checked={sameGenderPref}
                 onChange={e => setSameGenderPref(e.target.checked)}
                 size="small"
@@ -363,6 +389,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
               p.duelGuard ? t('Duel guard note short') : null,
               p.nightGuardExemption ? t('Night guard exemption note short') : null,
               p.asthmaExemption ? t('Asthma exemption note short') : null,
+              p.kitchenExemption ? t('Kitchen exemption note short') : null,
             ].filter(Boolean);
 
             return (
@@ -394,7 +421,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                         width: '100%',
                       }}
                     >
-                
+
                       {p.limitedAbility && (
                         <Chip
                           label={t('Limited ability (LT)')}
@@ -435,12 +462,20 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                           sx={{ direction: 'ltr' }}
                         />
                       )}
+                      {p.kitchenExemption && (
+                        <Chip
+                          label={t('Kitchen exemption note short')}
+                          size="small"
+                          color="warning"
+                          sx={{ direction: 'ltr' }}
+                        />
+                      )}
 
-                            <Typography
+                      <Typography
                         variant="body2"
                         component="span"
                         mr={1}
-                        // sx={{ direction: dir }}
+                      // sx={{ direction: dir }}
                       >
                         {p.name} ({p.gender}){p.sameGenderPreference ? ' 👫' : ''}
                       </Typography>

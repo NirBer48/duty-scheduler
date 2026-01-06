@@ -386,6 +386,15 @@ const KitchenDutyView: React.FC<Props> = ({
       }
     }
 
+    // Kitchen exemption validation - people with this exemption cannot do kitchen duty
+    for (const assignment of kitchenAssignments) {
+      const person = people.find(p => p.id === assignment.personId);
+      if (person?.kitchenExemption) {
+        errors.push(`${assignment.day} ${kitchenLabel(assignment.shiftId)}: ${person.name} - ${t('Kitchen exemption - cannot work kitchen duty')}`);
+        newInvalidKitchenCells.add(`${assignment.day}|${assignment.shiftId}`);
+      }
+    }
+
     // Check for overlapping kitchen assignments for the same person
     for (const person of people) {
       const personKitchenAssignments = kitchenAssignments.filter(a => a.personId === person.id);
@@ -401,8 +410,8 @@ const KitchenDutyView: React.FC<Props> = ({
 
             // Check if ranges actually overlap (not just touch at boundary)
             // Use minute precision to handle edge cases
-            if ((end1.isSame(start2, 'minute') || end1.isBefore(start2, 'minute')) || 
-                (end2.isSame(start1, 'minute') || end2.isBefore(start1, 'minute'))) {
+            if ((end1.isSame(start2, 'minute') || end1.isBefore(start2, 'minute')) ||
+              (end2.isSame(start1, 'minute') || end2.isBefore(start1, 'minute'))) {
               // Adjacent shifts (one ends when the other starts) - not overlapping
             } else if (start1.isBefore(end2) && start2.isBefore(end1)) {
               errors.push(`${person.name}: ${t('Overlapping shift in this timeframe')} (${a1.day} ${kitchenLabel(a1.shiftId)} & ${a2.day} ${kitchenLabel(a2.shiftId)})`);
@@ -429,8 +438,8 @@ const KitchenDutyView: React.FC<Props> = ({
 
             // Check if ranges actually overlap (not just touch at boundary)
             // Use minute precision to handle edge cases
-            if ((end1.isSame(start2, 'minute') || end1.isBefore(start2, 'minute')) || 
-                (end2.isSame(start1, 'minute') || end2.isBefore(start1, 'minute'))) {
+            if ((end1.isSame(start2, 'minute') || end1.isBefore(start2, 'minute')) ||
+              (end2.isSame(start1, 'minute') || end2.isBefore(start1, 'minute'))) {
               // Adjacent shifts (one ends when the other starts) - not overlapping
             } else if (start1.isBefore(end2) && start2.isBefore(end1)) {
               errors.push(`${person.name}: ${t('Overlapping shift in this timeframe')} (${a1.day} ${t(a1.shiftId)} & ${a2.day} ${t(a2.shiftId)})`);
@@ -455,9 +464,9 @@ const KitchenDutyView: React.FC<Props> = ({
 
         // Check if ranges actually overlap (not just touch at boundary)
         // Use minute precision to handle edge cases
-        if (!(kitchenEnd.isSame(guardStart, 'minute') || kitchenEnd.isBefore(guardStart, 'minute')) && 
-            !(guardEnd.isSame(kitchenStart, 'minute') || guardEnd.isBefore(kitchenStart, 'minute')) && 
-            kitchenStart.isBefore(guardEnd) && guardStart.isBefore(kitchenEnd)) {
+        if (!(kitchenEnd.isSame(guardStart, 'minute') || kitchenEnd.isBefore(guardStart, 'minute')) &&
+          !(guardEnd.isSame(kitchenStart, 'minute') || guardEnd.isBefore(kitchenStart, 'minute')) &&
+          kitchenStart.isBefore(guardEnd) && guardStart.isBefore(kitchenEnd)) {
           const person = people.find(p => p.id === kitchen.personId);
           errors.push(`${person?.name || kitchen.personId}: ${t('Overlapping shift in this timeframe')} (${kitchen.day} ${kitchenLabel(kitchen.shiftId)} & ${guard.day} ${guard.shiftLabel})`);
           newInvalidKitchenCells.add(`${kitchen.day}|${kitchen.shiftId}`);
@@ -478,9 +487,9 @@ const KitchenDutyView: React.FC<Props> = ({
 
         // Check if ranges actually overlap (not just touch at boundary)
         // Use minute precision to handle edge cases
-        if (!(escortEnd.isSame(guardStart, 'minute') || escortEnd.isBefore(guardStart, 'minute')) && 
-            !(guardEnd.isSame(escortStart, 'minute') || guardEnd.isBefore(escortStart, 'minute')) && 
-            escortStart.isBefore(guardEnd) && guardStart.isBefore(escortEnd)) {
+        if (!(escortEnd.isSame(guardStart, 'minute') || escortEnd.isBefore(guardStart, 'minute')) &&
+          !(guardEnd.isSame(escortStart, 'minute') || guardEnd.isBefore(escortStart, 'minute')) &&
+          escortStart.isBefore(guardEnd) && guardStart.isBefore(escortEnd)) {
           const person = people.find(p => p.id === escort.personId);
           errors.push(`${person?.name || escort.personId}: ${t('Overlapping shift in this timeframe')} (${escort.day} ${t(escort.shiftId)} & ${guard.day} ${guard.shiftLabel})`);
           newInvalidEscortCells.add(`${escort.day}|${escort.shiftId}`);
@@ -502,9 +511,9 @@ const KitchenDutyView: React.FC<Props> = ({
 
         // Check if ranges actually overlap (not just touch at boundary)
         // Use minute precision to handle edge cases
-        if (!(kitchenEnd.isSame(escortStart, 'minute') || kitchenEnd.isBefore(escortStart, 'minute')) && 
-            !(escortEnd.isSame(kitchenStart, 'minute') || escortEnd.isBefore(kitchenStart, 'minute')) && 
-            kitchenStart.isBefore(escortEnd) && escortStart.isBefore(kitchenEnd)) {
+        if (!(kitchenEnd.isSame(escortStart, 'minute') || kitchenEnd.isBefore(escortStart, 'minute')) &&
+          !(escortEnd.isSame(kitchenStart, 'minute') || escortEnd.isBefore(kitchenStart, 'minute')) &&
+          kitchenStart.isBefore(escortEnd) && escortStart.isBefore(kitchenEnd)) {
           const person = people.find(p => p.id === kitchen.personId);
           errors.push(`${person?.name || kitchen.personId}: ${t('Overlapping shift in this timeframe')} (${kitchen.day} ${kitchenLabel(kitchen.shiftId)} & ${escort.day} ${t(escort.shiftId)})`);
           newInvalidKitchenCells.add(`${kitchen.day}|${kitchen.shiftId}`);
@@ -526,9 +535,9 @@ const KitchenDutyView: React.FC<Props> = ({
 
         // Check if ranges actually overlap (not just touch at boundary)
         // Use minute precision to handle edge cases
-        if (!(assignmentEnd.isSame(constraintStart, 'minute') || assignmentEnd.isBefore(constraintStart, 'minute')) && 
-            !(constraintEnd.isSame(assignmentStart, 'minute') || constraintEnd.isBefore(assignmentStart, 'minute')) && 
-            assignmentStart.isBefore(constraintEnd) && constraintStart.isBefore(assignmentEnd)) {
+        if (!(assignmentEnd.isSame(constraintStart, 'minute') || assignmentEnd.isBefore(constraintStart, 'minute')) &&
+          !(constraintEnd.isSame(assignmentStart, 'minute') || constraintEnd.isBefore(assignmentStart, 'minute')) &&
+          assignmentStart.isBefore(constraintEnd) && constraintStart.isBefore(assignmentEnd)) {
           const person = people.find(p => p.id === assignment.personId);
           const isKitchen = kitchenAssignments.includes(assignment);
           const label = isKitchen ? kitchenLabel(assignment.shiftId) : t(assignment.shiftId);
@@ -663,7 +672,7 @@ const KitchenDutyView: React.FC<Props> = ({
             onChange={e => onKitchenDayChange?.(e.target.value)}
             InputLabelProps={{ shrink: true }}
             size="small"
-            />
+          />
           <Button variant="contained" onClick={onGenerate} disabled={isGenerating || isSaving}>
             {isGenerating ? t('Assigning') : t('Generate')}
           </Button>
@@ -709,20 +718,20 @@ const KitchenDutyView: React.FC<Props> = ({
       )}
 
       {/* Loading indicator during generation */}
-            {isGenerating && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mb: 2 }}>
-                <CircularProgress size="2rem" />
-                <Typography variant="h5">{t('Assigning')}</Typography>
-              </Box>
-            )}
+      {isGenerating && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mb: 2 }}>
+          <CircularProgress size="2rem" />
+          <Typography variant="h5">{t('Assigning')}</Typography>
+        </Box>
+      )}
 
-            {/* Loading indicator during save */}
-            {isSaving && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mb: 2 }}>
-                <CircularProgress size="2rem" />
-                <Typography variant="h5">{t('Saving')}</Typography>
-              </Box>
-            )}
+      {/* Loading indicator during save */}
+      {isSaving && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1.5, mb: 2 }}>
+          <CircularProgress size="2rem" />
+          <Typography variant="h5">{t('Saving')}</Typography>
+        </Box>
+      )}
 
       {saveError && (
         <Alert severity="error" sx={{ mb: 2 }}>
