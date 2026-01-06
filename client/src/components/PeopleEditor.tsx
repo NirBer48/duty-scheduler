@@ -197,12 +197,13 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
   return (
     <Paper sx={{ p: 2, mb: 2, maxHeight: 410, minWidth: 300, display: 'flex', flexDirection: 'column' }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-        <Typography variant="h6">{t('People')}</Typography>
+        <Typography variant="h6" fontWeight={"bold"}>
+          {t('People')} ({people.length})
+        </Typography>
         <Button
           component="label"
           variant="outlined"
           size="small"
-          sx={{ gap: 1 }}
           endIcon={<UploadFileIcon sx={{ transform: lang === 'he' ? 'scaleX(-1)' : 'none' }} />}
         >
           {t('Import')}
@@ -213,8 +214,8 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
       <Divider sx={{ mb: 2 }} />
 
       {/* Add form - stacked layout */}
-      <Box display="flex" flexDirection="column" gap={1.5} mb={2}>
-        <Box display="flex" gap={1}>
+      <Box display="flex" flexDirection="column" gap={1.5} mb={2} >
+        <Box display="flex" gap={1} >
           <TextField
             size="small"
             label={t('Name')}
@@ -239,7 +240,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
           flexWrap="wrap"
           alignItems="center"
           gap={1}
-          sx={{ direction: dir }}
+          // sx={{ direction: dir }}
         >
           <FormControlLabel
             control={
@@ -247,10 +248,13 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                 checked={standingExemption}
                 onChange={e => setStandingExemption(e.target.checked)}
                 size="small"
+                sx={{ px: 0 }}
+
+
               />
             }
             label={<Typography variant="body2">{t('Standing exemption (SE)')}</Typography>}
-            sx={{ mr: 0 }}
+            sx={{ mx: 1 }}
           />
           <FormControlLabel
             control={
@@ -258,10 +262,12 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                 checked={duelGuard}
                 onChange={e => setDuelGuard(e.target.checked)}
                 size="small"
+                sx={{ px: 0 }}
+
               />
             }
             label={<Typography variant="body2">{t('Duel guard (DG)')}</Typography>}
-            sx={{ mr: 0 }}
+            sx={{ mr: 0, ml: 1 }}
           />
           <FormControlLabel
             control={
@@ -269,10 +275,12 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                 checked={nightGuardExemption}
                 onChange={e => setNightGuardExemption(e.target.checked)}
                 size="small"
+                sx={{ px: 0 }}
+
               />
             }
             label={<Typography variant="body2">{t('Night guard exemption')}</Typography>}
-            sx={{ mr: 0 }}
+            sx={{ mr: 0, ml: 1 }}
           />
           <FormControlLabel
             control={
@@ -280,10 +288,12 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                 checked={sameGenderPref}
                 onChange={e => setSameGenderPref(e.target.checked)}
                 size="small"
+                sx={{ px: 0 }}
+
               />
             }
             label={<Typography variant="body2">{t('Same gender only')}</Typography>}
-            sx={{ mr: 0 }}
+            sx={{ mr: 0, ml: 1 }}
           />
           <FormControlLabel
             control={
@@ -291,16 +301,17 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                 checked={limitedAbility}
                 onChange={e => setLimitedAbility(e.target.checked)}
                 size="small"
+                sx={{ px: 0 }}
               />
             }
             label={<Typography variant="body2">{t('Limited ability (LT)')}</Typography>}
-            sx={{ mr: 0 }}
+            sx={{ mr: 0, ml: 1 }}
           />
           <Button
             onClick={handleAdd}
             variant="contained"
             size="small"
-            sx={{ ml: lang === 'he' ? 0 : 'auto', mr: lang === 'he' ? 'auto' : 0 }}
+            sx={{ ml: lang === 'he' ? 5 : 'auto', mr: lang === 'he' ? 'auto' : 5 }}
           >
             {t('Add')}
           </Button>

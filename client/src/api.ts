@@ -9,6 +9,10 @@ import type {
   EscortAssignment,
   KitchenSettings,
   EscortSettings,
+  RasarAssignment,
+  RasarOverride,
+  Escort400Assignment,
+  Escort400Override,
 } from './types';
 
 const BASE = '/api';
@@ -103,10 +107,13 @@ type ScheduleResponse = {
   esAssignments?: ESGroupAssignment[];
   kitchenAssignments?: KitchenAssignment[];
   escortAssignments?: EscortAssignment[];
+  rasarAssignments?: RasarAssignment[];
+  escort400Assignments?: Escort400Assignment[];
   kitchenSettings?: KitchenSettings;
   escortSettings?: EscortSettings;
   error?: string;
   missingCount?: number;
+  violations?: Array<{ personId: number; message: string }>;
 };
 
 type ScheduleSnapshot = {
@@ -115,6 +122,8 @@ type ScheduleSnapshot = {
   esAssignments: ESGroupAssignment[];
   kitchenAssignments?: KitchenAssignment[];
   escortAssignments?: EscortAssignment[];
+  rasarAssignments?: RasarAssignment[];
+  escort400Assignments?: Escort400Assignment[];
   kitchenSettings?: KitchenSettings;
   escortSettings?: EscortSettings;
 };
@@ -177,7 +186,9 @@ export const generateSchedule = (
   existingBwAssignments: BWAssignment[] = [],
   existingKitchenAssignments: KitchenAssignment[] = [],
   existingEscortAssignments: EscortAssignment[] = [],
-  kitchenSettings: KitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+  existingRasarAssignments: RasarAssignment[] = [],
+  existingEscort400Assignments: Escort400Assignment[] = [],
+  kitchenSettings: KitchenSettings = { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
   escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
   constraints: Constraint[] = []
 ) =>
@@ -193,6 +204,8 @@ export const generateSchedule = (
       existingBwAssignments,
       existingKitchenAssignments,
       existingEscortAssignments,
+      existingRasarAssignments,
+      existingEscort400Assignments,
       kitchenSettings,
       escortSettings,
       constraints,
@@ -208,7 +221,9 @@ export const generateGuardsSchedule = (
   existingBwAssignments: BWAssignment[] = [],
   existingKitchenAssignments: KitchenAssignment[] = [],
   existingEscortAssignments: EscortAssignment[] = [],
-  kitchenSettings: KitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+  existingRasarAssignments: RasarAssignment[] = [],
+  existingEscort400Assignments: Escort400Assignment[] = [],
+  kitchenSettings: KitchenSettings = { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
   escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
   constraints: Constraint[] = [],
   allowPartial: boolean = false
@@ -225,6 +240,8 @@ export const generateGuardsSchedule = (
       existingBwAssignments,
       existingKitchenAssignments,
       existingEscortAssignments,
+      existingRasarAssignments,
+      existingEscort400Assignments,
       kitchenSettings,
       escortSettings,
       constraints,
@@ -235,14 +252,15 @@ export const generateGuardsSchedule = (
 export const generateKitchenSchedule = (
   guardsStartISO: string,
   guardsEndISO: string,
-  kitchenStartISO: string,
-  kitchenEndISO: string,
+  kitchenDay: string,
   esAssignments: ESGroupAssignment[] = [],
   existingAssignments: ExistingAssignment[] = [],
   existingBwAssignments: BWAssignment[] = [],
   existingKitchenAssignments: KitchenAssignment[] = [],
   existingEscortAssignments: EscortAssignment[] = [],
-  kitchenSettings: KitchenSettings = { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+  existingRasarAssignments: RasarAssignment[] = [],
+  existingEscort400Assignments: Escort400Assignment[] = [],
+  kitchenSettings: KitchenSettings = { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
   escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
   constraints: Constraint[] = []
 ) =>
@@ -252,20 +270,21 @@ export const generateKitchenSchedule = (
     body: JSON.stringify({
       startISO: guardsStartISO,
       endISO: guardsEndISO,
-      kitchenStartISO,
-      kitchenEndISO,
+      kitchenDay,
       esAssignments,
       existingAssignments,
       existingBwAssignments,
       existingKitchenAssignments,
       existingEscortAssignments,
+      existingRasarAssignments,
+      existingEscort400Assignments,
       kitchenSettings,
       escortSettings,
       constraints,
     }),
   }).then(normalizeScheduleResponse);
 
-export const clearSchedule = (mode: 'all' | 'guards' | 'kitchen' = 'all') =>
+export const clearSchedule = (mode: 'all' | 'guards' | 'kitchen' | 'rasar' = 'all') =>
   request<{ ok: boolean }>(`/schedule/clear?mode=${encodeURIComponent(mode)}`, { method: 'DELETE' });
 
 export const fetchLastSchedule = () => request<ScheduleSnapshot>('/schedule/last');
@@ -278,6 +297,53 @@ export const fetchHistoryPeriods = () =>
 
 export const fetchScheduleByPeriod = (start: string, end: string) =>
   request<ScheduleSnapshot>(`/schedule/history?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+
+export const generateRasarSchedule = (
+  rasarStartISO: string,
+  rasarEndISO: string,
+  esAssignments: ESGroupAssignment[] = [],
+  existingAssignments: Assignment[] = [],
+  existingBwAssignments: BWAssignment[] = [],
+  existingKitchenAssignments: KitchenAssignment[] = [],
+  existingEscortAssignments: EscortAssignment[] = [],
+  kitchenSettings: KitchenSettings,
+  existingRasarAssignments: RasarAssignment[] = [],
+  constraints: Constraint[] = [],
+  rasarOverrides: RasarOverride[] = [],
+  existingEscort400Assignments: Escort400Assignment[] = [],
+  escort400Overrides: Escort400Override[] = []
+) =>
+  request<ScheduleResponse>('/schedule/generate-rasar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      // Server expects startISO/endISO; we also send rasarStartISO/rasarEndISO for backward compatibility.
+      startISO: rasarStartISO,
+      endISO: rasarEndISO,
+      rasarStartISO,
+      rasarEndISO,
+      esAssignments,
+      existingAssignments,
+      existingBwAssignments,
+      existingKitchenAssignments,
+      existingEscortAssignments,
+      kitchenSettings,
+      existingRasarAssignments,
+      constraints,
+      rasarOverrides,
+      existingEscort400Assignments,
+      escort400Overrides,
+    }),
+  });
+
+export const saveRasarSchedule = (rasarAssignments: RasarAssignment[], escort400Assignments: Escort400Assignment[]) =>
+  request<{ ok: boolean; error?: string; violations?: Array<{ personId: number; message: string }> }>(
+    '/schedule/save-rasar',
+    {
+    method: 'POST',
+    body: JSON.stringify({ rasarAssignments, escort400Assignments }),
+    }
+  );
 
 export const saveAllSchedules = (
   assignments: Assignment[],

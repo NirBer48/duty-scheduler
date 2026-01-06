@@ -105,12 +105,29 @@ export const scheduleGenerator = (
   constraints = [],
   options = {}
 ) => {
-  const mode = options?.mode || 'all'; // 'all' | 'guards' | 'kitchen'
+  const mode = options?.mode || 'all'; // 'all' | 'guards' | 'kitchen' | 'rasar'
   const allowPartial = options?.allowPartial || false; // allow partial schedule with empty cells
   // In partial mode we still respect "hard" constraints (time constraints, rest, exemptions),
   // but we relax "soft" rules that can otherwise prevent *any* assignments from being made.
   // The client already highlights violations, so users can see problematic cells.
   const relaxSoftRules = allowPartial;
+
+  const existingRasarAssignments = options?.existingRasarAssignments || [];
+  const rasarStartISO = options?.rasarStartISO || startISO;
+  const rasarEndISO = options?.rasarEndISO || endISO;
+  const rasarOverrides = options?.rasarOverrides || [];
+  const existingEscort400Assignments = options?.existingEscort400Assignments || [];
+  const escort400Overrides = options?.escort400Overrides || [];
+
+  // Random tie-breaker to ensure schedules vary between runs even when "workload" is equal.
+  const randomRank = new Map();
+  for (const p of people || []) randomRank.set(p.id, Math.random());
+  const tieBreakRandom = (a, b) => (randomRank.get(a.id) ?? 0) - (randomRank.get(b.id) ?? 0);
+
+  const genGuards = mode === 'all' || mode === 'guards';
+  const genKitchenEscort = mode === 'all' || mode === 'kitchen';
+  const genRasar = mode === 'all' || mode === 'rasar';
+
   console.log('scheduleGenerator options:', { mode, allowPartial, optionsReceived: options });
   // Build all 4-hour shift time slots between start and end
   const shiftDefinitions = [
@@ -151,12 +168,16 @@ export const scheduleGenerator = (
   const bwAssignmentCount = {};
   const kitchenAssignmentCount = {};
   const escortAssignmentCount = {};
+  const rasarAssignmentCount = {};
+  const escort400AssignmentCount = {};
   people.forEach(p => {
     personShifts.set(p.id, []);
     shiftCountByPerson[p.id] = 0;
     bwAssignmentCount[p.id] = 0;
     kitchenAssignmentCount[p.id] = 0;
     escortAssignmentCount[p.id] = 0;
+    rasarAssignmentCount[p.id] = 0;
+    escort400AssignmentCount[p.id] = 0;
   });
 
   // Constraints map: personId -> [{start,end,title}]
@@ -171,6 +192,26 @@ export const scheduleGenerator = (
     constraintsByPerson.set(c.personId, arr);
   }
 
+  // Returns true if a person has any constraint overlapping [slotStart, slotEnd).
+  // Adjacent boundaries (constraint ends exactly at slot start, etc) are NOT treated as overlap.
+  const violatesConstraint = (personId, slotStartISO, slotEndISO) => {
+    const cList = constraintsByPerson.get(personId) || [];
+    if (cList.length === 0) return false;
+    const slotStart = dayjs(slotStartISO);
+    const slotEnd = dayjs(slotEndISO);
+    for (const c of cList) {
+      // Exclude adjacent ranges (one ends when the other starts) - use minute precision
+      if (
+        (slotEnd.isSame(c.start, 'minute') || slotEnd.isBefore(c.start, 'minute')) ||
+        (c.end.isSame(slotStart, 'minute') || c.end.isBefore(slotStart, 'minute'))
+      ) {
+        continue;
+      }
+      if (slotStart.isBefore(c.end) && c.start.isBefore(slotEnd)) return true;
+    }
+    return false;
+  };
+
   // Build list of all shift time slots in the date range
   const timeSlots = [];
   
@@ -180,6 +221,37 @@ export const scheduleGenerator = (
   
   const startDt = parseLocalDateTime(startISO).second(0).millisecond(0);
   const endDt = parseLocalDateTime(endISO).second(0).millisecond(0);
+
+  // Track non-guard duty intervals per person for overlap checks (BW + kitchen + escort + rasar + escort400)
+  // IMPORTANT: we seed existing extra duties BEFORE guard assignment so guards won't overlap them.
+  const extraDutyIntervals = new Map(); // personId -> [{start,end,type}]
+  const addExtraInterval = (personId, start, end, type) => {
+    if (!extraDutyIntervals.has(personId)) extraDutyIntervals.set(personId, []);
+    extraDutyIntervals.get(personId).push({ start, end, type });
+  };
+
+  const overlapsIso = (aStartISO, aEndISO, bStartISO, bEndISO) => {
+    const aStart = dayjs(aStartISO);
+    const aEnd = dayjs(aEndISO);
+    const bStart = dayjs(bStartISO);
+    const bEnd = dayjs(bEndISO);
+    // Exclude adjacent shifts (one ends when the other starts) - use minute precision
+    if (
+      (aEnd.isSame(bStart, 'minute') || aEnd.isBefore(bStart, 'minute')) ||
+      (bEnd.isSame(aStart, 'minute') || bEnd.isBefore(aStart, 'minute'))
+    ) {
+      return false;
+    }
+    return aStart.isBefore(bEnd) && bStart.isBefore(aEnd);
+  };
+
+  const overlapsWithExtraDuties = (personId, slotStartISO, slotEndISO) => {
+    const list = extraDutyIntervals.get(personId) || [];
+    for (const interval of list) {
+      if (overlapsIso(interval.start, interval.end, slotStartISO, slotEndISO)) return true;
+    }
+    return false;
+  };
 
   const formatShiftLabel = (start, end) => `${start.format('HH:mm')}-${end.format('HH:mm')}`;
 
@@ -275,6 +347,25 @@ export const scheduleGenerator = (
       shiftCountByPerson[personId] = 0;
     }
     
+    // Prefer explicit timestamps if they exist (critical for overlap checks when the shiftLabel isn't a standard 4h block)
+    // This also makes rasar generation reliably "see" guard duties even if the rasar week range differs.
+    if (ea.start && ea.end) {
+      const start = dayjs(ea.start);
+      const end = dayjs(ea.end);
+      const firstSlotDate = dayjs(timeSlots[0]?.start || startISO);
+      const minutesDiff = start.diff(firstSlotDate, 'minute');
+      const virtualIndex = Math.floor(minutesDiff / 240);
+      personShifts.get(personId).push({
+        start: start.toISOString(),
+        end: end.toISOString(),
+        day: ea.day,
+        shiftLabel: ea.shiftLabel,
+        index: Number.isFinite(virtualIndex) ? virtualIndex : 0,
+      });
+      shiftCountByPerson[personId]++;
+      continue;
+    }
+    
     // Find or calculate the time slot info
     const ts = timeSlots.find(t => t.day === ea.day && t.shiftLabel === ea.shiftLabel);
     
@@ -313,7 +404,7 @@ export const scheduleGenerator = (
 
   // Build all slots that need to be filled
   const slotsToFill = [];
-  if (mode !== 'kitchen') {
+  if (genGuards) {
     for (const ts of timeSlots) {
       for (const post of posts) {
         const required = getRequiredCount(post.id, ts.day, ts.shiftLabel, post.requiredPerShift);
@@ -422,21 +513,186 @@ export const scheduleGenerator = (
     return false;
   };
 
+  // Seed extra-duty intervals from existing kitchen/escort/rasar/escort400 so guards won't overlap them.
+  // We compute canonical times for these shiftIds.
+  const pad = value => String(value).padStart(2, '0');
+  const scheduleStart = parseLocalDateTime(startISO);
+  const scheduleEnd = parseLocalDateTime(endISO);
+
+  const parseHHmmToHM = (value, fallback) => {
+    const str = (value || fallback || '').toString();
+    const m = str.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return { hour: 0, minute: 0, str: (fallback || '00:00').toString() };
+    let hour = Number(m[1]);
+    let minute = Number(m[2]);
+    if (Number.isNaN(hour) || Number.isNaN(minute)) return { hour: 0, minute: 0, str: (fallback || '00:00').toString() };
+    hour = Math.min(23, Math.max(0, hour));
+    minute = Math.min(59, Math.max(0, minute));
+    const out = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    return { hour, minute, str: out };
+  };
+
+  const normalizeKitchenShiftList = (ks) => {
+    const raw = Array.isArray(ks?.shifts) ? ks.shifts : null;
+    const shifts = (raw && raw.length) ? raw : [{ id: 'default', start: '06:00', end: '21:00', required: 36 }];
+    return shifts.map((s, idx) => ({
+      id: (s?.id ?? `kitchen_${idx}`).toString(),
+      start: parseHHmmToHM(s?.start, idx === 0 ? '06:00' : '06:00').str,
+      end: parseHHmmToHM(s?.end, idx === shifts.length - 1 ? '21:00' : '21:00').str,
+      required: Math.max(0, Number(s?.required ?? 36) || 0),
+    }));
+  };
+
+  const kitchenShiftList = normalizeKitchenShiftList(kitchenSettings);
+  const kitchenShiftDefsAll = kitchenShiftList
+    .map(s => {
+      const st = parseHHmmToHM(s.start, '06:00');
+      const en = parseHHmmToHM(s.end, '21:00');
+      return {
+        id: s.id,
+        startHour: st.hour,
+        startMinute: st.minute,
+        endHour: en.hour,
+        endMinute: en.minute,
+        label: `${st.str}-${en.str}`,
+        required: s.required,
+      };
+    })
+    .filter(d => (d.startHour * 60 + d.startMinute) < (d.endHour * 60 + d.endMinute));
+
+  const seedKitchenEscortIntervals = () => {
+    const escortDefs = [
+      { id: 'escort_1', startHour: 7, startMinute: 0, endHour: 10, endMinute: 30 },
+      { id: 'escort_2', startHour: 10, startMinute: 30, endHour: 14, endMinute: 0 },
+      { id: 'escort_3', startHour: 14, startMinute: 0, endHour: 17, endMinute: 0 },
+      { id: 'escort_4', startHour: 17, startMinute: 0, endHour: 19, endMinute: 0 },
+    ];
+
+    const build = (day, def) => {
+      let s = dayjs(`${day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
+      let e = dayjs(`${day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
+      if (!e.isAfter(s)) e = e.add(1, 'day');
+      // Clip to schedule boundaries
+      if (s.isBefore(scheduleStart)) s = scheduleStart;
+      if (e.isAfter(scheduleEnd)) e = scheduleEnd;
+      if (!e.isAfter(s)) return null;
+      return { start: s.toISOString(), end: e.toISOString() };
+    };
+
+    for (const a of existingKitchenAssignments || []) {
+      const def = kitchenShiftDefsAll.find(d => d.id === a.shiftId);
+      if (!def) continue;
+      const times = build(a.day, def);
+      if (!times) continue;
+      addExtraInterval(Number(a.personId), times.start, times.end, 'kitchen');
+    }
+    for (const a of existingEscortAssignments || []) {
+      const def = escortDefs.find(d => d.id === a.shiftId);
+      if (!def) continue;
+      const times = build(a.day, def);
+      if (!times) continue;
+      addExtraInterval(Number(a.personId), times.start, times.end, 'escort');
+    }
+  };
+
+  const seedRasarIntervals = () => {
+    const rasarDefs = [
+      { id: 'rasar_1', startHour: 8, startMinute: 30, endHour: 11, endMinute: 30 },
+      { id: 'rasar_2', startHour: 13, startMinute: 30, endHour: 17, endMinute: 30 },
+      { id: 'rasar_3', startHour: 19, startMinute: 30, endHour: 20, endMinute: 30 },
+    ];
+    const build = (day, def) => {
+      let s = dayjs(`${day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
+      let e = dayjs(`${day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
+      if (!e.isAfter(s)) e = e.add(1, 'day');
+      return { start: s.toISOString(), end: e.toISOString() };
+    };
+    for (const a of existingRasarAssignments || []) {
+      const def = rasarDefs.find(d => d.id === a.shiftId);
+      if (!def) continue;
+      const times = build(a.day, def);
+      if (!times) continue;
+      addExtraInterval(Number(a.personId), times.start, times.end, 'rasar');
+    }
+  };
+
+  const seedEscort400Intervals = () => {
+    const defs = [
+      { id: 'escort400_1', startHour: 8, startMinute: 0, endHour: 12, endMinute: 30 },
+      { id: 'escort400_2', startHour: 12, startMinute: 30, endHour: 17, endMinute: 0 },
+    ];
+    const build = (day, def) => {
+      let s = dayjs(`${day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
+      let e = dayjs(`${day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
+      if (!e.isAfter(s)) e = e.add(1, 'day');
+      return { start: s.toISOString(), end: e.toISOString() };
+    };
+    for (const a of existingEscort400Assignments || []) {
+      const def = defs.find(d => d.id === a.shiftId);
+      if (!def) continue;
+      const times = build(a.day, def);
+      if (!times) continue;
+      addExtraInterval(Number(a.personId), times.start, times.end, 'escort400');
+    }
+  };
+
+  seedKitchenEscortIntervals();
+  seedRasarIntervals();
+  seedEscort400Intervals();
+
+  // Seed existing guard assignments into extraDutyIntervals so rasar/escort400 sees them for overlap checks
+  const seedGuardIntervals = () => {
+    for (const ea of existingAssignments || []) {
+      if (ea.start && ea.end) {
+        addExtraInterval(Number(ea.personId), ea.start, ea.end, 'guard');
+      } else if (ea.day && ea.shiftLabel) {
+        // Fallback: compute times directly from day + shiftLabel (don't rely on timeSlots which is date-range specific)
+        const match = ea.shiftLabel.match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+        if (match) {
+          const startHour = parseInt(match[1], 10);
+          const startMin = parseInt(match[2], 10);
+          const endHour = parseInt(match[3], 10);
+          const endMin = parseInt(match[4], 10);
+          let start = dayjs(`${ea.day}T${pad(startHour)}:${pad(startMin)}:00`);
+          let end = dayjs(`${ea.day}T${pad(endHour)}:${pad(endMin)}:00`);
+          // Handle overnight shifts
+          if (!end.isAfter(start)) end = end.add(1, 'day');
+          addExtraInterval(Number(ea.personId), start.toISOString(), end.toISOString(), 'guard');
+        }
+      }
+    }
+  };
+  seedGuardIntervals();
+
+  // Seed existing BW assignments into extraDutyIntervals
+  const seedBwIntervals = () => {
+    const BW_SLOT_DEFS = [
+      { id: 'bw_morning', startHour: 8, startMinute: 30, endHour: 11, endMinute: 30 },
+      { id: 'bw_afternoon', startHour: 13, startMinute: 30, endHour: 17, endMinute: 30 },
+      { id: 'bw_evening', startHour: 18, startMinute: 30, endHour: 20, endMinute: 0 },
+    ];
+    for (const bw of existingBwAssignments || []) {
+      if (bw.start && bw.end) {
+        addExtraInterval(Number(bw.personId), bw.start, bw.end, 'bw');
+      } else if (bw.day && bw.slotId) {
+        // Compute from day + slotId
+        const def = BW_SLOT_DEFS.find(d => d.id === bw.slotId);
+        if (def) {
+          let start = dayjs(`${bw.day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
+          let end = dayjs(`${bw.day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
+          if (!end.isAfter(start)) end = end.add(1, 'day');
+          addExtraInterval(Number(bw.personId), start.toISOString(), end.toISOString(), 'bw');
+        }
+      }
+    }
+  };
+  seedBwIntervals();
+
   const canWork = (person, slot) => {
     const shiftKey = getShiftKey(slot.day, slot.shiftLabel);
     const assignedPeople = slotAssignments.get(shiftKey);
     if (assignedPeople?.has(person.id)) return false;
-
-    const cList = constraintsByPerson.get(person.id) || [];
-    if (cList.length > 0) {
-      const slotStart = dayjs(slot.start);
-      const slotEnd = dayjs(slot.end);
-      for (const c of cList) {
-        if (slotStart.isBefore(c.end) && c.start.isBefore(slotEnd)) {
-          return false;
-        }
-      }
-    }
+    if (violatesConstraint(person.id, slot.start, slot.end)) return false;
 
     if (hasRestViolation(person.id, slot.index)) return false;
     if (!canESMemberWorkAtShift(person.id, slot.day, slot.shiftLabel)) return false;
@@ -445,17 +701,24 @@ export const scheduleGenerator = (
 
     // Check for overlapping BW assignments
     if (hasOverlappingBWAssignment(person.id, slot.start, slot.end)) return false;
+
+    // Check overlap with existing extra duties (kitchen/escort/rasar/escort400)
+    if (overlapsWithExtraDuties(person.id, slot.start, slot.end)) return false;
     
     return true;
   };
 
-  const canPair = (p1, p2, shiftLabel) => {
-    if (relaxSoftRules) return true;
-    if (!NIGHT_SHIFT_LABELS.has(shiftLabel)) return true;
-    if (p1.sameGenderPref || p2.sameGenderPref) {
-      return p1.gender === p2.gender;
-    }
-    return true;
+  const violatesSameGenderPreference = (assignedPeople = [], candidate) => {
+    if (relaxSoftRules) return false;
+    // "Same gender only" applies to ALL shifts (day + night + partial).
+    const all = [...(assignedPeople || []), candidate].filter(Boolean);
+    const pref = all.filter(p => p?.sameGenderPref);
+    if (pref.length === 0) return false;
+
+    // If anyone in the group has the preference, everyone must share the same gender.
+    const requiredGender = pref[0]?.gender;
+    if (!requiredGender) return false;
+    return all.some(p => p?.gender && p.gender !== requiredGender);
   };
 
   const tryAssignToSlot = (candidate, slot) => {
@@ -466,14 +729,16 @@ export const scheduleGenerator = (
     const existingInSlot = existingBySlot.get(slotKey) || [];
     if (existingInSlot.includes(candidate.id)) return false;
     
-    // Check same-gender pairing if needed
-    const assignedToThisPost = assignments.filter(a => 
+    // Check same-gender preference (applies to all shifts)
+    const assignedToThisPost = assignments.filter(a =>
       a.postId === slot.postId && a.day === slot.day && a.shiftLabel === slot.shiftLabel
     );
-    
+
     if (assignedToThisPost.length > 0) {
-      const firstPerson = people.find(p => p.id === assignedToThisPost[0].personId);
-      if (firstPerson && !canPair(firstPerson, candidate, slot.shiftLabel)) return false;
+      const assignedPeople = assignedToThisPost
+        .map(a => people.find(p => p.id === a.personId))
+        .filter(Boolean);
+      if (violatesSameGenderPreference(assignedPeople, candidate)) return false;
     }
 
     // Duel guard: cannot be alone in the post slot
@@ -516,7 +781,7 @@ export const scheduleGenerator = (
   const esMembers = people.filter(p => personToESGroup.has(p.id));
 
   // Combined assignment loop - prioritize non-ES members but use ES when needed
-  if (mode !== 'kitchen') {
+  if (genGuards) {
     let madeProgress = true;
     while (madeProgress) {
       madeProgress = false;
@@ -601,7 +866,7 @@ export const scheduleGenerator = (
   let duelGuardViolations = 0;
   let genderPrefViolations = 0;
 
-  if (mode !== 'kitchen') {
+  if (genGuards) {
     for (const [slotKey, personIds] of assignmentsBySlot.entries()) {
       if (personIds.length === 1) {
         const person = people.find(p => p.id === personIds[0]);
@@ -611,22 +876,15 @@ export const scheduleGenerator = (
         }
       }
 
-      // Check same-gender preference for night shifts
+      // Check same-gender preference for ALL shifts
       if (personIds.length > 1) {
-        const shiftLabel = slotKey.split('|')[2];
-        if (NIGHT_SHIFT_LABELS.has(shiftLabel)) {
-          const assignedPeople = personIds.map(pid => people.find(p => p.id === pid)).filter(Boolean);
-          for (let i = 0; i < assignedPeople.length; i++) {
-            const person = assignedPeople[i];
-            if (person.sameGenderPref) {
-              for (let j = 0; j < assignedPeople.length; j++) {
-                if (i !== j && assignedPeople[j].gender !== person.gender) {
-                  // Same-gender preference violated - need 1 replacement
-                  genderPrefViolations += 1;
-                  break;
-                }
-              }
-            }
+        const assignedPeople = personIds.map(pid => people.find(p => p.id === pid)).filter(Boolean);
+        // If anyone has preference but the group is mixed-gender -> violation.
+        const prefPeople = assignedPeople.filter(p => p?.sameGenderPref);
+        if (prefPeople.length > 0) {
+          const requiredGender = prefPeople[0]?.gender;
+          if (requiredGender && assignedPeople.some(p => p?.gender && p.gender !== requiredGender)) {
+            genderPrefViolations += 1;
           }
         }
       }
@@ -643,13 +901,9 @@ export const scheduleGenerator = (
   }
 
   const bwAssignments = [];
-  const bwDays = mode === 'kitchen' ? [] : computeBWDays(startISO, endISO, existingBwAssignments);
+  const bwDays = genGuards ? computeBWDays(startISO, endISO, existingBwAssignments) : [];
   const bwSlotKey = (day, slotId) => `${day}|${slotId}`;
   const bwSlotAssignments = new Map(); // key -> Set of personIds
-
-  const pad = value => String(value).padStart(2, '0');
-  const scheduleStart = parseLocalDateTime(startISO);
-  const scheduleEnd = parseLocalDateTime(endISO);
   
   const buildSlotTimes = (day, slot) => {
     let slotStart = dayjs(`${day}T${pad(slot.startHour)}:${pad(slot.startMinute)}:00`);
@@ -698,12 +952,7 @@ export const scheduleGenerator = (
     });
   }
 
-  // Track non-guard duty intervals per person for overlap checks (BW + kitchen + escort)
-  const extraDutyIntervals = new Map(); // personId -> [{start,end,type}]
-  const addExtraInterval = (personId, start, end, type) => {
-    if (!extraDutyIntervals.has(personId)) extraDutyIntervals.set(personId, []);
-    extraDutyIntervals.get(personId).push({ start, end, type });
-  };
+  // Add BW intervals to extra-duty tracker
   for (const bw of bwAssignments) {
     addExtraInterval(Number(bw.personId), bw.start, bw.end, 'bw');
   }
@@ -721,21 +970,6 @@ export const scheduleGenerator = (
       if (shiftStart.isBefore(slotEnd) && slotStart.isBefore(shiftEnd)) {
         return true;
       }
-    }
-    return false;
-  };
-
-  const overlapsWithExtraDuties = (personId, slotStartISO, slotEndISO) => {
-    const list = extraDutyIntervals.get(personId) || [];
-    const slotStart = dayjs(slotStartISO);
-    const slotEnd = dayjs(slotEndISO);
-    for (const interval of list) {
-      const aStart = dayjs(interval.start);
-      const aEnd = dayjs(interval.end);
-      // Exclude adjacent shifts (one ends when the other starts) - use minute precision
-      if ((aEnd.isSame(slotStart, 'minute') || aEnd.isBefore(slotStart, 'minute')) || 
-          (slotEnd.isSame(aStart, 'minute') || slotEnd.isBefore(aStart, 'minute'))) continue;
-      if (aStart.isBefore(slotEnd) && slotStart.isBefore(aEnd)) return true;
     }
     return false;
   };
@@ -774,7 +1008,7 @@ export const scheduleGenerator = (
     return false;
   };
 
-  if (mode !== 'kitchen') {
+  if (genGuards) {
     for (const day of bwDays) {
       for (const slot of BW_SLOTS) {
         const key = bwSlotKey(day, slot.id);
@@ -790,6 +1024,7 @@ export const scheduleGenerator = (
 
         const candidates = [...people]
           .filter(person => !assignedSet.has(person.id))
+          .filter(person => !violatesConstraint(person.id, start, end))
           .filter(person => !overlapsWithShift(person.id, start, end))
           .sort((a, b) => {
             const workA =
@@ -826,23 +1061,7 @@ export const scheduleGenerator = (
   }
 
   // ---- Kitchen Duty + Escort Duty ----
-  const parseHHmm = (value, fallback) => {
-    const str = (value || fallback || '').toString();
-    const m = str.match(/^(\d{1,2}):(\d{2})$/);
-    if (!m) return { hour: 13, minute: 0, str: '13:00' };
-    let hour = Number(m[1]);
-    let minute = Number(m[2]);
-    if (Number.isNaN(hour) || Number.isNaN(minute)) return { hour: 13, minute: 0, str: '13:00' };
-    hour = Math.min(23, Math.max(0, hour));
-    minute = Math.min(59, Math.max(0, minute));
-    const out = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-    return { hour, minute, str: out };
-  };
-
-  const kitchenShift2Start = parseHHmm(kitchenSettings?.shift2Start, '13:00');
-  const kitchenRequiredShift1 = Number(kitchenSettings?.requiredShift1 ?? kitchenSettings?.requiredPerShift ?? 36);
-  const kitchenRequiredShift2 = Number(kitchenSettings?.requiredShift2 ?? kitchenSettings?.requiredPerShift ?? 36);
-  const kitchenSettingsOut = { requiredShift1: kitchenRequiredShift1, requiredShift2: kitchenRequiredShift2, shift2Start: kitchenShift2Start.str };
+  const kitchenSettingsOut = { shifts: kitchenShiftList.map(s => ({ id: s.id, start: s.start, end: s.end, required: s.required })) };
 
   const escortRequiredShift1 = Number(escortSettings?.requiredShift1 ?? escortSettings?.requiredPerShift ?? 4);
   const escortRequiredShift2 = Number(escortSettings?.requiredShift2 ?? escortSettings?.requiredPerShift ?? 4);
@@ -855,10 +1074,8 @@ export const scheduleGenerator = (
     requiredShift4: escortRequiredShift4,
   };
 
-  const kitchenShifts = [
-    { id: 'kitchen_1', startHour: 6, startMinute: 0, endHour: kitchenShift2Start.hour, endMinute: kitchenShift2Start.minute, label: `06:00-${kitchenShift2Start.str}` },
-    { id: 'kitchen_2', startHour: kitchenShift2Start.hour, startMinute: kitchenShift2Start.minute, endHour: 21, endMinute: 0, label: `${kitchenShift2Start.str}-21:00` },
-  ].filter(s => (s.startHour * 60 + s.startMinute) < (s.endHour * 60 + s.endMinute)); // ignore invalid split
+  const kitchenShifts = kitchenShiftDefsAll;
+  const kitchenRequiredById = new Map(kitchenShifts.map(s => [s.id, Math.max(0, Number(s.required ?? 36))]));
 
   const escortShifts = [
     { id: 'escort_1', startHour: 7, startMinute: 0, endHour: 10, endMinute: 30, label: '07:00-10:30' },
@@ -933,25 +1150,99 @@ export const scheduleGenerator = (
   seedDutyAssignments(existingKitchenAssignments, kitchenShifts, kitchenSlotAssigned, kitchenAssignments, 'kitchen');
   seedDutyAssignments(existingEscortAssignments, escortShifts, escortSlotAssigned, escortAssignments, 'escort');
 
-  const violatesConstraint = (personId, slotStartISO, slotEndISO) => {
-    const cList = constraintsByPerson.get(personId) || [];
-    if (cList.length === 0) return false;
-    const slotStart = dayjs(slotStartISO);
-    const slotEnd = dayjs(slotEndISO);
-    for (const c of cList) {
-      // Exclude adjacent ranges (one ends when the other starts) - use minute precision
-      if ((slotEnd.isSame(c.start, 'minute') || slotEnd.isBefore(c.start, 'minute')) || 
-          (c.end.isSame(slotStart, 'minute') || c.end.isBefore(slotStart, 'minute'))) continue;
-      if (slotStart.isBefore(c.end) && c.start.isBefore(slotEnd)) return true;
-    }
-    return false;
+  // ---- RASAR Duty ("רס\"ר") ----
+  // We seed existing assignments early so other duties (kitchen/escort) can avoid overlapping them.
+  const rasarShifts = [
+    { id: 'rasar_1', startHour: 8, startMinute: 30, endHour: 11, endMinute: 30, label: '08:30-11:30' },
+    { id: 'rasar_2', startHour: 13, startMinute: 30, endHour: 17, endMinute: 30, label: '13:30-17:30' },
+    { id: 'rasar_3', startHour: 19, startMinute: 30, endHour: 20, endMinute: 30, label: '19:30-20:30' },
+  ];
+
+  const rasarAssignments = [];
+  const rasarSlotAssigned = new Map(); // `${day}|${shiftId}` -> Set(personId)
+
+  const rasarRangeStart = parseLocalDateTime(rasarStartISO);
+  const rasarRangeEnd = parseLocalDateTime(rasarEndISO);
+
+  const buildRasarTimes = (day, def) => {
+    let start = dayjs(`${day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
+    let end = dayjs(`${day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
+    if (!end.isAfter(start)) end = end.add(1, 'day');
+
+    // Clip to provided rasar range (week)
+    if (start.isBefore(rasarRangeStart)) start = rasarRangeStart;
+    if (end.isAfter(rasarRangeEnd)) end = rasarRangeEnd;
+    if (!end.isAfter(start)) return null;
+    return { start: start.toISOString(), end: end.toISOString() };
   };
+
+  const ensureRasarSet = (key) => {
+    if (!rasarSlotAssigned.has(key)) rasarSlotAssigned.set(key, new Set());
+    return rasarSlotAssigned.get(key);
+  };
+
+  for (const a of existingRasarAssignments || []) {
+    const def = rasarShifts.find(d => d.id === a.shiftId);
+    if (!def) continue;
+    const times = buildRasarTimes(a.day, def);
+    if (!times) continue;
+    const key = `${a.day}|${def.id}`;
+    const set = ensureRasarSet(key);
+    const pid = Number(a.personId);
+    if (set.has(pid)) continue;
+    set.add(pid);
+    rasarAssignments.push({ day: a.day, shiftId: def.id, personId: pid, start: times.start, end: times.end });
+    addExtraInterval(pid, times.start, times.end, 'rasar');
+    rasarAssignmentCount[pid] = (rasarAssignmentCount[pid] || 0) + 1;
+  }
+
+  // ---- Contractor escort 400 ("ליווי קבלנים - 400") ----
+  const escort400Shifts = [
+    { id: 'escort400_1', startHour: 8, startMinute: 0, endHour: 12, endMinute: 30, label: '08:00-12:30' },
+    { id: 'escort400_2', startHour: 12, startMinute: 30, endHour: 17, endMinute: 0, label: '12:30-17:00' },
+  ];
+
+  const escort400Assignments = [];
+  const escort400SlotAssigned = new Map(); // `${day}|${shiftId}` -> Set(personId)
+  const ensureEscort400Set = (key) => {
+    if (!escort400SlotAssigned.has(key)) escort400SlotAssigned.set(key, new Set());
+    return escort400SlotAssigned.get(key);
+  };
+
+  const buildEscort400Times = (day, def) => {
+    let start = dayjs(`${day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
+    let end = dayjs(`${day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
+    if (!end.isAfter(start)) end = end.add(1, 'day');
+    if (start.isBefore(rasarRangeStart)) start = rasarRangeStart;
+    if (end.isAfter(rasarRangeEnd)) end = rasarRangeEnd;
+    if (!end.isAfter(start)) return null;
+    return { start: start.toISOString(), end: end.toISOString() };
+  };
+
+  const isFemaleId = (pid) => {
+    const person = people.find(p => Number(p.id) === Number(pid));
+    return person?.gender === 'F';
+  };
+
+  for (const a of existingEscort400Assignments || []) {
+    const def = escort400Shifts.find(d => d.id === a.shiftId);
+    if (!def) continue;
+    if (!isFemaleId(a.personId)) continue;
+    const times = buildEscort400Times(a.day, def);
+    if (!times) continue;
+    const key = `${a.day}|${def.id}`;
+    const set = ensureEscort400Set(key);
+    const pid = Number(a.personId);
+    if (set.has(pid)) continue;
+    set.add(pid);
+    escort400Assignments.push({ day: a.day, shiftId: def.id, personId: pid, start: times.start, end: times.end });
+    addExtraInterval(pid, times.start, times.end, 'escort400');
+    escort400AssignmentCount[pid] = (escort400AssignmentCount[pid] || 0) + 1;
+  }
 
   const requiredForDuty = (type, shiftId) => {
     if (type === 'kitchen') {
-      if (shiftId === 'kitchen_1') return Math.max(0, kitchenRequiredShift1);
-      if (shiftId === 'kitchen_2') return Math.max(0, kitchenRequiredShift2);
-      return 0;
+      return Math.max(0, Number(kitchenRequiredById.get(shiftId) ?? 0));
     }
     if (type === 'escort') {
       if (shiftId === 'escort_1') return Math.max(0, escortRequiredShift1);
@@ -1005,11 +1296,258 @@ export const scheduleGenerator = (
     }
   };
 
-  if (mode !== 'guards') {
+  if (genKitchenEscort) {
     // Fill escort first so `escort_2` (10:30-14:00) doesn't get starved by kitchen_2 (starts at 13:00)
     // which overlaps it and can otherwise consume most candidates.
     fillDuty(escortShifts, escortSlotAssigned, escortAssignments, 'escort');
     fillDuty(kitchenShifts, kitchenSlotAssigned, kitchenAssignments, 'kitchen');
+  }
+
+  const requiredForRasarShift = (day, shiftId) => {
+    const o = rasarOverrides.find(x => x?.day === day && x?.shiftId === shiftId);
+    const value = Number(o?.required ?? o?.requiredPerShift ?? 1);
+    return Number.isFinite(value) ? Math.max(0, value) : 1;
+  };
+
+  const requiredForEscort400Shift = (day, shiftId) => {
+    const o = escort400Overrides.find(x => x?.day === day && x?.shiftId === shiftId);
+    const value = Number(o?.required ?? o?.requiredPerShift ?? 1);
+    return Number.isFinite(value) ? Math.max(0, value) : 1;
+  };
+
+  // Extra guard-overlap safety: compute guard intervals directly from `existingAssignments` and
+  // use this check in rasar/escort400 scheduling. This prevents edge cases where a guard duty
+  // isn't correctly represented in the shared overlap trackers.
+  const guardIntervalsByPerson = new Map(); // personId -> Array<{start,end}>
+  for (const ea of existingAssignments || []) {
+    const pid = Number(ea.personId);
+    if (!pid) continue;
+    let startISO = null;
+    let endISO = null;
+
+    // Prefer day+shiftLabel (matches UI labels; avoids any stale/incorrect timestamps)
+    const m = (ea.shiftLabel || '').match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+    if (m && ea.day) {
+      const sh = Number(m[1]);
+      const sm = Number(m[2]);
+      const eh = Number(m[3]);
+      const em = Number(m[4]);
+      const start = dayjs(`${ea.day}T${pad(sh)}:${pad(sm)}:00`);
+      let end = dayjs(`${ea.day}T${pad(eh)}:${pad(em)}:00`);
+      if (!end.isAfter(start)) end = end.add(1, 'day');
+      startISO = start.toISOString();
+      endISO = end.toISOString();
+    } else if (ea.start && ea.end) {
+      startISO = ea.start;
+      endISO = ea.end;
+    }
+    if (!startISO || !endISO) continue;
+    const arr = guardIntervalsByPerson.get(pid) || [];
+    arr.push({ start: startISO, end: endISO });
+    guardIntervalsByPerson.set(pid, arr);
+  }
+  const overlapsWithGuards = (personId, slotStartISO, slotEndISO) => {
+    const list = guardIntervalsByPerson.get(Number(personId)) || [];
+    for (const g of list) {
+      if (overlapsIso(g.start, g.end, slotStartISO, slotEndISO)) return true;
+    }
+    return false;
+  };
+
+  // Hard "can assign" check for rasar/escort400:
+  // Before assigning a person, scan ALL their duties + constraints and ensure no overlap.
+  // This is the ground truth (no reliance on internal trackers).
+  const buildBwInterval = (bw) => {
+    const def = (BW_SLOTS || []).find(s => s.id === bw.slotId);
+    if (!def) return null;
+    const start = dayjs(`${bw.day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
+    let end = dayjs(`${bw.day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
+    if (!end.isAfter(start)) end = end.add(1, 'day');
+    return { start: start.toISOString(), end: end.toISOString() };
+  };
+  const buildKitchenInterval = (k) => {
+    const def = kitchenShiftDefsAll.find(d => d.id === k.shiftId);
+    if (!def) return null;
+    const start = dayjs(`${k.day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
+    let end = dayjs(`${k.day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
+    if (!end.isAfter(start)) end = end.add(1, 'day');
+    return { start: start.toISOString(), end: end.toISOString() };
+  };
+
+  const escortDefs = [
+    { id: 'escort_1', startHour: 7, startMinute: 0, endHour: 10, endMinute: 30 },
+    { id: 'escort_2', startHour: 10, startMinute: 30, endHour: 14, endMinute: 0 },
+    { id: 'escort_3', startHour: 14, startMinute: 0, endHour: 17, endMinute: 0 },
+    { id: 'escort_4', startHour: 17, startMinute: 0, endHour: 19, endMinute: 0 },
+  ];
+  const buildEscortInterval = (e0) => {
+    const def = escortDefs.find(d => d.id === e0.shiftId);
+    if (!def) return null;
+    const start = dayjs(`${e0.day}T${pad(def.startHour)}:${pad(def.startMinute)}:00`);
+    let end = dayjs(`${e0.day}T${pad(def.endHour)}:${pad(def.endMinute)}:00`);
+    if (!end.isAfter(start)) end = end.add(1, 'day');
+    return { start: start.toISOString(), end: end.toISOString() };
+  };
+
+  const canAssignRasarLike = (personId, slotStartISO, slotEndISO) => {
+    const pid = Number(personId);
+    if (!pid) return false;
+
+    // Constraints
+    if (violatesConstraint(pid, slotStartISO, slotEndISO)) return false;
+
+    // Guards
+    if (overlapsWithGuards(pid, slotStartISO, slotEndISO)) return false;
+
+    // BW
+    for (const bw of existingBwAssignments || []) {
+      if (Number(bw.personId) !== pid) continue;
+      const interval = buildBwInterval(bw);
+      if (interval && overlapsIso(interval.start, interval.end, slotStartISO, slotEndISO)) return false;
+    }
+
+    // Kitchen
+    for (const k of existingKitchenAssignments || []) {
+      if (Number(k.personId) !== pid) continue;
+      const interval = buildKitchenInterval(k);
+      if (interval && overlapsIso(interval.start, interval.end, slotStartISO, slotEndISO)) return false;
+    }
+
+    // Escort
+    for (const e0 of existingEscortAssignments || []) {
+      if (Number(e0.personId) !== pid) continue;
+      const interval = buildEscortInterval(e0);
+      if (interval && overlapsIso(interval.start, interval.end, slotStartISO, slotEndISO)) return false;
+    }
+
+    // Existing rasar/400 from previous state
+    for (const r0 of existingRasarAssignments || []) {
+      if (Number(r0.personId) !== pid) continue;
+      const def = rasarShifts.find(d => d.id === r0.shiftId);
+      if (!def) continue;
+      const times = buildRasarTimes(r0.day, def);
+      if (times && overlapsIso(times.start, times.end, slotStartISO, slotEndISO)) return false;
+    }
+    for (const e400 of existingEscort400Assignments || []) {
+      if (Number(e400.personId) !== pid) continue;
+      const def = escort400Shifts.find(d => d.id === e400.shiftId);
+      if (!def) continue;
+      const times = buildEscort400Times(e400.day, def);
+      if (times && overlapsIso(times.start, times.end, slotStartISO, slotEndISO)) return false;
+    }
+
+    // Already assigned in this generation (tracked in extraDutyIntervals by addExtraInterval)
+    if (overlapsWithExtraDuties(pid, slotStartISO, slotEndISO)) return false;
+
+    return true;
+  };
+
+  const rasarWeekDays = () => {
+    const out = [];
+    // Sun..Thu only
+    const base = rasarRangeStart.startOf('day');
+    for (let i = 0; i < 5; i += 1) {
+      const day = base.add(i, 'day').format('YYYY-MM-DD');
+      // Only include if overlaps the provided range
+      if (dayjs(day).isBefore(rasarRangeStart.startOf('day')) || dayjs(day).isAfter(rasarRangeEnd.startOf('day'))) continue;
+      out.push(day);
+    }
+    return out;
+  };
+
+  if (genRasar) {
+    for (const day of rasarWeekDays()) {
+      for (const def of rasarShifts) {
+        const times = buildRasarTimes(day, def);
+        if (!times) continue;
+        const key = `${day}|${def.id}`;
+        const set = ensureRasarSet(key);
+        const requiredPerShift = requiredForRasarShift(day, def.id);
+        const stillNeeded = requiredPerShift - set.size;
+        if (stillNeeded <= 0) continue;
+
+        const candidates = [...people]
+          // ES (כ"כ) members should NOT be assigned to rasar at all
+          .filter(p => !personToESGroup.has(p.id))
+          .filter(p => !set.has(p.id))
+          .filter(p => canAssignRasarLike(p.id, times.start, times.end))
+          .sort((a, b) => {
+            const workA =
+              (shiftCountByPerson[a.id] || 0) +
+              (bwAssignmentCount[a.id] || 0) +
+              (kitchenAssignmentCount[a.id] || 0) +
+              (escortAssignmentCount[a.id] || 0) +
+              (rasarAssignmentCount[a.id] || 0);
+            const workB =
+              (shiftCountByPerson[b.id] || 0) +
+              (bwAssignmentCount[b.id] || 0) +
+              (kitchenAssignmentCount[b.id] || 0) +
+              (escortAssignmentCount[b.id] || 0) +
+              (rasarAssignmentCount[b.id] || 0);
+            const diff = workA - workB;
+            if (diff !== 0) return diff;
+            return tieBreakRandom(a, b);
+          });
+
+        for (const candidate of candidates) {
+          if (set.size >= requiredPerShift) break;
+          if (!canAssignRasarLike(candidate.id, times.start, times.end)) continue;
+          set.add(candidate.id);
+          rasarAssignments.push({ day, shiftId: def.id, personId: candidate.id, start: times.start, end: times.end });
+          addExtraInterval(candidate.id, times.start, times.end, 'rasar');
+          rasarAssignmentCount[candidate.id] = (rasarAssignmentCount[candidate.id] || 0) + 1;
+        }
+      }
+    }
+  }
+
+  if (genRasar) {
+    for (const day of rasarWeekDays()) {
+      for (const def of escort400Shifts) {
+        const times = buildEscort400Times(day, def);
+        if (!times) continue;
+        const key = `${day}|${def.id}`;
+        const set = ensureEscort400Set(key);
+        const requiredPerShift = requiredForEscort400Shift(day, def.id);
+        const stillNeeded = requiredPerShift - set.size;
+        if (stillNeeded <= 0) continue;
+
+        const candidates = [...people]
+          .filter(p => p.gender === 'F')
+          // ES (כ"כ) members should NOT be assigned to escort400 at all
+          .filter(p => !personToESGroup.has(p.id))
+          .filter(p => !set.has(p.id))
+          .filter(p => canAssignRasarLike(p.id, times.start, times.end))
+          .sort((a, b) => {
+            const workA =
+              (shiftCountByPerson[a.id] || 0) +
+              (bwAssignmentCount[a.id] || 0) +
+              (kitchenAssignmentCount[a.id] || 0) +
+              (escortAssignmentCount[a.id] || 0) +
+              (rasarAssignmentCount[a.id] || 0) +
+              (escort400AssignmentCount[a.id] || 0);
+            const workB =
+              (shiftCountByPerson[b.id] || 0) +
+              (bwAssignmentCount[b.id] || 0) +
+              (kitchenAssignmentCount[b.id] || 0) +
+              (escortAssignmentCount[b.id] || 0) +
+              (rasarAssignmentCount[b.id] || 0) +
+              (escort400AssignmentCount[b.id] || 0);
+            const diff = workA - workB;
+            if (diff !== 0) return diff;
+            return tieBreakRandom(a, b);
+          });
+
+        for (const candidate of candidates) {
+          if (set.size >= requiredPerShift) break;
+          if (!canAssignRasarLike(candidate.id, times.start, times.end)) continue;
+          set.add(candidate.id);
+          escort400Assignments.push({ day, shiftId: def.id, personId: candidate.id, start: times.start, end: times.end });
+          addExtraInterval(candidate.id, times.start, times.end, 'escort400');
+          escort400AssignmentCount[candidate.id] = (escort400AssignmentCount[candidate.id] || 0) + 1;
+        }
+      }
+    }
   }
 
   return {
@@ -1017,6 +1555,8 @@ export const scheduleGenerator = (
     bwAssignments,
     kitchenAssignments,
     escortAssignments,
+    rasarAssignments,
+    escort400Assignments,
     kitchenSettings: kitchenSettingsOut,
     escortSettings: escortSettingsOut,
   };

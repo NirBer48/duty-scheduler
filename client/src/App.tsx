@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import ScheduleCalendar from './components/ScheduleView';
 import KitchenDutyView from './components/KitchenDutyView';
+import RasarDutyView from './components/RasarDutyView';
 import PeopleEditor from './components/PeopleEditor';
 import PostsEditor from './components/PostsEditor';
-import { fetchPeople, fetchPosts, generateGuardsSchedule, generateKitchenSchedule, clearSchedule, fetchLastSchedule, fetchConstraints, addConstraint, login, register, logout, fetchMe } from './api';
+import { fetchPeople, fetchPosts, generateGuardsSchedule, generateKitchenSchedule, generateRasarSchedule, saveRasarSchedule, clearSchedule, fetchLastSchedule, fetchConstraints, addConstraint, login, register, logout, fetchMe } from './api';
 import AppBar from '@mui/material/AppBar';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
@@ -27,6 +28,10 @@ import type {
   EscortAssignment,
   KitchenSettings,
   EscortSettings,
+  RasarAssignment,
+  RasarOverride,
+  Escort400Assignment,
+  Escort400Override,
 } from './types';
 import {
   Dialog,
@@ -54,8 +59,9 @@ const STORAGE_KEY_KITCHEN_ASSIGNMENTS = 'duty_scheduler_kitchen_assignments';
 const STORAGE_KEY_ESCORT_ASSIGNMENTS = 'duty_scheduler_escort_assignments';
 const STORAGE_KEY_KITCHEN_SETTINGS = 'duty_scheduler_kitchen_settings';
 const STORAGE_KEY_ESCORT_SETTINGS = 'duty_scheduler_escort_settings';
-const STORAGE_KEY_KITCHEN_START = 'duty_scheduler_kitchen_start';
-const STORAGE_KEY_KITCHEN_END = 'duty_scheduler_kitchen_end';
+const STORAGE_KEY_KITCHEN_DAY = 'duty_scheduler_kitchen_day';
+const STORAGE_KEY_RASAR_OVERRIDES = 'duty_scheduler_rasar_overrides';
+const STORAGE_KEY_ESCORT400_OVERRIDES = 'duty_scheduler_escort400_overrides';
 
 const formatLocalDateTime = (date: Date) => {
   const year = date.getFullYear();
@@ -126,16 +132,28 @@ const App: React.FC = () => {
     loadFromStorage(STORAGE_KEY_ESCORT_ASSIGNMENTS, [])
   );
   const [kitchenSettings, setKitchenSettings] = useState<KitchenSettings>(() =>
-    loadFromStorage(STORAGE_KEY_KITCHEN_SETTINGS, { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' })
+    loadFromStorage(STORAGE_KEY_KITCHEN_SETTINGS, { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] })
   );
   const [escortSettings, setEscortSettings] = useState<EscortSettings>(() =>
     loadFromStorage(STORAGE_KEY_ESCORT_SETTINGS, { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 })
   );
+  const [rasarAssignments, setRasarAssignments] = useState<RasarAssignment[]>([]);
+  const [rasarOverrides, setRasarOverrides] = useState<RasarOverride[]>(() =>
+    loadFromStorage(STORAGE_KEY_RASAR_OVERRIDES, [])
+  );
+  const [escort400Assignments, setEscort400Assignments] = useState<Escort400Assignment[]>([]);
+  const [escort400Overrides, setEscort400Overrides] = useState<Escort400Override[]>(() =>
+    loadFromStorage(STORAGE_KEY_ESCORT400_OVERRIDES, [])
+  );
+  const [rasarSaveViolations, setRasarSaveViolations] = useState<Array<{ personId: number; message: string }>>([]);
+  const [rasarHasChanges, setRasarHasChanges] = useState(false);
+  const [rasarIsSaving, setRasarIsSaving] = useState(false);
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [start, setStart] = useState(() => loadString(STORAGE_KEY_START, calculateDefaultStart()));
   const [end, setEnd] = useState(() => loadString(STORAGE_KEY_END, calculateDefaultEnd()));
-  const [kitchenStart, setKitchenStart] = useState(() => loadString(STORAGE_KEY_KITCHEN_START, calculateDefaultStart()));
-  const [kitchenEnd, setKitchenEnd] = useState(() => loadString(STORAGE_KEY_KITCHEN_END, calculateDefaultEnd()));
+  const [kitchenDay, setKitchenDay] = useState(() =>
+    loadString(STORAGE_KEY_KITCHEN_DAY, calculateDefaultStart().substring(0, 10))
+  );
   const { t, lang, setLang } = useI18n();
   const [error, setError] = useState('');
   const [missingCount, setMissingCount] = useState<number | null>(null);
@@ -193,6 +211,9 @@ const App: React.FC = () => {
         setBWAssignments(snapshot.bwAssignments || []);
         setKitchenAssignments(snapshot.kitchenAssignments || []);
         setEscortAssignments(snapshot.escortAssignments || []);
+        setRasarAssignments(snapshot.rasarAssignments || []);
+        setEscort400Assignments(snapshot.escort400Assignments || []);
+        setRasarHasChanges(false);
         if (snapshot.kitchenSettings) setKitchenSettings(snapshot.kitchenSettings);
         if (snapshot.escortSettings) setEscortSettings(snapshot.escortSettings);
         if (snapshot.esAssignments?.length) {
@@ -225,8 +246,7 @@ const App: React.FC = () => {
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY_START, start); }, [start]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_END, end); }, [end]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_START, kitchenStart); }, [kitchenStart]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_END, kitchenEnd); }, [kitchenEnd]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_DAY, kitchenDay); }, [kitchenDay]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ASSIGNMENTS, JSON.stringify(assignments)); }, [assignments]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ES_ASSIGNMENTS, JSON.stringify(esAssignments)); }, [esAssignments]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ES_GROUPS, JSON.stringify(esGroups)); }, [esGroups]);
@@ -235,6 +255,8 @@ const App: React.FC = () => {
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ESCORT_ASSIGNMENTS, JSON.stringify(escortAssignments)); }, [escortAssignments]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_SETTINGS, JSON.stringify(kitchenSettings)); }, [kitchenSettings]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ESCORT_SETTINGS, JSON.stringify(escortSettings)); }, [escortSettings]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_RASAR_OVERRIDES, JSON.stringify(rasarOverrides)); }, [rasarOverrides]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_ESCORT400_OVERRIDES, JSON.stringify(escort400Overrides)); }, [escort400Overrides]);
 
   const handleScheduleGuards = async () => {
     if (!user) {
@@ -260,19 +282,25 @@ const App: React.FC = () => {
         bwAssignments,
         kitchenAssignments,
         escortAssignments,
+        rasarAssignments,
+        escort400Assignments,
         kitchenSettings,
         escortSettings,
         constraints
       );
-      
-      // If there's a manpower shortage, show the popup
-      if (res.missingCount && res.missingCount > 0) {
-        setManpowerShortage(res.missingCount);
-        setManpowerDialogOpen(true);
-        setIsGenerating(false);
+      // If generation failed, do NOT overwrite existing state (especially kitchen/rasar),
+      // otherwise subsequent retries will ignore other duties and can create overlaps.
+      // Special-case manpower shortage: show popup to offer partial schedule.
+      if (res.error) {
+        if (res.error === 'not enough manpower' && (res.missingCount ?? 0) > 0) {
+          setManpowerShortage(res.missingCount ?? 0);
+          setManpowerDialogOpen(true);
+          return;
+        }
+        setError(res.error || '');
+        setMissingCount(res.missingCount ?? null);
         return;
       }
-      
       setAssignments(res.assignments || []);
       setBWAssignments(res.bwAssignments || []);
       setKitchenAssignments(res.kitchenAssignments || []);
@@ -298,8 +326,6 @@ const App: React.FC = () => {
     setIsGenerating(true);
     
     try {
-      // Generate with allowPartial=true to get partial schedule with empty cells
-      console.log('handleManpowerConfirm v2: calling with allowPartial=true');
       const res = await generateGuardsSchedule(
         start,
         end,
@@ -309,19 +335,14 @@ const App: React.FC = () => {
         bwAssignments,
         kitchenAssignments,
         escortAssignments,
+        rasarAssignments,
+        escort400Assignments,
         kitchenSettings,
         escortSettings,
         constraints,
         true // allowPartial
       );
-      
-      console.log('handleManpowerConfirm response:', {
-        assignmentsCount: res.assignments?.length,
-        bwAssignmentsCount: res.bwAssignments?.length,
-        error: res.error,
-        missingCount: res.missingCount
-      });
-      
+
       setAssignments(res.assignments || []);
       setBWAssignments(res.bwAssignments || []);
       setKitchenAssignments(res.kitchenAssignments || []);
@@ -368,13 +389,14 @@ const App: React.FC = () => {
       const res = await generateKitchenSchedule(
         start,
         end,
-        kitchenStart,
-        kitchenEnd,
+        kitchenDay,
         esAssignments,
         assignments,
         bwAssignments,
         kitchenAssignments,
         escortAssignments,
+        rasarAssignments,
+        escort400Assignments,
         kitchenSettings,
         escortSettings,
         constraints
@@ -402,6 +424,73 @@ const App: React.FC = () => {
       setError('');
       setMissingCount(null);
       await clearSchedule('kitchen');
+    }
+  };
+
+  const handleGenerateRasar = async (rasarStartISO: string, rasarEndISO: string, existing: RasarAssignment[], overrides: RasarOverride[]) => {
+    if (!user) return;
+    setError('');
+    setMissingCount(null);
+    setIsGenerating(true);
+    setRasarSaveViolations([]);
+    try {
+      const res = await generateRasarSchedule(
+        rasarStartISO,
+        rasarEndISO,
+        esAssignments,
+        assignments,
+        bwAssignments,
+        kitchenAssignments,
+        escortAssignments,
+        kitchenSettings,
+        existing,
+        constraints,
+        overrides,
+        escort400Assignments,
+        escort400Overrides
+      );
+      setRasarAssignments(res.rasarAssignments || []);
+      setEscort400Assignments(res.escort400Assignments || []);
+      setRasarHasChanges(true);
+      setError(res.error || '');
+      setRasarSaveViolations(res.violations || []);
+    } catch (e) {
+      setError(t('Save failed'));
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleSaveRasar = async () => {
+    if (!user) return;
+    setError('');
+    setMissingCount(null);
+    setRasarIsSaving(true);
+    setRasarSaveViolations([]);
+    try {
+      const res = await saveRasarSchedule(rasarAssignments, escort400Assignments);
+      if (!res.ok) {
+        setError(res.error || t('Save failed'));
+        setRasarSaveViolations(res.violations || []);
+      } else {
+        setRasarHasChanges(false);
+      }
+    } catch (e) {
+      setError(t('Save failed'));
+    } finally {
+      setRasarIsSaving(false);
+    }
+  };
+
+  const handleClearRasar = async () => {
+    if (!user) return;
+    if (window.confirm(t('Are you sure you want to clear the schedule?'))) {
+      setRasarAssignments([]);
+      setEscort400Assignments([]);
+      setRasarHasChanges(true);
+      setError('');
+      setMissingCount(null);
+      await clearSchedule('rasar');
     }
   };
 
@@ -441,6 +530,8 @@ const App: React.FC = () => {
     setBWAssignments([]);
     setKitchenAssignments([]);
     setEscortAssignments([]);
+    setRasarAssignments([]);
+    setEscort400Assignments([]);
     setESAssignments([
       { groupId: 'es1', personIds: [] },
       { groupId: 'es2', personIds: [] },
@@ -465,7 +556,7 @@ const App: React.FC = () => {
           <Typography variant="h6" sx={{ flexGrow: 1 }}>{t('MyTurn')}</Typography>
           {user && (
             <Typography variant="body2" sx={{ mr: 2 }}>
-              {user.email}
+            היי  {user.email} !
             </Typography>
           )}
           {user && (
@@ -474,7 +565,7 @@ const App: React.FC = () => {
             </Button>
           )}
           <Button color="inherit" onClick={() => setLang(lang === 'en' ? 'he' : 'en')}>
-            {lang === 'en' ? 'עברית' : 'English'}
+            {lang === 'en' ? 'עברית' : 'EN'}
           </Button>
         </Toolbar>
       </AppBar>
@@ -524,6 +615,7 @@ const App: React.FC = () => {
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
             <Tab label={t('Guards')} />
             <Tab label={t('Kitchen')} />
+            <Tab label={t('Rasar')} />
             <Tab label={t('History')} />
           </Tabs>
         <Box display="flex" gap={3} alignItems="flex-start">
@@ -537,8 +629,8 @@ const App: React.FC = () => {
               {tab === 0 && (
                 <>
                   <Paper sx={{ p: 2, mb: 2 }}>
-                    <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
-                    <Stack direction="row" spacing={3} flexWrap="wrap" alignItems="center">
+                    <Typography variant="h5"  gutterBottom>{t('Scheduler')}</Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
                       <TextField
                         type="datetime-local"
                         label={t('Start')}
@@ -557,14 +649,16 @@ const App: React.FC = () => {
                         inputProps={{ step: 14400 }}
                         size="small"
                       />
+                     
                       <Button
                         onClick={handleScheduleGuards}
                         variant="contained"
                         disabled={isGenerating}
+                        
                       >
                         {isGenerating ? t('Assigning') : t('Generate')}
                       </Button>
-                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating}>
+                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating} sx={{mr: "8px"}}>
                         {t('Clear')}
                       </Button>
                       <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
@@ -610,10 +704,8 @@ const App: React.FC = () => {
                 <Paper sx={{ p: 2, overflow: 'auto' }}>
                   <KitchenDutyView
                     people={people}
-                    start={kitchenStart}
-                    end={kitchenEnd}
-                    onStartChange={setKitchenStart}
-                    onEndChange={setKitchenEnd}
+                    kitchenDay={kitchenDay}
+                    onKitchenDayChange={setKitchenDay}
                     archiveStart={start}
                     archiveEnd={end}
                     assignments={assignments}
@@ -636,6 +728,38 @@ const App: React.FC = () => {
                 </Paper>
             )}
               {tab === 2 && (
+                <Paper sx={{ p: 2, overflow: 'auto' }}>
+                  <RasarDutyView
+                    people={people}
+                    guardAssignments={assignments}
+                    bwAssignments={bwAssignments}
+                    kitchenAssignments={kitchenAssignments}
+                    escortAssignments={escortAssignments}
+                    esAssignments={esAssignments}
+                    kitchenSettings={kitchenSettings}
+                    rasarAssignments={rasarAssignments}
+                    onRasarAssignmentsChange={(a) => { setRasarAssignments(a); setRasarHasChanges(true); }}
+                    rasarOverrides={rasarOverrides}
+                    onRasarOverridesChange={(o) => { setRasarOverrides(o); setRasarHasChanges(true); }}
+                    escort400Assignments={escort400Assignments}
+                    onEscort400AssignmentsChange={(a) => { setEscort400Assignments(a); setRasarHasChanges(true); }}
+                    escort400Overrides={escort400Overrides}
+                    onEscort400OverridesChange={(o) => { setEscort400Overrides(o); setRasarHasChanges(true); }}
+                    constraints={constraints}
+                    onGenerate={handleGenerateRasar}
+                    onGenerateEscort400={handleGenerateRasar}
+                    onSave={handleSaveRasar}
+                    onClear={handleClearRasar}
+                    onAddConstraint={() => setConstraintDialogOpen(true)}
+                    isGenerating={isGenerating}
+                    isSaving={rasarIsSaving}
+                    hasChanges={rasarHasChanges}
+                    error={error}
+                    saveViolations={rasarSaveViolations}
+                  />
+                </Paper>
+              )}
+              {tab === 3 && (
                   <HistoryView people={people} posts={posts} />
                 )}
             </Box>

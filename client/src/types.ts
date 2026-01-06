@@ -63,15 +63,20 @@ export interface ESGroup {
   activePerShift: number;
 }
 
+export interface KitchenShift {
+  id: string; // stable opaque id (UUID string recommended)
+  start: string; // "HH:mm" (must partition 06:00..21:00 contiguously)
+  end: string; // "HH:mm"
+  required: number; // people required in this shift (default 36)
+}
+
 export interface KitchenSettings {
-  requiredShift1: number; // default 36 (06:00 -> shift2Start)
-  requiredShift2: number; // default 36 (shift2Start -> 21:00)
-  shift2Start: string; // "HH:mm" start time of the 2nd shift (also end of 1st)
+  shifts: KitchenShift[];
 }
 
 export interface KitchenAssignment {
   day: string; // YYYY-MM-DD
-  shiftId: string; // kitchen_1 | kitchen_2
+  shiftId: string; // KitchenShift.id
   personId: number;
   start?: string;
   end?: string;
@@ -90,4 +95,32 @@ export interface EscortAssignment {
   personId: number;
   start?: string;
   end?: string;
+}
+
+export interface RasarAssignment {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // rasar_1 | rasar_2 | rasar_3
+  personId: number;
+  start?: string;
+  end?: string;
+}
+
+export interface RasarOverride {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // rasar_1 | rasar_2 | rasar_3
+  required: number;
+}
+
+export interface Escort400Assignment {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // escort400_1 | escort400_2
+  personId: number;
+  start?: string;
+  end?: string;
+}
+
+export interface Escort400Override {
+  day: string; // YYYY-MM-DD
+  shiftId: string; // escort400_1 | escort400_2
+  required: number;
 }

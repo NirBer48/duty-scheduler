@@ -12,6 +12,8 @@ import {
     EscortAssignment,
     KitchenSettings,
     EscortSettings,
+    RasarAssignment,
+    RasarOverride,
 } from "../../types";
 import { ShiftSlot, getPersonIds, BW_SLOT_DEFINITIONS, BW_REQUIRED_PER_SLOT, getBwDaysForRange, getBwSlotsForRange, getShiftTimeWindow } from "./utils";
 
@@ -37,6 +39,16 @@ type KitchenExportParams = {
     escortSettings: EscortSettings;
     kitchenStart: string;
     kitchenEnd: string;
+    t: (key: string) => string;
+};
+
+type RasarExportParams = {
+    people: Person[];
+    rasarAssignments: RasarAssignment[];
+    rasarOverrides: RasarOverride[];
+    escort400Assignments: { day: string; shiftId: string; personId: number }[];
+    escort400Overrides: { day: string; shiftId: string; required: number }[];
+    weekStart: string; // YYYY-MM-DD (Sunday)
     t: (key: string) => string;
 };
 
@@ -88,11 +100,14 @@ export const exportKitchenToExcel = ({
     const endDt = dayjs(kitchenEnd);
     const days = listDays(kitchenStart, kitchenEnd);
 
-    const shift2Start = clampKitchenShift2Start(kitchenSettings.shift2Start || '13:00');
-    const kitchenShifts = [
-        { id: 'kitchen_1', label: `06:00-${shift2Start}`, required: Number(kitchenSettings.requiredShift1 ?? 36) },
-        { id: 'kitchen_2', label: `${shift2Start}-21:00`, required: Number(kitchenSettings.requiredShift2 ?? 36) },
-    ];
+    const kitchenShifts = (kitchenSettings?.shifts && kitchenSettings.shifts.length > 0
+      ? kitchenSettings.shifts
+      : [{ id: 'default', start: '06:00', end: '21:00', required: 36 }]
+    ).map(s => ({
+      id: s.id,
+      label: `${String(s.start || '06:00')}-${String(s.end || '21:00')}`,
+      required: Number(s.required ?? 36),
+    }));
     const escortShifts = [
         { id: 'escort_1', label: '07:00-10:30', required: Number(escortSettings.requiredShift1 ?? 4) },
         { id: 'escort_2', label: '10:30-14:00', required: Number(escortSettings.requiredShift2 ?? 4) },
@@ -240,6 +255,122 @@ export const exportKitchenToExcel = ({
     buildSheet('ליווי', escortShifts, escortAssignments);
 
     XLSX.writeFile(wb, `kitchen_${startDt.format('YYYY-MM-DD')}_to_${endDt.format('YYYY-MM-DD')}.xlsx`);
+};
+
+export const exportRasarToExcel = ({
+    people,
+    rasarAssignments,
+    rasarOverrides,
+    escort400Assignments,
+    escort400Overrides,
+    weekStart,
+    t,
+}: RasarExportParams) => {
+    const wb = XLSX.utils.book_new();
+    const base = dayjs(weekStart).startOf('day');
+    const days = Array.from({ length: 5 }, (_, i) => base.add(i, 'day').format('YYYY-MM-DD'));
+
+    const styleHeader = (bg: string) => ({
+        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 },
+        fill: { fgColor: { rgb: bg } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+            top: { style: 'thin', color: { rgb: '000000' } },
+            bottom: { style: 'thin', color: { rgb: '000000' } },
+            left: { style: 'thin', color: { rgb: '000000' } },
+            right: { style: 'thin', color: { rgb: '000000' } },
+        }
+    });
+    const styleCell = (bg: string) => ({
+        font: { sz: 10 },
+        fill: { fgColor: { rgb: bg } },
+        alignment: { horizontal: 'center', vertical: 'top', wrapText: true },
+        border: {
+            top: { style: 'thin', color: { rgb: '000000' } },
+            bottom: { style: 'thin', color: { rgb: '000000' } },
+            left: { style: 'thin', color: { rgb: '000000' } },
+            right: { style: 'thin', color: { rgb: '000000' } },
+        }
+    });
+
+    const buildSheet = (
+        sheetName: string,
+        title: string,
+        shifts: { id: string; label: string }[],
+        assignments: { day: string; shiftId: string; personId: number }[],
+        overrides: { day: string; shiftId: string; required: number }[]
+    ) => {
+        const requiredFor = (day: string, shiftId: string) => {
+            const o = overrides.find(x => x.day === day && x.shiftId === shiftId);
+            const v = Number(o?.required ?? 1);
+            return Number.isFinite(v) ? Math.max(0, v) : 1;
+        };
+
+        const wsData: XLSX.CellObject[][] = [];
+        const header: XLSX.CellObject[] = [
+            { v: title, t: 's', s: styleHeader('4472C4') },
+            ...days.map(d => ({ v: d, t: 's', s: styleHeader('4472C4') })),
+            { v: t('Hours'), t: 's', s: styleHeader('5B9BD5') },
+        ];
+        wsData.push(header);
+
+        for (const shift of shifts) {
+            const row: XLSX.CellObject[] = [];
+            row.push({ v: shift.label, t: 's', s: styleCell('D9E2F3') });
+            for (const day of days) {
+                const personIds = assignments.filter(a => a.day === day && a.shiftId === shift.id).map(a => a.personId);
+                const names = personIds
+                    .map(pid => people.find(p => p.id === pid)?.name || String(pid))
+                    .join('\n') || '-';
+                const required = requiredFor(day, shift.id);
+                const count = personIds.length;
+                let bg = 'FFF2CC'; // partial
+                if (required === 0) bg = 'D9D9D9';
+                else if (count === 0) bg = 'FFCCCC';
+                else if (count >= required) bg = 'C6EFCE';
+                row.push({ v: names, t: 's', s: styleCell(bg) });
+            }
+            row.push({ v: shift.label, t: 's', s: styleCell('D9E2F3') });
+            wsData.push(row);
+        }
+
+        const ws = XLSX.utils.aoa_to_sheet(wsData.map(r => r.map(c => c.v)));
+        wsData.forEach((row, r) => row.forEach((cell, c) => {
+            const ref = XLSX.utils.encode_cell({ r, c });
+            if (ws[ref]) ws[ref].s = cell.s;
+        }));
+        ws['!cols'] = [
+            { wch: 18 },
+            ...Array.from({ length: 5 }, () => ({ wch: 24 })),
+            { wch: 14 },
+        ];
+        ws['!rows'] = [{ hpt: 22 }, ...Array.from({ length: shifts.length }, () => ({ hpt: 64 }))];
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    };
+
+    buildSheet(
+        'רס\"ר',
+        t('Rasar'),
+        [
+            { id: 'rasar_1', label: '08:30-11:30' },
+            { id: 'rasar_2', label: '13:30-17:30' },
+            { id: 'rasar_3', label: '19:30-20:30' },
+        ],
+        rasarAssignments,
+        rasarOverrides
+    );
+    buildSheet(
+        'ליווי 400',
+        t('Contractor escort - 400'),
+        [
+            { id: 'escort400_1', label: '08:00-12:30' },
+            { id: 'escort400_2', label: '12:30-17:00' },
+        ],
+        escort400Assignments,
+        escort400Overrides
+    );
+
+    XLSX.writeFile(wb, `rasar_${base.format('YYYY-MM-DD')}.xlsx`);
 };
 
 export const exportToExcel = ({

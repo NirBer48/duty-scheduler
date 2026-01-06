@@ -11,6 +11,7 @@ import {
   CircularProgress,
 } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
+import AddIcon from '@mui/icons-material/Add';
 import { useI18n } from '../util/i18n';
 import { saveAllSchedules } from '../api';
 import { exportKitchenToExcel } from './schedule';
@@ -22,6 +23,7 @@ import type {
   EscortSettings,
   KitchenAssignment,
   KitchenSettings,
+  KitchenShift,
   Person,
   ESGroupAssignment,
 } from '../types';
@@ -30,10 +32,8 @@ import { DutyShiftSettingsDialog } from './schedule/DutyShiftSettingsDialog';
 
 type Props = {
   people: Person[];
-  start: string;
-  end: string;
-  onStartChange?: (v: string) => void;
-  onEndChange?: (v: string) => void;
+  kitchenDay: string; // YYYY-MM-DD (local)
+  onKitchenDayChange?: (v: string) => void;
   archiveStart?: string;
   archiveEnd?: string;
   assignments: Assignment[];
@@ -93,10 +93,8 @@ const buildRange = (day: string, startHHmm: string, endHHmm: string, scheduleSta
 
 const KitchenDutyView: React.FC<Props> = ({
   people,
-  start,
-  end,
-  onStartChange,
-  onEndChange,
+  kitchenDay,
+  onKitchenDayChange,
   archiveStart,
   archiveEnd,
   assignments,
@@ -118,14 +116,179 @@ const KitchenDutyView: React.FC<Props> = ({
   readOnly = false,
 }) => {
   const { t, lang, rtl } = useI18n();
-  const scheduleStart = useMemo(() => dayjs(start), [start]);
-  const scheduleEnd = useMemo(() => dayjs(end), [end]);
+  const scheduleStart = useMemo(() => dayjs(`${kitchenDay}T06:00:00`), [kitchenDay]);
+  const scheduleEnd = useMemo(() => dayjs(`${kitchenDay}T21:00:00`), [kitchenDay]);
 
-  const kitchenShift2Start = clampShift2Start(parseHHmm(kitchenSettings.shift2Start, '13:00'));
-  const kitchenShifts = useMemo(() => ([
-    { id: 'kitchen_1', label: `06:00-${kitchenShift2Start}`, start: '06:00', end: kitchenShift2Start },
-    { id: 'kitchen_2', label: `${kitchenShift2Start}-21:00`, start: kitchenShift2Start, end: '21:00' },
-  ]), [kitchenShift2Start]);
+  const newShiftId = () => {
+    // Prefer browser UUID; fall back to time-based.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyCrypto: any = (globalThis as any).crypto;
+    if (anyCrypto?.randomUUID) return anyCrypto.randomUUID();
+    return `kitchen_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  };
+
+  const defaultKitchenShifts = (): KitchenShift[] => ([
+    { id: newShiftId(), start: '06:00', end: '21:00', required: 36 },
+  ]);
+
+  // Ensure we always have at least one valid shift array in settings.
+  React.useEffect(() => {
+    if (!kitchenSettings?.shifts || kitchenSettings.shifts.length < 1) {
+      onKitchenSettingsChange({ shifts: defaultKitchenShifts() });
+    }
+  }, [kitchenSettings, onKitchenSettingsChange]);
+
+  const kitchenShiftList: KitchenShift[] = useMemo(() => {
+    if (kitchenSettings?.shifts && kitchenSettings.shifts.length > 0) return kitchenSettings.shifts;
+    return defaultKitchenShifts();
+  }, [kitchenSettings]);
+
+  const kitchenStartISO = `${kitchenDay}T06:00:00`;
+  const kitchenEndISO = `${kitchenDay}T21:00:00`;
+
+  const recomputeKitchenAssignmentTimes = (assignmentsToUpdate: KitchenAssignment[], nextShifts: KitchenShift[]) => {
+    // Rebuild start/end for assignments on the selected kitchen day so hours track shift edits.
+    const defs = nextShifts.map(s => ({ id: s.id, start: parseHHmm(s.start, '06:00'), end: parseHHmm(s.end, '21:00') }));
+    const byId = new Map(defs.map(d => [d.id, d]));
+    return assignmentsToUpdate.map(a => {
+      if (a.day !== kitchenDay) return a;
+      const def = byId.get(a.shiftId);
+      if (!def) return a;
+      const range = buildRange(kitchenDay, def.start, def.end, scheduleStart, scheduleEnd);
+      if (!range) return a;
+      return { ...a, start: range.start, end: range.end };
+    });
+  };
+
+  const minutesBetween = (startHHmm: string, endHHmm: string) => hhmmToMinutes(endHHmm) - hhmmToMinutes(startHHmm);
+
+  const setKitchenShifts = (next: KitchenShift[], baseAssignments: KitchenAssignment[] = kitchenAssignments) => {
+    onKitchenSettingsChange({ shifts: next });
+    onKitchenAssignmentsChange(recomputeKitchenAssignmentTimes(baseAssignments, next));
+  };
+
+  const clampBoundary = (mins: number, min: number, max: number) => Math.min(max, Math.max(min, mins));
+
+  const applyKitchenShiftSettings = (
+    shiftId: string,
+    required: number,
+    newStartHHmm?: string,
+    newEndHHmm?: string
+  ) => {
+    // IMPORTANT: apply all edits (required + boundaries) in ONE update.
+    // Previously we updated required and then updated boundaries from stale state, overwriting required.
+    const shifts = kitchenShiftList.map(s => ({ ...s }));
+    const idx = shifts.findIndex(s => s.id === shiftId);
+    if (idx < 0) return;
+
+    // Always update required on the target shift.
+    shifts[idx] = { ...shifts[idx], required };
+
+    // Update boundary BEFORE (prev.end + cur.start)
+    if (idx > 0 && newStartHHmm) {
+      const prev = shifts[idx - 1];
+      const cur = shifts[idx];
+      const prevStart = hhmmToMinutes(parseHHmm(prev.start, '06:00'));
+      const curEnd = hhmmToMinutes(parseHHmm(cur.end, '21:00'));
+      const desired = hhmmToMinutes(parseHHmm(newStartHHmm, cur.start));
+      // keep at least 1 minute duration for both sides
+      const boundary = clampBoundary(desired, prevStart + 1, curEnd - 1);
+      const hhmm = `${pad2(Math.floor(boundary / 60))}:${pad2(boundary % 60)}`;
+      shifts[idx - 1] = { ...prev, end: hhmm };
+      shifts[idx] = { ...cur, start: hhmm };
+    }
+
+    // Update boundary AFTER (cur.end + next.start)
+    if (idx < shifts.length - 1 && newEndHHmm) {
+      const cur = shifts[idx];
+      const next = shifts[idx + 1];
+      const curStart = hhmmToMinutes(parseHHmm(cur.start, '06:00'));
+      const nextEnd = hhmmToMinutes(parseHHmm(next.end, '21:00'));
+      const desired = hhmmToMinutes(parseHHmm(newEndHHmm, cur.end));
+      // keep at least 1 minute duration for both sides
+      const boundary = clampBoundary(desired, curStart + 1, nextEnd - 1);
+      const hhmm = `${pad2(Math.floor(boundary / 60))}:${pad2(boundary % 60)}`;
+      shifts[idx] = { ...cur, end: hhmm };
+      shifts[idx + 1] = { ...next, start: hhmm };
+    }
+
+    setKitchenShifts(shifts);
+  };
+
+  const addShift = () => {
+    const shifts = [...kitchenShiftList];
+    if (shifts.length < 1) {
+      setKitchenShifts(defaultKitchenShifts());
+      return;
+    }
+    // Split the longest shift at midpoint (nearest minute).
+    let bestIdx = 0;
+    let bestLen = -1;
+    for (let i = 0; i < shifts.length; i += 1) {
+      const len = minutesBetween(parseHHmm(shifts[i].start, '06:00'), parseHHmm(shifts[i].end, '21:00'));
+      if (len > bestLen) { bestLen = len; bestIdx = i; }
+    }
+    const target = shifts[bestIdx];
+    const sM = hhmmToMinutes(parseHHmm(target.start, '06:00'));
+    const eM = hhmmToMinutes(parseHHmm(target.end, '21:00'));
+    if (eM - sM < 2) return; // can't split a 1-minute shift
+    const mid = Math.round((sM + eM) / 2);
+    const midHHmm = `${pad2(Math.floor(mid / 60))}:${pad2(mid % 60)}`;
+    const newShift: KitchenShift = { id: newShiftId(), start: midHHmm, end: parseHHmm(target.end, '21:00'), required: Math.max(0, Number(target.required ?? 36)) };
+    shifts[bestIdx] = { ...target, end: midHHmm };
+    shifts.splice(bestIdx + 1, 0, newShift);
+    setKitchenShifts(shifts);
+  };
+
+  const removeShiftAt = (idx: number) => {
+    const shifts = [...kitchenShiftList];
+    if (shifts.length <= 1) return;
+    if (idx < 0 || idx >= shifts.length) return;
+    const removed = shifts[idx];
+    // Drop assignments for removed shiftId (rule).
+    const filteredAssignments = kitchenAssignments.filter(a => a.shiftId !== removed.id);
+
+    if (idx === 0) {
+      // next shift starts at 06:00
+      shifts[1] = { ...shifts[1], start: '06:00' };
+      shifts.splice(0, 1);
+      setKitchenShifts(shifts, filteredAssignments);
+      return;
+    }
+    if (idx === shifts.length - 1) {
+      // prev shift ends at 21:00
+      shifts[idx - 1] = { ...shifts[idx - 1], end: '21:00' };
+      shifts.splice(idx, 1);
+      setKitchenShifts(shifts, filteredAssignments);
+      return;
+    }
+    const startM = hhmmToMinutes(parseHHmm(removed.start, '06:00'));
+    const endM = hhmmToMinutes(parseHHmm(removed.end, '21:00'));
+    const mid = Math.round((startM + endM) / 2);
+    const midHHmm = `${pad2(Math.floor(mid / 60))}:${pad2(mid % 60)}`;
+    shifts[idx - 1] = { ...shifts[idx - 1], end: midHHmm };
+    shifts[idx + 1] = { ...shifts[idx + 1], start: midHHmm };
+    shifts.splice(idx, 1);
+    setKitchenShifts(shifts, filteredAssignments);
+  };
+
+  const kitchenShifts = useMemo(
+    () =>
+      kitchenShiftList.map(s => ({
+        id: s.id,
+        label: `${parseHHmm(s.start, '06:00')}-${parseHHmm(s.end, '21:00')}`,
+        start: parseHHmm(s.start, '06:00'),
+        end: parseHHmm(s.end, '21:00'),
+      })),
+    [kitchenShiftList]
+  );
+
+  const kitchenShiftLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of kitchenShifts) m.set(s.id, s.label);
+    return m;
+  }, [kitchenShifts]);
+  const kitchenLabel = (shiftId: string) => kitchenShiftLabelById.get(shiftId) || shiftId;
 
   const escortShifts = useMemo(() => ([
     { id: 'escort_1', label: '07:00-10:30', start: '07:00', end: '10:30' },
@@ -135,9 +298,8 @@ const KitchenDutyView: React.FC<Props> = ({
   ]), []);
 
   const requiredForKitchenShift = (shiftId: string) => {
-    if (shiftId === 'kitchen_1') return Math.max(0, Number(kitchenSettings.requiredShift1 ?? 36));
-    if (shiftId === 'kitchen_2') return Math.max(0, Number(kitchenSettings.requiredShift2 ?? 36));
-    return 0;
+    const s = kitchenShiftList.find(x => x.id === shiftId);
+    return Math.max(0, Number(s?.required ?? 36));
   };
 
   const requiredForEscortShift = (shiftId: string) => {
@@ -198,6 +360,32 @@ const KitchenDutyView: React.FC<Props> = ({
     const newInvalidKitchenCells = new Set<string>();
     const newInvalidEscortCells = new Set<string>();
 
+    // Staffing count validation (kitchen + escort): explicitly report missing/extra people per shift.
+    for (const day of daysWithAnyKitchen) {
+      for (const shift of kitchenShifts) {
+        const range = buildRange(day, shift.start, shift.end, scheduleStart, scheduleEnd);
+        if (!range) continue;
+        const assigned = getKitchenPersonIds(day, shift.id);
+        const required = requiredForKitchenShift(shift.id);
+        if (assigned.length !== required) {
+          newInvalidKitchenCells.add(`${day}|${shift.id}`);
+          errors.push(`${day} ${shift.label}: ${t('Required')} ${required} ${t('has')} ${assigned.length}`);
+        }
+      }
+    }
+    for (const day of daysWithAnyEscort) {
+      for (const shift of escortShifts) {
+        const range = buildRange(day, shift.start, shift.end, scheduleStart, scheduleEnd);
+        if (!range) continue;
+        const assigned = getEscortPersonIds(day, shift.id);
+        const required = requiredForEscortShift(shift.id);
+        if (assigned.length !== required) {
+          newInvalidEscortCells.add(`${day}|${shift.id}`);
+          errors.push(`${day} ${shift.label}: ${t('Required')} ${required} ${t('has')} ${assigned.length}`);
+        }
+      }
+    }
+
     // Check for overlapping kitchen assignments for the same person
     for (const person of people) {
       const personKitchenAssignments = kitchenAssignments.filter(a => a.personId === person.id);
@@ -217,7 +405,7 @@ const KitchenDutyView: React.FC<Props> = ({
                 (end2.isSame(start1, 'minute') || end2.isBefore(start1, 'minute'))) {
               // Adjacent shifts (one ends when the other starts) - not overlapping
             } else if (start1.isBefore(end2) && start2.isBefore(end1)) {
-              errors.push(`${person.name}: ${t('Overlapping shift in this timeframe')} (${a1.day} ${t(a1.shiftId)} & ${a2.day} ${t(a2.shiftId)})`);
+              errors.push(`${person.name}: ${t('Overlapping shift in this timeframe')} (${a1.day} ${kitchenLabel(a1.shiftId)} & ${a2.day} ${kitchenLabel(a2.shiftId)})`);
               newInvalidKitchenCells.add(`${a1.day}|${a1.shiftId}`);
               newInvalidKitchenCells.add(`${a2.day}|${a2.shiftId}`);
             }
@@ -271,7 +459,7 @@ const KitchenDutyView: React.FC<Props> = ({
             !(guardEnd.isSame(kitchenStart, 'minute') || guardEnd.isBefore(kitchenStart, 'minute')) && 
             kitchenStart.isBefore(guardEnd) && guardStart.isBefore(kitchenEnd)) {
           const person = people.find(p => p.id === kitchen.personId);
-          errors.push(`${person?.name || kitchen.personId}: ${t('Overlapping shift in this timeframe')} (${kitchen.day} ${t(kitchen.shiftId)} & ${guard.day} ${guard.shiftLabel})`);
+          errors.push(`${person?.name || kitchen.personId}: ${t('Overlapping shift in this timeframe')} (${kitchen.day} ${kitchenLabel(kitchen.shiftId)} & ${guard.day} ${guard.shiftLabel})`);
           newInvalidKitchenCells.add(`${kitchen.day}|${kitchen.shiftId}`);
         }
       }
@@ -318,7 +506,7 @@ const KitchenDutyView: React.FC<Props> = ({
             !(escortEnd.isSame(kitchenStart, 'minute') || escortEnd.isBefore(kitchenStart, 'minute')) && 
             kitchenStart.isBefore(escortEnd) && escortStart.isBefore(kitchenEnd)) {
           const person = people.find(p => p.id === kitchen.personId);
-          errors.push(`${person?.name || kitchen.personId}: ${t('Overlapping shift in this timeframe')} (${kitchen.day} ${t(kitchen.shiftId)} & ${escort.day} ${t(escort.shiftId)})`);
+          errors.push(`${person?.name || kitchen.personId}: ${t('Overlapping shift in this timeframe')} (${kitchen.day} ${kitchenLabel(kitchen.shiftId)} & ${escort.day} ${t(escort.shiftId)})`);
           newInvalidKitchenCells.add(`${kitchen.day}|${kitchen.shiftId}`);
           newInvalidEscortCells.add(`${escort.day}|${escort.shiftId}`);
         }
@@ -343,7 +531,8 @@ const KitchenDutyView: React.FC<Props> = ({
             assignmentStart.isBefore(constraintEnd) && constraintStart.isBefore(assignmentEnd)) {
           const person = people.find(p => p.id === assignment.personId);
           const isKitchen = kitchenAssignments.includes(assignment);
-          errors.push(`${person?.name || assignment.personId}: ${t('Constraint conflict')}: ${constraint.title} (${assignment.day} ${t(assignment.shiftId)})`);
+          const label = isKitchen ? kitchenLabel(assignment.shiftId) : t(assignment.shiftId);
+          errors.push(`${person?.name || assignment.personId}: ${t('Constraint conflict')}: ${constraint.title} (${assignment.day} ${label})`);
           if (isKitchen) {
             newInvalidKitchenCells.add(`${assignment.day}|${assignment.shiftId}`);
           } else {
@@ -427,8 +616,8 @@ const KitchenDutyView: React.FC<Props> = ({
     setIsSaving(true);
     setSaveError('');
     try {
-      const archiveS = archiveStart || start;
-      const archiveE = archiveEnd || end;
+      const archiveS = archiveStart || kitchenStartISO;
+      const archiveE = archiveEnd || kitchenEndISO;
       const res = await saveAllSchedules(
         assignments,
         bwAssignments,
@@ -468,33 +657,13 @@ const KitchenDutyView: React.FC<Props> = ({
       {!readOnly && (
         <Stack direction="row" spacing={2} flexWrap="wrap" alignItems="center" sx={{ mb: 2 }}>
           <TextField
-            type="datetime-local"
-            label={t('Start')}
-            value={start}
-            onChange={e => onStartChange?.(e.target.value)}
+            type="date"
+            label={t('Day')}
+            value={kitchenDay}
+            onChange={e => onKitchenDayChange?.(e.target.value)}
             InputLabelProps={{ shrink: true }}
-            inputProps={{ step: 60 }}
             size="small"
             />
-          <TextField
-            type="datetime-local"
-            label={t('End')}
-            value={end}
-            onChange={e => onEndChange?.(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-            inputProps={{ step: 60 }}
-            size="small"
-          />
-          {/* Per-shift required counts are editable in the Hours column for each row */}
-          <TextField
-            label={lang === 'he' ? 'תחילת משמרת שנייה (מטבח)' : 'Kitchen shift 2 start'}
-            type="time"
-            size="small"
-            value={kitchenShift2Start}
-            inputProps={{ min: '06:00', max: '20:59', step: 60 }}
-            onChange={e => onKitchenSettingsChange({ ...kitchenSettings, shift2Start: clampShift2Start(e.target.value) })}
-            InputLabelProps={{ shrink: true }}
-          />
           <Button variant="contained" onClick={onGenerate} disabled={isGenerating || isSaving}>
             {isGenerating ? t('Assigning') : t('Generate')}
           </Button>
@@ -510,10 +679,10 @@ const KitchenDutyView: React.FC<Props> = ({
               people,
               kitchenAssignments,
               escortAssignments,
-              kitchenSettings: { ...kitchenSettings, shift2Start: kitchenShift2Start },
+              kitchenSettings,
               escortSettings,
-              kitchenStart: start,
-              kitchenEnd: end,
+              kitchenStart: kitchenStartISO,
+              kitchenEnd: kitchenEndISO,
               t
             })}
             disabled={isGenerating || isSaving}
@@ -658,6 +827,42 @@ const KitchenDutyView: React.FC<Props> = ({
                 )}
               </tr>
             ))}
+            {!readOnly && (
+              <tr>
+                {/* Empty day columns */}
+                {rtl && (
+                  <td style={{ border: '1px solid #888', padding: 0, background: '#fafafa', height: 44 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 44 }}>
+                      <IconButton
+                        size="small"
+                        onClick={addShift}
+                        disabled={isGenerating || isSaving}
+                        aria-label={t('Add Shift')}
+                      >
+                        <AddIcon />
+                      </IconButton>
+                    </Box>
+                  </td>
+                )}
+                {daysWithAnyKitchen.map(day => (
+                  <td key={`add|${day}`} style={{ border: '1px solid #ccc', background: '#fff', height: 44 }} />
+                ))}
+                {!rtl && (
+                  <td style={{ border: '1px solid #888', padding: 0, background: '#fafafa', height: 44 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 44 }}>
+                      <IconButton
+                        size="small"
+                        onClick={addShift}
+                        disabled={isGenerating || isSaving}
+                        aria-label={t('Add Shift')}
+                      >
+                        <AddIcon />
+                      </IconButton>
+                    </Box>
+                  </td>
+                )}
+              </tr>
+            )}
           </tbody>
         </table>
       </Box>
@@ -774,10 +979,35 @@ const KitchenDutyView: React.FC<Props> = ({
               ? requiredForKitchenShift(shiftSettingsDialog.shiftId)
               : requiredForEscortShift(shiftSettingsDialog.shiftId)
           }
-          onSave={(required) => {
+          currentStartHHmm={
+            shiftSettingsDialog.type === 'kitchen'
+              ? (kitchenShiftList.find(s => s.id === shiftSettingsDialog.shiftId)?.start || '06:00')
+              : undefined
+          }
+          currentEndHHmm={
+            shiftSettingsDialog.type === 'kitchen'
+              ? (kitchenShiftList.find(s => s.id === shiftSettingsDialog.shiftId)?.end || '21:00')
+              : undefined
+          }
+          canEditStart={
+            shiftSettingsDialog.type === 'kitchen' &&
+            kitchenShiftList.findIndex(s => s.id === shiftSettingsDialog.shiftId) !== 0
+          }
+          canEditEnd={
+            shiftSettingsDialog.type === 'kitchen' &&
+            kitchenShiftList.findIndex(s => s.id === shiftSettingsDialog.shiftId) !== kitchenShiftList.length - 1
+          }
+          canRemove={
+            shiftSettingsDialog.type === 'kitchen' &&
+            kitchenShiftList.length > 1
+          }
+          onRemove={() => {
+            const idx = kitchenShiftList.findIndex(s => s.id === shiftSettingsDialog.shiftId);
+            if (idx >= 0) removeShiftAt(idx);
+          }}
+          onSave={(required, newStartHHmm, newEndHHmm) => {
             if (shiftSettingsDialog.type === 'kitchen') {
-              if (shiftSettingsDialog.shiftId === 'kitchen_1') onKitchenSettingsChange({ ...kitchenSettings, requiredShift1: required });
-              if (shiftSettingsDialog.shiftId === 'kitchen_2') onKitchenSettingsChange({ ...kitchenSettings, requiredShift2: required });
+              applyKitchenShiftSettings(shiftSettingsDialog.shiftId, required, newStartHHmm, newEndHHmm);
             } else {
               if (shiftSettingsDialog.shiftId === 'escort_1') onEscortSettingsChange({ ...escortSettings, requiredShift1: required });
               if (shiftSettingsDialog.shiftId === 'escort_2') onEscortSettingsChange({ ...escortSettings, requiredShift2: required });
@@ -812,8 +1042,11 @@ const KitchenDutyView: React.FC<Props> = ({
           bwAssignments={bwAssignments}
           kitchenAssignments={kitchenAssignments}
           escortAssignments={escortAssignments}
-          scheduleStart={start}
-          scheduleEnd={end}
+          kitchenSettings={kitchenSettings}
+          scheduleStart={archiveStart || kitchenStartISO}
+          scheduleEnd={archiveEnd || kitchenEndISO}
+          dutyCountRangeStartISO={archiveStart || kitchenStartISO}
+          dutyCountRangeEndISO={archiveEnd || kitchenEndISO}
           currentDay={dialog.day}
           currentShiftId={dialog.shiftId}
         />

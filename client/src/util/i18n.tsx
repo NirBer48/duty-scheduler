@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useMemo, useState, ReactNode, useEffect } from 'react';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 
 type Language = 'en' | 'he';
@@ -54,6 +54,8 @@ const translations: Record<Language, TranslationMap> = {
     'Search constraints': 'Search constraints',
     'Save failed': 'Save failed',
     'Day': 'Day',
+    'Add Shift': 'Add Shift',
+    'Remove': 'Remove',
     'Rest violation': 'Rest violation',
     'Rest violation between': 'Rest violation between',
     'Requires same gender partner': 'Requires same gender partner',
@@ -100,6 +102,7 @@ const translations: Record<Language, TranslationMap> = {
     'No constraints yet': 'No constraints yet',
     'Fetch failed': 'Fetch failed',
     'Kitchen': 'Kitchen',
+    'Escort': 'Escort',
     'kitchen_1': 'kitchen_1',
     'kitchen_2': 'kitchen_2',
     'escort_1': 'escort_1',
@@ -129,10 +132,22 @@ const translations: Record<Language, TranslationMap> = {
     'in BW at this time': 'in BW at this time',
     'Missing about X people to complete the task': 'Missing about {count} people to complete the task',
     'Manpower Shortage': 'Manpower Shortage',
-    'Not enough people available': 'Not enough people available',
     'Missing X people': 'people missing',
     'Create schedule with empty cells?': 'Do you want to create a schedule with empty cells?',
     'Continue': 'Continue',
+    'Not enough people available': 'Not enough people available',
+    'Rasar': 'Rasar',
+    'Contractor escort - 400': 'Contractor escort - 400',
+    'Invalid rasar schedule': 'Invalid rasar schedule',
+    'Required counts mismatch': 'Required counts mismatch',
+    'Missing/extra in rasar': 'Missing/extra in rasar',
+    'Missing/extra in escort400': 'Missing/extra in escort400',
+    'No duties in range': 'No duties in the selected range',
+    'rasar_1': '08:30-11:30',
+    'rasar_2': '13:30-17:30',
+    'rasar_3': '19:30-20:30',
+    'escort400_1': '08:00-12:30',
+    'escort400_2': '12:30-17:00',
   },
   he: {
     'History': 'היסטוריה',
@@ -184,6 +199,8 @@ const translations: Record<Language, TranslationMap> = {
     'Search constraints': 'חיפוש אילוצים',
     'Save failed': 'השמירה נכשלה',
     'Day': 'יום',
+    'Add Shift': 'הוסף משמרת',
+    'Remove': 'הסר',
     'Rest violation': 'הפרת מנוחה',
     'Rest violation between': 'הפרת מנוחה בין',
     'Requires same gender partner': 'דורש שותף מאותו מגדר',
@@ -205,6 +222,8 @@ const translations: Record<Language, TranslationMap> = {
     'active': 'פעילים',
     'Imported': 'יובאו',
     'Skipped': 'דולגו',
+    'Show': 'הצג',
+    'Hide': 'הסתר',
     'Import failed': 'הייבוא נכשל',
     'Clear': 'נקה',
     'Are you sure you want to clear the schedule?': 'האם אתה בטוח שברצונך לנקות את הסידור?',
@@ -230,6 +249,7 @@ const translations: Record<Language, TranslationMap> = {
     'No constraints yet': 'אין אילוצים עדיין',
     'Fetch failed': 'השליפה נכשלה',
     'Kitchen': 'מטבח',
+    'Escort': 'ליווי',
     'kitchen_1': 'מטבח_1',
     'kitchen_2': 'מטבח_2',
     'escort_1': 'ליווי_1',
@@ -264,6 +284,18 @@ const translations: Record<Language, TranslationMap> = {
     'Missing X people': 'צוערים חסרים',
     'Create schedule with empty cells?': 'האם ליצור סידור עם תאים ריקים?',
     'Continue': 'המשך',
+    'Rasar': 'רס"ר',
+    'Contractor escort - 400': 'ליווי קבלנים - 400',
+    'Invalid rasar schedule': 'סידור רס"ר לא תקין',
+    'Required counts mismatch': 'חוסר התאמה במספר הנדרשים',
+    'Missing/extra in rasar': 'חסר/עודף ברס"ר',
+    'Missing/extra in escort400': 'חסר/עודף בליווי 400',
+    'No duties in range': 'לא מבצע תורנויות בטווח הנתון',
+    'rasar_1': '08:30-11:30',
+    'rasar_2': '13:30-17:30',
+    'rasar_3': '19:30-20:30',
+    'escort400_1': '08:00-12:30',
+    'escort400_2': '12:30-17:00',
   }
 };
 
@@ -284,15 +316,21 @@ const I18nContext = createContext<I18nContextValue>({
 export const I18nProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [lang, setLang] = useState<Language>('he');
   const rtl = lang === 'he';
+  
   const theme = useMemo(() => createTheme({ direction: rtl ? 'rtl' : 'ltr' }), [rtl]);
   const t = (k: string) => translations[lang][k] || k;
+
+    useEffect(() => {
+    document.documentElement.dir = rtl ? 'rtl' : 'ltr';
+    document.body.style.direction = rtl ? 'rtl' : 'ltr';
+  }, [rtl]);
 
   return (
     <I18nContext.Provider value={{ lang, rtl, setLang, t }}>
       <ThemeProvider theme={theme}>
-        <div dir={rtl ? 'rtl' : 'ltr'} style={{ width: '100%' }}>
+        {/* <div dir={rtl ? 'rtl' : 'ltr'} style={{ width: '100%' }}> */}
           {children}
-        </div>
+        {/* </div> */}
       </ThemeProvider>
     </I18nContext.Provider>
   );
