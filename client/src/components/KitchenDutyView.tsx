@@ -726,7 +726,7 @@ const KitchenDutyView: React.FC<Props> = ({
         <Alert severity="warning" sx={{ mb: 2 }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
             <Typography variant="body2">
-              {t('Schedule is invalid')} — {validationErrors.length}
+              {t('Schedule is invalid')} — {validationErrors.length} {t('errors')}
             </Typography>
             <Button size="small" onClick={() => setShowValidationDetails(v => !v)}>
               {showValidationDetails ? t('Hide') : t('Show')}
