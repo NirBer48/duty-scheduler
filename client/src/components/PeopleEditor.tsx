@@ -439,6 +439,7 @@ const PeopleEditor: React.FC<Props> = ({ onUpdate }) => {
                             <Typography
                         variant="body2"
                         component="span"
+                        mr={1}
                         // sx={{ direction: dir }}
                       >
                         {p.name} ({p.gender}){p.sameGenderPreference ? ' 👫' : ''}
