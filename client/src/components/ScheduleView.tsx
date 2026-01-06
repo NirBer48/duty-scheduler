@@ -684,7 +684,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         <>
             {/* Action buttons */}
             {!readOnly && (
-                <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Box sx={{ mb: 0, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', flexDirection: 'row-reverse', mr: 5}}>
                     <Button variant="outlined" onClick={handleExport} disabled={isSaving || isGenerating}>
                         {t('Export to Excel')}
                     </Button>
@@ -741,7 +741,7 @@ const ScheduleCalendar: React.FC<Props> = ({
             )}
 
             {/* Schedule table */}
-            <Typography variant="h6" align="center" sx={{ mb: 1 }}>
+            <Typography variant="h4" align="center" sx={{ mb: 1 }}>
                 {t('Shifts')}
             </Typography>
             <Box sx={{ overflowX: "auto", width: "100%", minWidth: 600 }}>
@@ -769,8 +769,9 @@ const ScheduleCalendar: React.FC<Props> = ({
                             const hoursBg = isPartialRow ? '#f7f9ff' : '#fafafa';
                             return (
                                 <tr key={shift.day + shift.label} style={{ background: isPartialRow ? '#fbfcff' : undefined }}>
-                                    <td style={{ border: "1px solid #888", fontWeight: "bold", minWidth: 140, padding: "4px 8px", background: hoursBg, position: "sticky", left: 0, zIndex: 1 }}>
-                                        {shift.day} {displayShiftLabel(shiftIdx, filteredShifts.length, shift.label)}
+                                    <td style={{ border: "1px solid #888", minWidth: 140, padding: "4px 8px", background: hoursBg, position: "sticky", textAlign: 'center', zIndex: 1 }}>
+                                        {shift.displayDay} < br/>
+                                <span style={{fontWeight: "bold"}}>     {displayShiftLabel(shiftIdx, filteredShifts.length, shift.label)}</span>
                                     </td>
                                     {posts.map(post => {
                                         const names = getPeopleNames(post.id, shift.label, shift.day);

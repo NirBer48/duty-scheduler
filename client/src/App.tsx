@@ -506,7 +506,7 @@ const App: React.FC = () => {
           <Typography variant="h6" sx={{ flexGrow: 1 }}>{t('MyTurn')}</Typography>
           {user && (
             <Typography variant="body2" sx={{ mr: 2 }}>
-              {user.email}
+            היי  {user.email} !
             </Typography>
           )}
           {user && (
@@ -515,7 +515,7 @@ const App: React.FC = () => {
             </Button>
           )}
           <Button color="inherit" onClick={() => setLang(lang === 'en' ? 'he' : 'en')}>
-            {lang === 'en' ? 'עברית' : 'English'}
+            {lang === 'en' ? 'עברית' : 'EN'}
           </Button>
         </Toolbar>
       </AppBar>
@@ -579,8 +579,8 @@ const App: React.FC = () => {
               {tab === 0 && (
                 <>
                   <Paper sx={{ p: 2, mb: 2 }}>
-                    <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
-                    <Stack direction="row" spacing={3} flexWrap="wrap" alignItems="center">
+                    <Typography variant="h5"  gutterBottom>{t('Scheduler')}</Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
                       <TextField
                         type="datetime-local"
                         label={t('Start')}
@@ -599,14 +599,16 @@ const App: React.FC = () => {
                         inputProps={{ step: 14400 }}
                         size="small"
                       />
+                     
                       <Button
                         onClick={handleScheduleGuards}
                         variant="contained"
                         disabled={isGenerating}
+                        
                       >
                         {isGenerating ? t('Assigning') : t('Generate')}
                       </Button>
-                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating}>
+                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating} sx={{mr: "8px"}}>
                         {t('Clear')}
                       </Button>
                       <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">

@@ -5,9 +5,19 @@ import './styles.css';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { I18nProvider } from './util/i18n';
+import createCache from '@emotion/cache';
+import rtlPlugin from 'stylis-plugin-rtl';
+import { prefixer } from 'stylis';
+import { CacheProvider } from '@emotion/react';
+
+// Create rtl cache
+const cacheRtl = createCache({
+  key: 'muirtl',
+  stylisPlugins: [prefixer, rtlPlugin],
+});
 
 const theme = createTheme({
-  direction: 'ltr',
+  direction: 'rtl',
   palette: { mode: 'light' },
 });
 
@@ -21,11 +31,13 @@ const root = createRoot(container);
 
 root.render(
   <StrictMode>
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <I18nProvider>
-        <App />
-      </I18nProvider>
-    </ThemeProvider>
+    <CacheProvider value={cacheRtl}>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <I18nProvider>
+          <App />
+        </I18nProvider>
+      </ThemeProvider>
+    </CacheProvider>
   </StrictMode>
 );
