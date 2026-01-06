@@ -349,8 +349,8 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
           <Box sx={{ p: 2 }}>
             {/* Month/Year Header */}
             <Stack direction="row" alignItems="center" justifyContent="center" spacing={1} sx={{ mb: 1 }}>
-              <IconButton onClick={rtl ? goToNextMonth : goToPrevMonth} size="small">
-                <ChevronLeftIcon />
+              <IconButton onClick={goToPrevMonth} size="small">
+                {rtl ? <ChevronRightIcon /> : <ChevronLeftIcon />}
               </IconButton>
               <FormControl size="small" variant="standard">
                 <Select
@@ -392,8 +392,8 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
                   ))}
                 </Select>
               </FormControl>
-              <IconButton onClick={rtl ? goToPrevMonth : goToNextMonth} size="small">
-                <ChevronRightIcon />
+              <IconButton onClick={goToNextMonth} size="small">
+                {rtl ? <ChevronLeftIcon /> : <ChevronRightIcon />}
               </IconButton>
             </Stack>
 
