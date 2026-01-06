@@ -58,8 +58,7 @@ const STORAGE_KEY_KITCHEN_ASSIGNMENTS = 'duty_scheduler_kitchen_assignments';
 const STORAGE_KEY_ESCORT_ASSIGNMENTS = 'duty_scheduler_escort_assignments';
 const STORAGE_KEY_KITCHEN_SETTINGS = 'duty_scheduler_kitchen_settings';
 const STORAGE_KEY_ESCORT_SETTINGS = 'duty_scheduler_escort_settings';
-const STORAGE_KEY_KITCHEN_START = 'duty_scheduler_kitchen_start';
-const STORAGE_KEY_KITCHEN_END = 'duty_scheduler_kitchen_end';
+const STORAGE_KEY_KITCHEN_DAY = 'duty_scheduler_kitchen_day';
 const STORAGE_KEY_RASAR_OVERRIDES = 'duty_scheduler_rasar_overrides';
 const STORAGE_KEY_ESCORT400_OVERRIDES = 'duty_scheduler_escort400_overrides';
 
@@ -132,7 +131,7 @@ const App: React.FC = () => {
     loadFromStorage(STORAGE_KEY_ESCORT_ASSIGNMENTS, [])
   );
   const [kitchenSettings, setKitchenSettings] = useState<KitchenSettings>(() =>
-    loadFromStorage(STORAGE_KEY_KITCHEN_SETTINGS, { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' })
+    loadFromStorage(STORAGE_KEY_KITCHEN_SETTINGS, { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] })
   );
   const [escortSettings, setEscortSettings] = useState<EscortSettings>(() =>
     loadFromStorage(STORAGE_KEY_ESCORT_SETTINGS, { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 })
@@ -151,8 +150,9 @@ const App: React.FC = () => {
   const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [start, setStart] = useState(() => loadString(STORAGE_KEY_START, calculateDefaultStart()));
   const [end, setEnd] = useState(() => loadString(STORAGE_KEY_END, calculateDefaultEnd()));
-  const [kitchenStart, setKitchenStart] = useState(() => loadString(STORAGE_KEY_KITCHEN_START, calculateDefaultStart()));
-  const [kitchenEnd, setKitchenEnd] = useState(() => loadString(STORAGE_KEY_KITCHEN_END, calculateDefaultEnd()));
+  const [kitchenDay, setKitchenDay] = useState(() =>
+    loadString(STORAGE_KEY_KITCHEN_DAY, calculateDefaultStart().substring(0, 10))
+  );
   const { t, lang, setLang } = useI18n();
   const [error, setError] = useState('');
   const [missingCount, setMissingCount] = useState<number | null>(null);
@@ -243,8 +243,7 @@ const App: React.FC = () => {
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY_START, start); }, [start]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_END, end); }, [end]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_START, kitchenStart); }, [kitchenStart]);
-  useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_END, kitchenEnd); }, [kitchenEnd]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEY_KITCHEN_DAY, kitchenDay); }, [kitchenDay]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ASSIGNMENTS, JSON.stringify(assignments)); }, [assignments]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ES_ASSIGNMENTS, JSON.stringify(esAssignments)); }, [esAssignments]);
   useEffect(() => { localStorage.setItem(STORAGE_KEY_ES_GROUPS, JSON.stringify(esGroups)); }, [esGroups]);
@@ -279,10 +278,21 @@ const App: React.FC = () => {
         bwAssignments,
         kitchenAssignments,
         escortAssignments,
+        rasarAssignments,
+        escort400Assignments,
         kitchenSettings,
         escortSettings,
         constraints
       );
+
+      // If generation failed, do NOT overwrite existing state (especially kitchen/rasar),
+      // otherwise subsequent retries will ignore other duties and can create overlaps.
+      if (res.error) {
+        setError(res.error || '');
+        setMissingCount(res.missingCount ?? null);
+        return;
+      }
+
       setAssignments(res.assignments || []);
       setBWAssignments(res.bwAssignments || []);
       setKitchenAssignments(res.kitchenAssignments || []);
@@ -329,13 +339,14 @@ const App: React.FC = () => {
       const res = await generateKitchenSchedule(
         start,
         end,
-        kitchenStart,
-        kitchenEnd,
+        kitchenDay,
         esAssignments,
         assignments,
         bwAssignments,
         kitchenAssignments,
         escortAssignments,
+        rasarAssignments,
+        escort400Assignments,
         kitchenSettings,
         escortSettings,
         constraints
@@ -381,6 +392,7 @@ const App: React.FC = () => {
         bwAssignments,
         kitchenAssignments,
         escortAssignments,
+        kitchenSettings,
         existing,
         constraints,
         overrides,
@@ -494,7 +506,7 @@ const App: React.FC = () => {
           <Typography variant="h6" sx={{ flexGrow: 1 }}>{t('MyTurn')}</Typography>
           {user && (
             <Typography variant="body2" sx={{ mr: 2 }}>
-              {user.email}
+            היי  {user.email} !
             </Typography>
           )}
           {user && (
@@ -503,7 +515,7 @@ const App: React.FC = () => {
             </Button>
           )}
           <Button color="inherit" onClick={() => setLang(lang === 'en' ? 'he' : 'en')}>
-            {lang === 'en' ? 'עברית' : 'English'}
+            {lang === 'en' ? 'עברית' : 'EN'}
           </Button>
         </Toolbar>
       </AppBar>
@@ -567,8 +579,8 @@ const App: React.FC = () => {
               {tab === 0 && (
                 <>
                   <Paper sx={{ p: 2, mb: 2 }}>
-                    <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
-                    <Stack direction="row" spacing={3} flexWrap="wrap" alignItems="center">
+                    <Typography variant="h5"  gutterBottom>{t('Scheduler')}</Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
                       <TextField
                         type="datetime-local"
                         label={t('Start')}
@@ -587,14 +599,16 @@ const App: React.FC = () => {
                         inputProps={{ step: 14400 }}
                         size="small"
                       />
+                     
                       <Button
                         onClick={handleScheduleGuards}
                         variant="contained"
                         disabled={isGenerating}
+                        
                       >
                         {isGenerating ? t('Assigning') : t('Generate')}
                       </Button>
-                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating}>
+                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating} sx={{mr: "8px"}}>
                         {t('Clear')}
                       </Button>
                       <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
@@ -640,10 +654,8 @@ const App: React.FC = () => {
                 <Paper sx={{ p: 2, overflow: 'auto' }}>
                   <KitchenDutyView
                     people={people}
-                    start={kitchenStart}
-                    end={kitchenEnd}
-                    onStartChange={setKitchenStart}
-                    onEndChange={setKitchenEnd}
+                    kitchenDay={kitchenDay}
+                    onKitchenDayChange={setKitchenDay}
                     archiveStart={start}
                     archiveEnd={end}
                     assignments={assignments}

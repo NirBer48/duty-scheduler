@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
 import {
   Box,
@@ -78,6 +78,7 @@ const DAY_NAMES_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
 
 // Always anchor weeks to Sunday (not locale-dependent).
 const getSunday = (d: dayjs.Dayjs) => d.day(0).startOf('day');
+const STORAGE_KEY_RASAR_WEEK_ANCHOR = 'duty_scheduler_rasar_week_anchor';
 
 const overlaps = (aStartISO: string, aEndISO: string, bStartISO: string, bEndISO: string) => {
   const aStart = dayjs(aStartISO).second(0).millisecond(0);
@@ -133,9 +134,28 @@ const RasarDutyView: React.FC<Props> = ({
 }) => {
   const { t, lang } = useI18n();
   const [showValidationDetails, setShowValidationDetails] = useState(false);
-  const [weekAnchor, setWeekAnchor] = useState(() => getSunday(dayjs()));
+  const [weekAnchor, setWeekAnchor] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_RASAR_WEEK_ANCHOR);
+      if (saved) {
+        const parsed = dayjs(saved);
+        if (parsed.isValid()) return getSunday(parsed);
+      }
+    } catch {
+      // ignore
+    }
+    return getSunday(dayjs());
+  });
   const weekStart = useMemo(() => getSunday(weekAnchor), [weekAnchor]);
   const weekEndDisplay = useMemo(() => weekStart.add(4, 'day'), [weekStart]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_RASAR_WEEK_ANCHOR, weekStart.format('YYYY-MM-DD'));
+    } catch {
+      // ignore
+    }
+  }, [weekStart]);
 
   // IMPORTANT: send local datetime strings (no trailing Z) so the server won't shift days by timezone.
   const apiStart = useMemo(() => weekStart.format('YYYY-MM-DDT00:00'), [weekStart]);
@@ -310,7 +330,7 @@ const RasarDutyView: React.FC<Props> = ({
       const mm = Math.min(59, Math.max(0, Number(m[2])));
       return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
     };
-    const kitchenShift2Start = parseHHmm(kitchenSettings?.shift2Start, '13:00');
+    const kitchenShiftById = new Map((kitchenSettings?.shifts || []).map(s => [s.id, s]));
     const buildRangeFromDayTimes = (day: string, startHHmm: string, endHHmm: string) => {
       const start = dayjs(`${day}T${startHHmm}:00`);
       let end = dayjs(`${day}T${endHHmm}:00`);
@@ -320,14 +340,11 @@ const RasarDutyView: React.FC<Props> = ({
 
     // Kitchen + Escort (start/end may be missing after reload, so derive from day+shiftId)
     for (const k of kitchenAssignments) {
+      const def = kitchenShiftById.get(k.shiftId);
       const range =
         (k.start && k.end)
           ? { start: k.start, end: k.end }
-          : (k.shiftId === 'kitchen_1'
-              ? buildRangeFromDayTimes(k.day, '06:00', kitchenShift2Start)
-              : k.shiftId === 'kitchen_2'
-                ? buildRangeFromDayTimes(k.day, kitchenShift2Start, '21:00')
-                : null);
+          : (def ? buildRangeFromDayTimes(k.day, def.start, def.end) : null);
       if (!range) continue;
       addRange(k.personId, range.start, range.end, `${k.day} ${k.shiftId}`);
     }
@@ -481,6 +498,28 @@ const RasarDutyView: React.FC<Props> = ({
     esAssignments,
   ]);
 
+  const translateRasarError = (msg: string) => {
+    const s = (msg || '').toString();
+    const m = s.match(/^Invalid rasar schedule:\s*(.+)$/);
+    if (m) return `${t('Invalid rasar schedule')}: ${t(m[1])}`;
+    return t(s) || s;
+  };
+
+  const translateViolationMessage = (msg: string) => {
+    const s = (msg || '').toString();
+    const m = s.match(/^Missing\/extra in (rasar|escort400): (\d{4}-\d{2}-\d{2}) (\S+) required (\d+) has (\d+)$/);
+    if (m) {
+      const type = m[1];
+      const day = m[2];
+      const shiftId = m[3];
+      const req = m[4];
+      const has = m[5];
+      const labelKey = type === 'rasar' ? 'Missing/extra in rasar' : 'Missing/extra in escort400';
+      return `${t(labelKey)}: ${day} ${t(shiftId)} ${t('Required')} ${req} ${t('has')} ${has}`;
+    }
+    return t(s) || s;
+  };
+
   const dayNames = lang === 'he' ? DAY_NAMES_HE : DAY_NAMES_EN;
 
   const exportWeek = () => {
@@ -588,12 +627,12 @@ const RasarDutyView: React.FC<Props> = ({
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           <Box>
-            <Typography variant="body2">{error}</Typography>
+            <Typography variant="body2">{translateRasarError(error)}</Typography>
             {saveViolations.length > 0 && (
               <Box sx={{ mt: 1 }}>
                 {saveViolations.map((v, idx) => (
                   <Typography key={`${v.personId}-${idx}`} variant="caption" sx={{ display: 'block' }}>
-                    - {people.find(p => p.id === v.personId)?.name || v.personId}: {v.message}
+                    - {v.personId === 0 ? translateViolationMessage(v.message) : `${people.find(p => p.id === v.personId)?.name || v.personId}: ${translateViolationMessage(v.message)}`}
                   </Typography>
                 ))}
               </Box>

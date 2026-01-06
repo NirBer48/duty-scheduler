@@ -16,7 +16,15 @@ interface Props {
   title: string;
   shiftLabel: string;
   currentRequired: number;
-  onSave: (required: number) => void;
+  // Optional boundary edit: start time of this shift (prev shift end will follow)
+  currentStartHHmm?: string; // "HH:mm"
+  canEditStart?: boolean;
+  // Optional boundary edit: end time of this shift (next shift start will follow)
+  currentEndHHmm?: string; // "HH:mm"
+  canEditEnd?: boolean;
+  onSave: (required: number, newStartHHmm?: string, newEndHHmm?: string) => void;
+  canRemove?: boolean;
+  onRemove?: () => void;
 }
 
 export const DutyShiftSettingsDialog: React.FC<Props> = ({
@@ -25,14 +33,24 @@ export const DutyShiftSettingsDialog: React.FC<Props> = ({
   title,
   shiftLabel,
   currentRequired,
+  currentStartHHmm,
+  canEditStart = false,
+  currentEndHHmm,
+  canEditEnd = false,
   onSave,
+  canRemove = false,
+  onRemove,
 }) => {
   const { t } = useI18n();
   const [required, setRequired] = useState<number>(currentRequired);
+  const [startHHmm, setStartHHmm] = useState<string>(currentStartHHmm || "06:00");
+  const [endHHmm, setEndHHmm] = useState<string>(currentEndHHmm || "21:00");
 
   useEffect(() => {
     setRequired(currentRequired);
-  }, [currentRequired, open]);
+    setStartHHmm(currentStartHHmm || "06:00");
+    setEndHHmm(currentEndHHmm || "21:00");
+  }, [currentRequired, currentStartHHmm, currentEndHHmm, open]);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
@@ -43,6 +61,30 @@ export const DutyShiftSettingsDialog: React.FC<Props> = ({
         <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
           {t("Shift")}: {shiftLabel}
         </Typography>
+        {canEditStart && (
+          <TextField
+            type="time"
+            label={t("Start")}
+            value={startHHmm}
+            onChange={(e) => setStartHHmm(e.target.value)}
+            fullWidth
+            sx={{ mb: 2 }}
+            InputLabelProps={{ shrink: true }}
+            inputProps={{ step: 60 }}
+          />
+        )}
+        {canEditEnd && (
+          <TextField
+            type="time"
+            label={t("End")}
+            value={endHHmm}
+            onChange={(e) => setEndHHmm(e.target.value)}
+            fullWidth
+            sx={{ mb: 2 }}
+            InputLabelProps={{ shrink: true }}
+            inputProps={{ step: 60 }}
+          />
+        )}
         <TextField
           type="number"
           label={t("Required per shift")}
@@ -54,9 +96,24 @@ export const DutyShiftSettingsDialog: React.FC<Props> = ({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>{t("Cancel")}</Button>
+        {canRemove && (
+          <Button
+            onClick={() => {
+              onRemove?.();
+              onClose();
+            }}
+            color="error"
+          >
+            {t("Remove")}
+          </Button>
+        )}
         <Button
           onClick={() => {
-            onSave(required);
+            onSave(
+              required,
+              canEditStart ? startHHmm : undefined,
+              canEditEnd ? endHHmm : undefined
+            );
             onClose();
           }}
           variant="contained"

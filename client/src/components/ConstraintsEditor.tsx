@@ -41,8 +41,8 @@ const ConstraintsEditor: React.FC<Props> = ({ people }) => {
     }, [constraints, search]);
 
     return (
-        <Paper sx={{ p: 2, mb: 2, maxHeight: 335, minWidth: 300, display: 'flex', flexDirection: 'column', direction: dir, textAlign: align }}>
-            <Typography variant="h6" mb={1}>{t('Constraints')}</Typography>
+        <Paper sx={{ p: 2, mb: 2, maxHeight: 335, minWidth: 300, display: 'flex', flexDirection: 'column' }}>
+            <Typography variant="h6" fontWeight={"bold"} mb={1}>{t('Constraints')}</Typography>
             <Divider sx={{ mb: 1.5 }} />
             <TextField
                 value={search}

@@ -1,6 +1,7 @@
 import express from 'express';
 import dayjs from 'dayjs';
 import { scheduleGenerator } from '../scheduler.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
 const getDb = req => req.app.locals.db;
@@ -82,11 +83,82 @@ const respondError = (res, message = 'not enough manpower', missingCount = null)
     escortAssignments: [],
     rasarAssignments: [],
     escort400Assignments: [],
-    kitchenSettings: { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' },
+    kitchenSettings: { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
     escortSettings: { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
     error: message,
     missingCount,
   });
+
+const pad2 = n => String(n).padStart(2, '0');
+const clampHHmm = (value, fallback = '13:00') => {
+  const str = (value || fallback || '').toString();
+  const m = str.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return fallback;
+  let h = Number(m[1]);
+  let mm = Number(m[2]);
+  if (Number.isNaN(h) || Number.isNaN(mm)) return fallback;
+  h = Math.min(23, Math.max(0, h));
+  mm = Math.min(59, Math.max(0, mm));
+  return `${pad2(h)}:${pad2(mm)}`;
+};
+
+const hhmmToMinutes = hhmm => {
+  const m = (hhmm || '').match(/^(\d{2}):(\d{2})$/);
+  if (!m) return 0;
+  return Number(m[1]) * 60 + Number(m[2]);
+};
+
+const minutesToHHmm = mins => {
+  const v = Math.min(24 * 60 - 1, Math.max(0, Number(mins) || 0));
+  return `${pad2(Math.floor(v / 60))}:${pad2(v % 60)}`;
+};
+
+const normalizeKitchenSettings = (input) => {
+  // New format: { shifts: [{id,start,end,required}, ...] }
+  const rawShifts = Array.isArray(input?.shifts) ? input.shifts : null;
+  if (rawShifts && rawShifts.length > 0) {
+    const shifts = rawShifts.map((s, idx) => ({
+      id: (s?.id || uuidv4()).toString(),
+      start: clampHHmm(s?.start, idx === 0 ? '06:00' : '06:00'),
+      end: clampHHmm(s?.end, idx === rawShifts.length - 1 ? '21:00' : '21:00'),
+      required: Math.max(0, Number(s?.required ?? 36) || 0),
+    }));
+
+    // Validate contiguous 06:00..21:00 partition (minute precision)
+    shifts.sort((a, b) => hhmmToMinutes(a.start) - hhmmToMinutes(b.start));
+    if (shifts.length < 1) throw new Error('Kitchen shifts: empty');
+    if (shifts[0].start !== '06:00') throw new Error('Kitchen shifts must start at 06:00');
+    if (shifts[shifts.length - 1].end !== '21:00') throw new Error('Kitchen shifts must end at 21:00');
+    for (let i = 0; i < shifts.length; i += 1) {
+      const s = shifts[i];
+      const startM = hhmmToMinutes(s.start);
+      const endM = hhmmToMinutes(s.end);
+      if (!(endM > startM)) throw new Error('Kitchen shifts must have positive duration');
+      if (startM < 6 * 60 || endM > 21 * 60) throw new Error('Kitchen shifts must be within 06:00–21:00');
+      if (i > 0) {
+        const prev = shifts[i - 1];
+        if (prev.end !== s.start) throw new Error('Kitchen shifts must be contiguous (no gaps/overlaps)');
+      }
+    }
+    return { shifts };
+  }
+
+  // Legacy format fallback: { shift2Start, requiredShift1, requiredShift2, requiredPerShift }
+  const requiredPerShift = Number(input?.requiredPerShift ?? 36);
+  const req1 = Number(input?.requiredShift1 ?? requiredPerShift ?? 36);
+  const req2 = Number(input?.requiredShift2 ?? requiredPerShift ?? 36);
+  const rawShift2 = clampHHmm(input?.shift2Start ?? '13:00', '13:00');
+  const min = 6 * 60;
+  const max = 20 * 60 + 59;
+  const s2 = Math.min(max, Math.max(min, hhmmToMinutes(rawShift2)));
+  const shift2Start = minutesToHHmm(s2);
+  return {
+    shifts: [
+      { id: 'kitchen_1', start: '06:00', end: shift2Start, required: Math.max(0, req1) },
+      { id: 'kitchen_2', start: shift2Start, end: '21:00', required: Math.max(0, req2) },
+    ].filter(s => hhmmToMinutes(s.end) > hhmmToMinutes(s.start)),
+  };
+};
 
 const shuffle = (arr = []) => {
   const copy = [...arr];
@@ -97,6 +169,9 @@ const shuffle = (arr = []) => {
   return copy;
 };
 
+const sanitizeKitchenByShiftIds = (arr = [], shiftIdSet) =>
+  (arr || []).filter(a => shiftIdSet.has((a?.shiftId || '').toString()));
+
 const clearAssignments = (db, userId) => db.run('DELETE FROM assignments WHERE userId = $1', [userId]);
 const clearBwAssignments = (db, userId) => db.run('DELETE FROM bw_assignments WHERE userId = $1', [userId]);
 const clearEsAssignments = (db, userId) => db.run('DELETE FROM es_assignments WHERE userId = $1', [userId]);
@@ -106,15 +181,16 @@ const clearRasarAssignments = (db, userId) => db.run('DELETE FROM rasar_assignme
 const clearEscort400Assignments = (db, userId) => db.run('DELETE FROM escort400_assignments WHERE userId = $1', [userId]);
 
 const upsertKitchenSettings = async (db, userId, kitchenSettings) => {
-  const requiredPerShift = Number(kitchenSettings?.requiredPerShift ?? 36); // backward compat
-  const requiredShift1 = Number(kitchenSettings?.requiredShift1 ?? requiredPerShift ?? 36);
-  const requiredShift2 = Number(kitchenSettings?.requiredShift2 ?? requiredPerShift ?? 36);
-  const shift2Start = (kitchenSettings?.shift2Start ?? '13:00').toString();
-  await db.run('DELETE FROM kitchen_settings WHERE userId = $1', [userId]);
-  await db.run(
-    'INSERT INTO kitchen_settings (requiredPerShift, requiredShift1, requiredShift2, shift2Start, userId) VALUES ($1, $2, $3, $4, $5)',
-    [requiredPerShift, requiredShift1, requiredShift2, shift2Start, userId]
-  );
+  const normalized = normalizeKitchenSettings(kitchenSettings);
+  const shifts = normalized.shifts || [];
+  await db.run('DELETE FROM kitchen_shifts WHERE userId = $1', [userId]);
+  for (let idx = 0; idx < shifts.length; idx += 1) {
+    const s = shifts[idx];
+    await db.run(
+      'INSERT INTO kitchen_shifts (shiftId, idx, startHHmm, endHHmm, required, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+      [s.id, idx, s.start, s.end, Math.max(0, Number(s.required ?? 36)), userId]
+    );
+  }
 };
 
 const upsertEscortSettings = async (db, userId, escortSettings) => {
@@ -265,6 +341,7 @@ const archiveAssignments = async (
   await db.run('DELETE FROM archived_bw_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_es_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_kitchen_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
+  await db.run('DELETE FROM archived_kitchen_shifts WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_kitchen_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_escort_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_escort_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
@@ -291,21 +368,30 @@ const archiveAssignments = async (
     }
   }
 
-  const ks = kitchenSettings || { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
-  const ks1 = Number(ks.requiredShift1 ?? ks.requiredPerShift ?? 36);
-  const ks2 = Number(ks.requiredShift2 ?? ks.requiredPerShift ?? 36);
-  await db.run(
-    'INSERT INTO archived_kitchen_settings (schedule_start, schedule_end, requiredPerShift, requiredShift1, requiredShift2, shift2Start, userId) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-    [
-      scheduleStart,
-      scheduleEnd,
-      Number(ks.requiredPerShift ?? 36),
-      ks1,
-      ks2,
-      (ks.shift2Start ?? '13:00').toString(),
-      userId
-    ]
-  );
+  const ks = normalizeKitchenSettings(kitchenSettings);
+  // Archive the shift list for this period (primary source of truth)
+  for (let idx = 0; idx < (ks.shifts || []).length; idx += 1) {
+    const s = ks.shifts[idx];
+    await db.run(
+      'INSERT INTO archived_kitchen_shifts (schedule_start, schedule_end, shiftId, idx, startHHmm, endHHmm, required, userId) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      [scheduleStart, scheduleEnd, s.id, idx, s.start, s.end, Math.max(0, Number(s.required ?? 36)), userId]
+    );
+  }
+  // Keep legacy archived_kitchen_settings populated for backward compatibility (best-effort).
+  // If we have exactly 2 shifts, map them back to the legacy schema; otherwise store a single requiredPerShift.
+  if ((ks.shifts || []).length === 2) {
+    const [s1, s2] = ks.shifts;
+    await db.run(
+      'INSERT INTO archived_kitchen_settings (schedule_start, schedule_end, requiredPerShift, requiredShift1, requiredShift2, shift2Start, userId) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [scheduleStart, scheduleEnd, 36, Number(s1.required ?? 36), Number(s2.required ?? 36), s2.start, userId]
+    );
+  } else {
+    const req = Number((ks.shifts || [])[0]?.required ?? 36);
+    await db.run(
+      'INSERT INTO archived_kitchen_settings (schedule_start, schedule_end, requiredPerShift, requiredShift1, requiredShift2, shift2Start, userId) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+      [scheduleStart, scheduleEnd, req, req, req, '13:00', userId]
+    );
+  }
 
   for (const k of kitchenAssignments || []) {
     await db.run(
@@ -415,19 +501,37 @@ const persistEscort400Only = async (db, escort400Assignments = [], userId) => {
 };
 
 const fetchKitchenEscortSnapshot = async (db, userId) => {
-  const [kitchen, escort, kitchenSettingsRows, escortSettingsRows] = await Promise.all([
+  const [kitchen, escort, kitchenShiftRows, kitchenSettingsRows, escortSettingsRows] = await Promise.all([
     db.all('SELECT * FROM kitchen_assignments WHERE userId = $1', [userId]),
     db.all('SELECT * FROM escort_assignments WHERE userId = $1', [userId]),
+    db.all('SELECT shiftId, idx, startHHmm, endHHmm, required FROM kitchen_shifts WHERE userId = $1 ORDER BY idx ASC', [userId]),
     db.all('SELECT * FROM kitchen_settings WHERE userId = $1 LIMIT 1', [userId]),
     db.all('SELECT * FROM escort_settings WHERE userId = $1 LIMIT 1', [userId]),
   ]);
-  const kitchenSettings = kitchenSettingsRows?.[0]
-    ? {
-      requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
-      requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
-      shift2Start: kitchenSettingsRows[0].shift2start
-    }
-    : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
+
+  let kitchenSettings = null;
+  if (kitchenShiftRows && kitchenShiftRows.length) {
+    kitchenSettings = {
+      shifts: kitchenShiftRows.map(r => ({
+        id: r.shiftid || r.shiftId,
+        start: r.starthhmm || r.startHHmm,
+        end: r.endhhmm || r.endHHmm,
+        required: Number(r.required ?? 36),
+      })),
+    };
+  } else {
+    // Backward-compat fallback: synthesize from legacy kitchen_settings.
+    const legacy = kitchenSettingsRows?.[0]
+      ? {
+        requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+        requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+        shift2Start: kitchenSettingsRows[0].shift2start
+      }
+      : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
+    kitchenSettings = normalizeKitchenSettings(legacy);
+  }
+  kitchenSettings = normalizeKitchenSettings(kitchenSettings);
+
   const escortSettings = escortSettingsRows?.[0]
     ? {
       requiredShift1: Number(escortSettingsRows[0].requiredshift1 ?? escortSettingsRows[0].requiredpershift ?? 4),
@@ -486,6 +590,14 @@ router.post('/generate', async (req, res, next) => {
       constraints = [],
     } = req.body;
 
+    let normalizedKitchenSettings = null;
+    try {
+      normalizedKitchenSettings = normalizeKitchenSettings(kitchenSettings);
+    } catch (e) {
+      return respondError(res, e?.message || 'Invalid kitchen settings', null);
+    }
+    const kitchenShiftIdSet = new Set((normalizedKitchenSettings.shifts || []).map(s => s.id));
+
     const [peopleRows, postRows] = await Promise.all([
       db.all('SELECT * FROM people WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
@@ -516,10 +628,19 @@ router.post('/generate', async (req, res, next) => {
     const sanitizedEs = sanitizeEs(esAssignments);
     const sanitizedAssignments = sanitizeAssignments(existingAssignments);
     const sanitizedBw = sanitizeBw(existingBwAssignments);
-    const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
+    const sanitizedKitchen = sanitizeKitchenByShiftIds(sanitizeKitchen(existingKitchenAssignments), kitchenShiftIdSet);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
-    const sanitizedRasar = sanitizeRasar(existingRasarAssignments);
-    const sanitizedEscort400 = sanitizeEscort400(existingEscort400Assignments);
+    let sanitizedRasar = sanitizeRasar(existingRasarAssignments);
+    let sanitizedEscort400 = sanitizeEscort400(existingEscort400Assignments);
+    // Robustness: if client didn't send rasar/escort400 (or sent empty), fall back to DB truth.
+    if ((sanitizedRasar?.length || 0) === 0) {
+      const rows = await db.all('SELECT personId, day, shiftId FROM rasar_assignments WHERE userId = $1', [req.user.id]);
+      sanitizedRasar = sanitizeRasar(rows.map(r => ({ personId: Number(r.personid), day: r.day, shiftId: r.shiftid })));
+    }
+    if ((sanitizedEscort400?.length || 0) === 0) {
+      const rows = await db.all('SELECT personId, day, shiftId FROM escort400_assignments WHERE userId = $1', [req.user.id]);
+      sanitizedEscort400 = sanitizeEscort400(rows.map(r => ({ personId: Number(r.personid), day: r.day, shiftId: r.shiftid })));
+    }
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
 
@@ -534,7 +655,7 @@ router.post('/generate', async (req, res, next) => {
       sanitizedBw,
       sanitizedKitchen,
       sanitizedEscort,
-      kitchenSettings,
+      normalizedKitchenSettings,
       escortSettings,
       constraints,
       { existingRasarAssignments: sanitizedRasar, existingEscort400Assignments: sanitizedEscort400, rasarStartISO: startISO, rasarEndISO: endISO }
@@ -571,7 +692,7 @@ router.post('/generate', async (req, res, next) => {
       escortAssignments: result.escortAssignments || [],
       rasarAssignments: result.rasarAssignments || [],
       escort400Assignments: result.escort400Assignments || [],
-      kitchenSettings: result.kitchenSettings || kitchenSettings || { requiredPerShift: 36, shift2Start: '13:00' },
+      kitchenSettings: result.kitchenSettings || normalizedKitchenSettings || { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
       escortSettings: result.escortSettings || escortSettings || { requiredPerShift: 4 },
     });
   } catch (err) {
@@ -597,6 +718,14 @@ router.post('/generate-guards', async (req, res, next) => {
       escortSettings,
       constraints = [],
     } = req.body;
+
+    let normalizedKitchenSettings = null;
+    try {
+      normalizedKitchenSettings = normalizeKitchenSettings(kitchenSettings);
+    } catch (e) {
+      return respondError(res, e?.message || 'Invalid kitchen settings', null);
+    }
+    const kitchenShiftIdSet = new Set((normalizedKitchenSettings.shifts || []).map(s => s.id));
 
     const [peopleRows, postRows] = await Promise.all([
       db.all('SELECT * FROM people WHERE userId = $1', [req.user.id]),
@@ -626,10 +755,19 @@ router.post('/generate-guards', async (req, res, next) => {
     const sanitizedEs = sanitizeEs(esAssignments);
     const sanitizedAssignments = sanitizeAssignments(existingAssignments);
     const sanitizedBw = sanitizeBw(existingBwAssignments);
-    const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
+    const sanitizedKitchen = sanitizeKitchenByShiftIds(sanitizeKitchen(existingKitchenAssignments), kitchenShiftIdSet);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
-    const sanitizedRasar = sanitizeRasar(existingRasarAssignments);
-    const sanitizedEscort400 = sanitizeEscort400(existingEscort400Assignments);
+    let sanitizedRasar = sanitizeRasar(existingRasarAssignments);
+    let sanitizedEscort400 = sanitizeEscort400(existingEscort400Assignments);
+    // Robustness: if client didn't send rasar/escort400 (or sent empty), fall back to DB truth.
+    if ((sanitizedRasar?.length || 0) === 0) {
+      const rows = await db.all('SELECT personId, day, shiftId FROM rasar_assignments WHERE userId = $1', [req.user.id]);
+      sanitizedRasar = sanitizeRasar(rows.map(r => ({ personId: Number(r.personid), day: r.day, shiftId: r.shiftid })));
+    }
+    if ((sanitizedEscort400?.length || 0) === 0) {
+      const rows = await db.all('SELECT personId, day, shiftId FROM escort400_assignments WHERE userId = $1', [req.user.id]);
+      sanitizedEscort400 = sanitizeEscort400(rows.map(r => ({ personId: Number(r.personid), day: r.day, shiftId: r.shiftid })));
+    }
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
 
@@ -644,13 +782,133 @@ router.post('/generate-guards', async (req, res, next) => {
       sanitizedBw,
       sanitizedKitchen,
       sanitizedEscort,
-      kitchenSettings,
+      normalizedKitchenSettings,
       escortSettings,
       constraints,
       { mode: 'guards', existingRasarAssignments: sanitizedRasar, existingEscort400Assignments: sanitizedEscort400, rasarStartISO: startISO, rasarEndISO: endISO }
     );
 
     if (result.error) return respondError(res, result.error, result.missingCount ?? null);
+
+    // Final safety: never persist a guards schedule that overlaps existing duties (kitchen/escort/rasar/400/BW).
+    // If we can't satisfy constraints without overlaps, treat it as "not enough manpower".
+    const overlapsIso = (aStart, aEnd, bStart, bEnd) => {
+      const aS = dayjs(aStart);
+      const aE = dayjs(aEnd);
+      const bS = dayjs(bStart);
+      const bE = dayjs(bEnd);
+      if (
+        (aE.isSame(bS, 'minute') || aE.isBefore(bS, 'minute')) ||
+        (bE.isSame(aS, 'minute') || bE.isBefore(aS, 'minute'))
+      ) return false;
+      return aS.isBefore(bE) && bS.isBefore(aE);
+    };
+    const parseGuardRange = (a) => {
+      if (a.start && a.end) return { start: a.start, end: a.end };
+      const m = (a.shiftLabel || '').match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+      if (!m || !a.day) return null;
+      const start = dayjs(`${a.day}T${m[1]}:${m[2]}:00`);
+      let end = dayjs(`${a.day}T${m[3]}:${m[4]}:00`);
+      if (!end.isAfter(start)) end = end.add(1, 'day');
+      return { start: start.toISOString(), end: end.toISOString() };
+    };
+
+    const intervalsByPerson = new Map(); // pid -> [{start,end}]
+    const addInterval = (pid, range) => {
+      if (!range) return;
+      const arr = intervalsByPerson.get(pid) || [];
+      arr.push(range);
+      intervalsByPerson.set(pid, arr);
+    };
+
+    // BW (build from day+slotId; start/end may be missing in payload)
+    const BW_SLOT_DEFS = [
+      { id: 'bw_morning', start: '08:30', end: '11:30' },
+      { id: 'bw_afternoon', start: '13:30', end: '17:30' },
+      { id: 'bw_evening', start: '18:30', end: '20:00' },
+    ];
+    const buildBwRange = (day, slotId) => {
+      const def = BW_SLOT_DEFS.find(s => s.id === slotId);
+      if (!def || !day) return null;
+      const start = dayjs(`${day}T${def.start}:00`);
+      let end = dayjs(`${day}T${def.end}:00`);
+      if (!end.isAfter(start)) end = end.add(1, 'day');
+      return { start: start.toISOString(), end: end.toISOString() };
+    };
+    for (const bw of sanitizedBw || []) addInterval(Number(bw.personId), bw.start && bw.end ? { start: bw.start, end: bw.end } : buildBwRange(bw.day, bw.slotId));
+
+    // Kitchen
+    const kitchenShiftById = new Map((normalizedKitchenSettings.shifts || []).map(s => [s.id, s]));
+    for (const k of sanitizedKitchen || []) {
+      const def = kitchenShiftById.get(k.shiftId);
+      if (!def) continue;
+      addInterval(Number(k.personId), {
+        start: dayjs(`${k.day}T${def.start}:00`).toISOString(),
+        end: dayjs(`${k.day}T${def.end}:00`).toISOString(),
+      });
+    }
+
+    // Escort
+    const escortDefs = {
+      escort_1: { start: '07:00', end: '10:30' },
+      escort_2: { start: '10:30', end: '14:00' },
+      escort_3: { start: '14:00', end: '17:00' },
+      escort_4: { start: '17:00', end: '19:00' },
+    };
+    for (const e of sanitizedEscort || []) {
+      const def = escortDefs[e.shiftId];
+      if (!def) continue;
+      addInterval(Number(e.personId), {
+        start: dayjs(`${e.day}T${def.start}:00`).toISOString(),
+        end: dayjs(`${e.day}T${def.end}:00`).toISOString(),
+      });
+    }
+
+    // Rasar
+    const rasarDefs = {
+      rasar_1: { start: '08:30', end: '11:30' },
+      rasar_2: { start: '13:30', end: '17:30' },
+      rasar_3: { start: '19:30', end: '20:30' },
+    };
+    for (const r of sanitizedRasar || []) {
+      const def = rasarDefs[r.shiftId];
+      if (!def) continue;
+      addInterval(Number(r.personId), {
+        start: dayjs(`${r.day}T${def.start}:00`).toISOString(),
+        end: dayjs(`${r.day}T${def.end}:00`).toISOString(),
+      });
+    }
+
+    // Escort400
+    const escort400Defs = {
+      escort400_1: { start: '08:00', end: '12:30' },
+      escort400_2: { start: '12:30', end: '17:00' },
+    };
+    for (const e400 of sanitizedEscort400 || []) {
+      const def = escort400Defs[e400.shiftId];
+      if (!def) continue;
+      addInterval(Number(e400.personId), {
+        start: dayjs(`${e400.day}T${def.start}:00`).toISOString(),
+        end: dayjs(`${e400.day}T${def.end}:00`).toISOString(),
+      });
+    }
+
+    const overlapViolations = [];
+    for (const a of result.assignments || []) {
+      const pid = Number(a.personId);
+      const range = parseGuardRange(a);
+      if (!pid || !range) continue;
+      const others = intervalsByPerson.get(pid) || [];
+      for (const o of others) {
+        if (overlapsIso(range.start, range.end, o.start, o.end)) {
+          overlapViolations.push(pid);
+          break;
+        }
+      }
+    }
+    if (overlapViolations.length) {
+      return respondError(res, 'not enough manpower', 1);
+    }
 
     await persistGuardsOnly(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id);
 
@@ -680,6 +938,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
       endISO,
       kitchenStartISO,
       kitchenEndISO,
+      kitchenDay,
       esAssignments = [],
       existingAssignments = [],
       existingBwAssignments = [],
@@ -691,6 +950,23 @@ router.post('/generate-kitchen', async (req, res, next) => {
       escortSettings,
       constraints = [],
     } = req.body;
+
+    let normalizedKitchenSettings = null;
+    try {
+      normalizedKitchenSettings = normalizeKitchenSettings(kitchenSettings);
+    } catch (e) {
+      return respondError(res, e?.message || 'Invalid kitchen settings', null);
+    }
+    const kitchenShiftIdSet = new Set((normalizedKitchenSettings.shifts || []).map(s => s.id));
+
+    // kitchenDay is local date "YYYY-MM-DD". Derive ISO range 06:00–21:00.
+    const effectiveKitchenStartISO =
+      (kitchenDay ? `${kitchenDay}T06:00:00` : kitchenStartISO);
+    const effectiveKitchenEndISO =
+      (kitchenDay ? `${kitchenDay}T21:00:00` : kitchenEndISO);
+    if (!effectiveKitchenStartISO || !effectiveKitchenEndISO) {
+      return res.status(400).json({ error: 'kitchenDay or kitchenStartISO/kitchenEndISO required' });
+    }
 
     const [peopleRows, postRows] = await Promise.all([
       db.all('SELECT * FROM people WHERE userId = $1', [req.user.id]),
@@ -720,10 +996,20 @@ router.post('/generate-kitchen', async (req, res, next) => {
     const sanitizedEs = sanitizeEs(esAssignments);
     const sanitizedAssignments = sanitizeAssignments(existingAssignments);
     const sanitizedBw = sanitizeBw(existingBwAssignments);
-    const sanitizedKitchen = sanitizeKitchen(existingKitchenAssignments);
+    const sanitizedKitchen = sanitizeKitchenByShiftIds(sanitizeKitchen(existingKitchenAssignments), kitchenShiftIdSet);
     const sanitizedEscort = sanitizeEscort(existingEscortAssignments);
-    const sanitizedRasar = sanitizeRasar(existingRasarAssignments);
-    const sanitizedEscort400 = sanitizeEscort400(existingEscort400Assignments);
+    let sanitizedRasar = sanitizeRasar(existingRasarAssignments);
+    let sanitizedEscort400 = sanitizeEscort400(existingEscort400Assignments);
+
+    // Robustness: if client didn't send rasar/escort400 (or sent empty), fall back to DB truth.
+    if ((sanitizedRasar?.length || 0) === 0) {
+      const rows = await db.all('SELECT personId, day, shiftId FROM rasar_assignments WHERE userId = $1', [req.user.id]);
+      sanitizedRasar = sanitizeRasar(rows.map(r => ({ personId: Number(r.personid), day: r.day, shiftId: r.shiftid })));
+    }
+    if ((sanitizedEscort400?.length || 0) === 0) {
+      const rows = await db.all('SELECT personId, day, shiftId FROM escort400_assignments WHERE userId = $1', [req.user.id]);
+      sanitizedEscort400 = sanitizeEscort400(rows.map(r => ({ personId: Number(r.personid), day: r.day, shiftId: r.shiftid })));
+    }
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
 
@@ -738,10 +1024,18 @@ router.post('/generate-kitchen', async (req, res, next) => {
       sanitizedBw,
       sanitizedKitchen,
       sanitizedEscort,
-      kitchenSettings,
+      normalizedKitchenSettings,
       escortSettings,
       constraints,
-      { mode: 'kitchen', kitchenStartISO, kitchenEndISO, existingRasarAssignments: sanitizedRasar, existingEscort400Assignments: sanitizedEscort400, rasarStartISO: startISO, rasarEndISO: endISO }
+      {
+        mode: 'kitchen',
+        kitchenStartISO: effectiveKitchenStartISO,
+        kitchenEndISO: effectiveKitchenEndISO,
+        existingRasarAssignments: sanitizedRasar,
+        existingEscort400Assignments: sanitizedEscort400,
+        rasarStartISO: startISO,
+        rasarEndISO: endISO
+      }
     );
 
     if (result.error) return respondError(res, result.error, result.missingCount ?? null);
@@ -767,7 +1061,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
       escortAssignments: result.escortAssignments || [],
       ...rasarSnap,
       ...escort400Snap,
-      kitchenSettings: result.kitchenSettings || kitchenSettings || { requiredPerShift: 36, shift2Start: '13:00' },
+      kitchenSettings: result.kitchenSettings || normalizedKitchenSettings || { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
       escortSettings: result.escortSettings || escortSettings || { requiredPerShift: 4 },
     });
   } catch (err) {
@@ -803,6 +1097,31 @@ router.post('/generate-rasar', async (req, res, next) => {
       return res.status(400).json({ error: 'startISO and endISO required' });
     }
 
+    let normalizedKitchenSettings = null;
+    try {
+      // If the client didn't send kitchenSettings (or sent legacy/empty), fall back to DB kitchen_shifts (source of truth).
+      const kitchenShiftRows = await db.all(
+        'SELECT shiftId, idx, startHHmm, endHHmm, required FROM kitchen_shifts WHERE userId = $1 ORDER BY idx ASC',
+        [req.user.id]
+      );
+      if (kitchenShiftRows && kitchenShiftRows.length) {
+        normalizedKitchenSettings = normalizeKitchenSettings({
+          shifts: kitchenShiftRows.map(r => ({
+            id: r.shiftid || r.shiftId,
+            start: r.starthhmm || r.startHHmm,
+            end: r.endhhmm || r.endHHmm,
+            required: Number(r.required ?? 36),
+          })),
+        });
+      } else {
+        normalizedKitchenSettings = normalizeKitchenSettings(kitchenSettings);
+      }
+    } catch (e) {
+      return res.status(400).json({ error: e?.message || 'Invalid kitchen settings' });
+    }
+    const kitchenShiftIdSet = new Set((normalizedKitchenSettings.shifts || []).map(s => s.id));
+    const kitchenShiftById = new Map((normalizedKitchenSettings.shifts || []).map(s => [s.id, s]));
+
     const [peopleRows, postRows] = await Promise.all([
       db.all('SELECT * FROM people WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
@@ -821,10 +1140,19 @@ router.post('/generate-rasar', async (req, res, next) => {
     const sanitizedEs = sanitizeEs(esAssignments);
     const sanitizedAssignments = sanitizeByPerson(existingAssignments);
     const sanitizedBw = sanitizeByPerson(existingBwAssignments);
-    const sanitizedKitchen = sanitizeByPerson(existingKitchenAssignments);
+    let sanitizedKitchen = sanitizeKitchenByShiftIds(sanitizeByPerson(existingKitchenAssignments), kitchenShiftIdSet);
     const sanitizedEscort = sanitizeByPerson(existingEscortAssignments);
     const sanitizedRasar = sanitizeByPerson(existingRasarAssignments);
     const sanitizedEscort400 = sanitizeByPerson(existingEscort400Assignments);
+
+    // Robustness: if client didn't send kitchen assignments (or sent empty), fall back to DB truth.
+    if ((sanitizedKitchen?.length || 0) === 0) {
+      const rows = await db.all('SELECT personId, day, shiftId FROM kitchen_assignments WHERE userId = $1', [req.user.id]);
+      sanitizedKitchen = sanitizeKitchenByShiftIds(
+        sanitizeByPerson(rows.map(r => ({ personId: Number(r.personid), day: r.day, shiftId: r.shiftid }))),
+        kitchenShiftIdSet
+      );
+    }
 
     const overlapsIso = (aStart, aEnd, bStart, bEnd) => {
       const aS = dayjs(aStart);
@@ -867,14 +1195,9 @@ router.post('/generate-rasar', async (req, res, next) => {
       return { start: start.toISOString(), end: end.toISOString() };
     };
     const buildKitchenRange = (day, shiftId, kitchenSettingsRow) => {
-      const shift2Start = (kitchenSettingsRow?.shift2start || kitchenSettings?.shift2Start || '13:00').toString();
-      const start1 = '06:00';
-      const end2 = '21:00';
-      const def =
-        shiftId === 'kitchen_1' ? { start: start1, end: shift2Start } :
-        shiftId === 'kitchen_2' ? { start: shift2Start, end: end2 } : null;
-      if (!def) return null;
-      return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
+      const s = kitchenShiftById.get(shiftId);
+      if (!s) return null;
+      return { start: dayjs(`${day}T${s.start}:00`).toISOString(), end: dayjs(`${day}T${s.end}:00`).toISOString() };
     };
     const buildEscortRange = (day, shiftId) => {
       const def =
@@ -1062,7 +1385,7 @@ router.post('/generate-rasar', async (req, res, next) => {
         sanitizedBw,
         sanitizedKitchen,
         sanitizedEscort,
-        kitchenSettings,
+        normalizedKitchenSettings,
         escortSettings,
         constraints,
         {
@@ -1162,16 +1485,6 @@ router.post('/save-rasar', async (req, res, next) => {
       if (!def) return null;
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
-    const buildKitchenRange = (day, shiftId, kitchenSettingsRow) => {
-      const shift2Start = (kitchenSettingsRow?.shift2start || '13:00').toString();
-      const start1 = '06:00';
-      const end2 = '21:00';
-      const def =
-        shiftId === 'kitchen_1' ? { start: start1, end: shift2Start } :
-        shiftId === 'kitchen_2' ? { start: shift2Start, end: end2 } : null;
-      if (!def) return null;
-      return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
-    };
     const buildEscortRange = (day, shiftId) => {
       const def =
         shiftId === 'escort_1' ? { start: '07:00', end: '10:30' } :
@@ -1182,16 +1495,44 @@ router.post('/save-rasar', async (req, res, next) => {
       return { start: dayjs(`${day}T${def.start}:00`).toISOString(), end: dayjs(`${day}T${def.end}:00`).toISOString() };
     };
 
-    const [guardsRows, bwRows, kitchenRows, escortRows, kitchenSettingsRows, esRows] = await Promise.all([
+    const [guardsRows, bwRows, kitchenRows, escortRows, kitchenShiftRows, kitchenSettingsRows, esRows] = await Promise.all([
       db.all('SELECT personId, startISO, endISO FROM assignments WHERE userId = $1', [req.user.id]),
       // bw_assignments table does NOT store start/end timestamps (day+slotId only)
       db.all('SELECT personId, day, slotId FROM bw_assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT personId, day, shiftId FROM kitchen_assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT personId, day, shiftId FROM escort_assignments WHERE userId = $1', [req.user.id]),
+      db.all('SELECT shiftId, idx, startHHmm, endHHmm FROM kitchen_shifts WHERE userId = $1 ORDER BY idx ASC', [req.user.id]),
       db.all('SELECT * FROM kitchen_settings WHERE userId = $1 LIMIT 1', [req.user.id]),
       db.all('SELECT groupId, personId FROM es_assignments WHERE userId = $1', [req.user.id]),
     ]);
-    const kitchenSettingsRow = kitchenSettingsRows?.[0] || null;
+
+    let kitchenSettingsForOverlap = null;
+    if (kitchenShiftRows && kitchenShiftRows.length) {
+      kitchenSettingsForOverlap = {
+        shifts: kitchenShiftRows.map(r => ({
+          id: r.shiftid || r.shiftId,
+          start: r.starthhmm || r.startHHmm,
+          end: r.endhhmm || r.endHHmm,
+          required: 0,
+        })),
+      };
+    } else {
+      const legacy = kitchenSettingsRows?.[0]
+        ? {
+          requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+          requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+          shift2Start: kitchenSettingsRows[0].shift2start
+        }
+        : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
+      kitchenSettingsForOverlap = normalizeKitchenSettings(legacy);
+    }
+    kitchenSettingsForOverlap = normalizeKitchenSettings(kitchenSettingsForOverlap);
+    const kitchenShiftById = new Map((kitchenSettingsForOverlap.shifts || []).map(s => [s.id, s]));
+    const buildKitchenRange = (day, shiftId) => {
+      const s = kitchenShiftById.get(shiftId);
+      if (!s) return null;
+      return { start: dayjs(`${day}T${s.start}:00`).toISOString(), end: dayjs(`${day}T${s.end}:00`).toISOString() };
+    };
 
     // Build ES group membership map
     const personToESGroup = new Map();
@@ -1231,7 +1572,7 @@ router.post('/save-rasar', async (req, res, next) => {
       addExisting(Number(r.personid), buildBwRange(r.day, r.slotid), `BW ${r.day} ${r.slotid}`);
     }
     for (const r of kitchenRows) {
-      addExisting(Number(r.personid), buildKitchenRange(r.day, r.shiftid, kitchenSettingsRow), `Kitchen ${r.day} ${r.shiftid}`);
+      addExisting(Number(r.personid), buildKitchenRange(r.day, r.shiftid), `Kitchen ${r.day} ${r.shiftid}`);
     }
     for (const r of escortRows) {
       addExisting(Number(r.personid), buildEscortRange(r.day, r.shiftid), `Escort ${r.day} ${r.shiftid}`);
@@ -1338,6 +1679,14 @@ router.post('/save-all', async (req, res, next) => {
       start,
       end,
     } = req.body;
+
+    let normalizedKitchenSettings = null;
+    try {
+      normalizedKitchenSettings = normalizeKitchenSettings(kitchenSettings);
+    } catch (e) {
+      return res.status(400).json({ error: e?.message || 'Invalid kitchen settings' });
+    }
+    const kitchenShiftIdSet = new Set((normalizedKitchenSettings.shifts || []).map(s => s.id));
     const [peopleRows, postRows] = await Promise.all([
       db.all('SELECT id FROM people WHERE userId = $1', [req.user.id]),
       db.all('SELECT id FROM posts WHERE userId = $1', [req.user.id]),
@@ -1346,7 +1695,7 @@ router.post('/save-all', async (req, res, next) => {
     const postIds = new Set(postRows.map(p => p.id));
     const sanitizedAssignments = assignments.filter(a => personIds.has(a.personId) && postIds.has(a.postId));
     const sanitizedBw = bwAssignments.filter(a => personIds.has(a.personId));
-    const sanitizedKitchen = kitchenAssignments.filter(a => personIds.has(a.personId));
+    const sanitizedKitchen = sanitizeKitchenByShiftIds(kitchenAssignments.filter(a => personIds.has(a.personId)), kitchenShiftIdSet);
     const sanitizedEscort = escortAssignments.filter(a => personIds.has(a.personId));
     const sanitizedRasar = rasarAssignments.filter(a => personIds.has(a.personId));
     const sanitizedEscort400 = escort400Assignments.filter(a => personIds.has(a.personId));
@@ -1363,7 +1712,7 @@ router.post('/save-all', async (req, res, next) => {
       sanitizedEscort,
       sanitizedRasar,
       sanitizedEscort400,
-      kitchenSettings,
+      normalizedKitchenSettings,
       escortSettings,
       req.user.id,
       start,
@@ -1406,7 +1755,7 @@ router.post('/update-cell', async (req, res, next) => {
 router.get('/last', async (req, res, next) => {
   try {
     const db = getDb(req);
-    const [regular, bw, es, kitchen, escort, rasar, escort400, kitchenSettingsRows, escortSettingsRows] = await Promise.all([
+    const [regular, bw, es, kitchen, escort, rasar, escort400, kitchenSnap, escortSettingsRows] = await Promise.all([
       db.all('SELECT * FROM assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM bw_assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM es_assignments WHERE userId = $1', [req.user.id]),
@@ -1414,16 +1763,9 @@ router.get('/last', async (req, res, next) => {
       db.all('SELECT * FROM escort_assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM rasar_assignments WHERE userId = $1', [req.user.id]),
       db.all('SELECT * FROM escort400_assignments WHERE userId = $1', [req.user.id]),
-      db.all('SELECT * FROM kitchen_settings WHERE userId = $1 LIMIT 1', [req.user.id]),
+      fetchKitchenEscortSnapshot(db, req.user.id),
       db.all('SELECT * FROM escort_settings WHERE userId = $1 LIMIT 1', [req.user.id]),
     ]);
-    const kitchenSettings = kitchenSettingsRows?.[0]
-      ? {
-        requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
-        requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
-        shift2Start: kitchenSettingsRows[0].shift2start
-      }
-      : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
     const escortSettings = escortSettingsRows?.[0]
       ? {
         requiredShift1: Number(escortSettingsRows[0].requiredshift1 ?? escortSettingsRows[0].requiredpershift ?? 4),
@@ -1440,7 +1782,7 @@ router.get('/last', async (req, res, next) => {
       escortAssignments: escort.map(mapEscortAssignment),
       rasarAssignments: rasar.map(mapRasarAssignment),
       escort400Assignments: escort400.map(mapEscort400Assignment),
-      kitchenSettings,
+      kitchenSettings: kitchenSnap.kitchenSettings,
       escortSettings,
     });
   } catch (err) {
@@ -1538,23 +1880,40 @@ router.get('/history', async (req, res, next) => {
       return res.status(400).json({ error: 'start and end query parameters required' });
     }
     console.log('Fetching history for period:', start, 'to', end, 'userId:', req.user.id);
-    const [regular, bw, es, kitchen, escort, kitchenSettingsRows, escortSettingsRows] = await Promise.all([
+    const [regular, bw, es, kitchen, escort, kitchenShiftRows, kitchenSettingsRows, escortSettingsRows] = await Promise.all([
       db.all(`SELECT * FROM archived_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3`, [start, end, req.user.id]),
       db.all('SELECT * FROM archived_bw_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
       db.all('SELECT * FROM archived_es_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
       db.all('SELECT * FROM archived_kitchen_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
       db.all('SELECT * FROM archived_escort_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
+      db.all('SELECT shiftId, idx, startHHmm, endHHmm, required FROM archived_kitchen_shifts WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3 ORDER BY idx ASC', [start, end, req.user.id]),
       db.all('SELECT * FROM archived_kitchen_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
       db.all('SELECT * FROM archived_escort_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [start, end, req.user.id]),
     ]);
     console.log('Found assignments:', regular.length, 'bw:', bw.length, 'es:', es.length);
-    const kitchenSettings = kitchenSettingsRows?.[0]
-      ? {
-        requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
-        requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
-        shift2Start: kitchenSettingsRows[0].shift2start
-      }
-      : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
+
+    let kitchenSettings = null;
+    if (kitchenShiftRows && kitchenShiftRows.length) {
+      kitchenSettings = {
+        shifts: kitchenShiftRows.map(r => ({
+          id: r.shiftid || r.shiftId,
+          start: r.starthhmm || r.startHHmm,
+          end: r.endhhmm || r.endHHmm,
+          required: Number(r.required ?? 36),
+        })),
+      };
+    } else {
+      const legacy = kitchenSettingsRows?.[0]
+        ? {
+          requiredShift1: Number(kitchenSettingsRows[0].requiredshift1 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+          requiredShift2: Number(kitchenSettingsRows[0].requiredshift2 ?? kitchenSettingsRows[0].requiredpershift ?? 36),
+          shift2Start: kitchenSettingsRows[0].shift2start
+        }
+        : { requiredShift1: 36, requiredShift2: 36, shift2Start: '13:00' };
+      kitchenSettings = normalizeKitchenSettings(legacy);
+    }
+    kitchenSettings = normalizeKitchenSettings(kitchenSettings);
+
     const escortSettings = escortSettingsRows?.[0]
       ? {
         requiredShift1: Number(escortSettingsRows[0].requiredshift1 ?? escortSettingsRows[0].requiredpershift ?? 4),

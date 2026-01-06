@@ -18,7 +18,17 @@ import { useI18n } from "../util/i18n";
 import { fetchHistoryPeriods, fetchScheduleByPeriod } from "../api";
 import ScheduleCalendar from "./ScheduleView";
 import KitchenDutyView from "./KitchenDutyView";
-import type { Post, Person, Assignment, BWAssignment, ESGroupAssignment, KitchenAssignment, EscortAssignment, KitchenSettings, EscortSettings } from "../types";
+import type {
+  Post,
+  Person,
+  Assignment,
+  BWAssignment,
+  ESGroupAssignment,
+  KitchenAssignment,
+  EscortAssignment,
+  KitchenSettings,
+  EscortSettings,
+} from "../types";
 import {
   FormControl,
   Select,
@@ -65,8 +75,8 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
   const [esAssignments, setESAssignments] = useState<ESGroupAssignment[]>([]);
   const [kitchenAssignments, setKitchenAssignments] = useState<KitchenAssignment[]>([]);
   const [escortAssignments, setEscortAssignments] = useState<EscortAssignment[]>([]);
-  const [kitchenSettings, setKitchenSettings] = useState<KitchenSettings>({ requiredPerShift: 36, shift2Start: '13:00' });
-  const [escortSettings, setEscortSettings] = useState<EscortSettings>({ requiredPerShift: 4 });
+  const [kitchenSettings, setKitchenSettings] = useState<KitchenSettings>({ shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] });
+  const [escortSettings, setEscortSettings] = useState<EscortSettings>({ requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 });
   const [error, setError] = useState<string>("");
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({ start: '', end: '' });
   const [calendarAnchor, setCalendarAnchor] = useState<HTMLElement | null>(null);
@@ -477,8 +487,8 @@ const HistoryView: React.FC<Props> = ({ people, posts }) => {
               <Box sx={{ mt: 3 }}>
                 <KitchenDutyView
                   people={people}
-                  start={dateRange.start}
-                  end={dateRange.end}
+                  kitchenDay={(dateRange.start || '').substring(0, 10) || (selectedPeriod.split(' ')[0] || '')}
+                  onKitchenDayChange={() => {}}
                   assignments={assignments}
                   bwAssignments={bwAssignments}
                   esAssignments={esAssignments}
