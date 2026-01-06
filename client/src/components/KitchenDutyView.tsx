@@ -1058,6 +1058,12 @@ const KitchenDutyView: React.FC<Props> = ({
           dutyCountRangeEndISO={archiveEnd || kitchenEndISO}
           currentDay={dialog.day}
           currentShiftId={dialog.shiftId}
+          ineligiblePersonIds={
+            dialog.type === 'kitchen'
+              ? people.filter(p => p.kitchenExemption).map(p => p.id)
+              : []
+          }
+          ineligibleReasonLabel={t('Kitchen exemption - cannot work kitchen duty')}
         />
       )}
     </Box>

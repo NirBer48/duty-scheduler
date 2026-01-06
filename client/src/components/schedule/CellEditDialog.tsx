@@ -288,7 +288,6 @@ export const CellEditDialog: React.FC<Props> = ({
         const person = people.find(p => p.id === personId);
 
         if (!person) return null;
-        if (!isNightShift(shiftLabel)) return null;
 
         if (person.sameGenderPreference) {
             const otherSelected = selected.filter(id => id !== personId);
