@@ -6,7 +6,7 @@ dayjs.extend(utc);
 // Configuration constants - can be overridden by environment variables
 const STANDING_EXEMPT_POST_NAMES = process.env.STANDING_EXEMPT_POST_NAMES
   ? JSON.parse(process.env.STANDING_EXEMPT_POST_NAMES)
-  : ["שג רגלי","ימח","שג רכוב אחורי","שג רכוב קדמי","עתודה"];
+  : ["שג רגלי", "ימח", "שג רכוב אחורי", "שג רכוב קדמי", "עתודה"];
 
 const BW_SLOTS = [
   { id: 'bw_morning', label: 'BW 08:30-11:30', startHour: 8, startMinute: 30, endHour: 11, endMinute: 30 },
@@ -36,13 +36,13 @@ const isNightShiftLabel = (label) => {
   // Night period: 20:00 to 08:00 (wraps around midnight)
   // A shift is a night shift if it starts OR ends in the night period
   // Night period: 20:00-23:59 (same day) OR 00:00-07:59 (next day)
-  
+
   // Check if shift starts in night period
   const startsInNight = (startMinutes >= 20 * 60) || (startMinutes < 8 * 60);
-  
+
   // Check if shift ends in night period
   const endsInNight = (endMinutes > 20 * 60) || (endMinutes <= 8 * 60);
-  
+
   // Also check if shift crosses midnight and overlaps with night
   const crossesMidnight = endMinutes <= startMinutes;
   if (crossesMidnight) {
@@ -132,7 +132,7 @@ export const scheduleGenerator = (
   ];
 
   const getRequiredCount = (postId, day, shiftLabel, defaultRequired) => {
-    const override = shiftOverrides.find(o => 
+    const override = shiftOverrides.find(o =>
       o.postId === postId && o.day === day && o.shiftLabel === shiftLabel
     );
     return override ? override.requiredPerShift : defaultRequired;
@@ -206,11 +206,11 @@ export const scheduleGenerator = (
 
   // Build list of all shift time slots in the date range
   const timeSlots = [];
-  
+
   // Parse as local time (not UTC): extract YYYY-MM-DDTHH:mm and rebuild as local
   // Treat incoming strings as local times (no TZ shift)
   const parseLocalDateTime = (isoString) => dayjs(isoString);
-  
+
   const startDt = parseLocalDateTime(startISO).second(0).millisecond(0);
   const endDt = parseLocalDateTime(endISO).second(0).millisecond(0);
 
@@ -330,7 +330,7 @@ export const scheduleGenerator = (
   for (const ea of existingAssignments) {
     const personId = Number(ea.personId);
     const tsKey = `${ea.day}|${ea.shiftLabel}`;
-    
+
     // Initialize person if not in people list (shouldn't happen but be safe)
     if (!personShifts.has(personId)) {
       personShifts.set(personId, []);
@@ -338,7 +338,7 @@ export const scheduleGenerator = (
     if (shiftCountByPerson[personId] === undefined) {
       shiftCountByPerson[personId] = 0;
     }
-    
+
     // Prefer explicit timestamps if they exist (critical for overlap checks when the shiftLabel isn't a standard 4h block)
     // This also makes rasar generation reliably "see" guard duties even if the rasar week range differs.
     if (ea.start && ea.end) {
@@ -357,10 +357,10 @@ export const scheduleGenerator = (
       shiftCountByPerson[personId]++;
       continue;
     }
-    
+
     // Find or calculate the time slot info
     const ts = timeSlots.find(t => t.day === ea.day && t.shiftLabel === ea.shiftLabel);
-    
+
     if (ts) {
       // Slot is within our time range
       personShifts.get(personId).push({
@@ -380,7 +380,7 @@ export const scheduleGenerator = (
         const firstSlotDate = dayjs(timeSlots[0]?.start || startISO);
         const hoursDiff = slotDate.diff(firstSlotDate, 'hour');
         const virtualIndex = Math.floor(hoursDiff / 4);
-        
+
         personShifts.get(personId).push({
           start: slotDate.toISOString(),
           end: slotDate.add(4, 'hour').toISOString(),
@@ -390,7 +390,7 @@ export const scheduleGenerator = (
         });
       }
     }
-    
+
     shiftCountByPerson[personId]++;
   }
 
@@ -403,7 +403,7 @@ export const scheduleGenerator = (
         const slotKey = `${post.id}|${ts.day}|${ts.shiftLabel}`;
         const existingCount = (existingBySlot.get(slotKey) || []).length;
         const stillNeeded = required - existingCount;
-        
+
         if (stillNeeded > 0) {
           slotsToFill.push({
             day: ts.day,
@@ -426,7 +426,7 @@ export const scheduleGenerator = (
   slotsToFill.sort((a, b) => a.start.localeCompare(b.start));
 
   const assignments = [];
-  
+
   // Copy existing assignments to final list
   for (const ea of existingAssignments) {
     const ts = timeSlots.find(t => t.day === ea.day && t.shiftLabel === ea.shiftLabel);
@@ -457,10 +457,10 @@ export const scheduleGenerator = (
   const canESMemberWorkAtShift = (personId, day, shiftLabel) => {
     const groupId = personToESGroup.get(personId);
     if (!groupId) return true;
-    
+
     const key = getShiftKey(day, shiftLabel);
     const assignedPeople = slotAssignments.get(key) || new Set();
-    
+
     for (const assignedId of assignedPeople) {
       if (assignedId !== personId && personToESGroup.get(assignedId) === groupId) {
         return false;
@@ -485,7 +485,7 @@ export const scheduleGenerator = (
       if (Number(bw.personId) !== personId) continue;
       const slot = BW_SLOTS.find(s => s.id === bw.slotId);
       if (!slot) continue;
-      
+
       const pad = value => String(value).padStart(2, '0');
       const bwStart = dayjs(`${bw.day}T${pad(slot.startHour)}:${pad(slot.startMinute)}:00`);
       let bwEndDay = bw.day;
@@ -493,10 +493,10 @@ export const scheduleGenerator = (
         bwEndDay = dayjs(bw.day).add(1, 'day').format('YYYY-MM-DD');
       }
       const bwEnd = dayjs(`${bwEndDay}T${pad(slot.endHour)}:${pad(slot.endMinute)}:00`);
-      
+
       const shiftStart = dayjs(slotStart);
       const shiftEnd = dayjs(slotEnd);
-      
+
       if (shiftStart.isBefore(bwEnd) && bwStart.isBefore(shiftEnd)) {
         return true;
       }
@@ -689,13 +689,15 @@ export const scheduleGenerator = (
     if (!canESMemberWorkAtShift(person.id, slot.day, slot.shiftLabel)) return false;
     if (person.standingExemption && standingExemptPostIds.has(slot.postId)) return false;
     if (person.nightGuardExemption && isNightShiftLabel(slot.shiftLabel)) return false;
+    // Asthma exemption: can only work the lookout post (תצפיתן)
+    if (person.asthmaExemption && slot.postName !== 'תצפיתן') return false;
 
     // Check for overlapping BW assignments
     if (hasOverlappingBWAssignment(person.id, slot.start, slot.end)) return false;
 
     // Check overlap with existing extra duties (kitchen/escort/rasar/escort400)
     if (overlapsWithExtraDuties(person.id, slot.start, slot.end)) return false;
-    
+
     return true;
   };
 
@@ -714,11 +716,10 @@ export const scheduleGenerator = (
   const tryAssignToSlot = (candidate, slot) => {
     if (slot.stillNeeded <= 0) return false;
     if (!canWork(candidate, slot)) return false;
-    
+
     const slotKey = `${slot.postId}|${slot.day}|${slot.shiftLabel}`;
     const existingInSlot = existingBySlot.get(slotKey) || [];
     if (existingInSlot.includes(candidate.id)) return false;
-    
     // Check same-gender preference (applies to all shifts)
     const assignedToThisPost = assignments.filter(a =>
       a.postId === slot.postId && a.day === slot.day && a.shiftLabel === slot.shiftLabel
@@ -735,7 +736,7 @@ export const scheduleGenerator = (
     if (candidate.duelGuard && assignedToThisPost.length === 0 && slot.stillNeeded <= 1) {
       return false;
     }
-    
+
     // Assign this candidate to this slot
     assignments.push({
       postId: slot.postId,
@@ -745,7 +746,7 @@ export const scheduleGenerator = (
       end: slot.end,
       day: slot.day,
     });
-    
+
     // Update tracking
     personShifts.get(candidate.id).push({
       start: slot.start,
@@ -756,13 +757,13 @@ export const scheduleGenerator = (
     });
     shiftCountByPerson[candidate.id]++;
     slot.stillNeeded--;
-    
+
     const shiftKey = getShiftKey(slot.day, slot.shiftLabel);
     if (!slotAssignments.has(shiftKey)) {
       slotAssignments.set(shiftKey, new Set());
     }
     slotAssignments.get(shiftKey).add(candidate.id);
-    
+
     return true;
   };
 
@@ -775,11 +776,11 @@ export const scheduleGenerator = (
     let madeProgress = true;
     while (madeProgress) {
       madeProgress = false;
-      
+
       // Check if there are any unfilled slots
       const unfilledSlots = slotsToFill.filter(s => s.stillNeeded > 0);
       if (unfilledSlots.length === 0) break;
-      
+
       // For each unfilled slot, try to find a candidate
       for (const slot of unfilledSlots) {
         // First, try non-ES members sorted by shift count
@@ -791,7 +792,7 @@ export const scheduleGenerator = (
             return !existingInSlot.includes(p.id);
           })
           .sort((a, b) => shiftCountByPerson[a.id] - shiftCountByPerson[b.id]);
-        
+
         let assigned = false;
         for (const candidate of nonESCandidates) {
           if (tryAssignToSlot(candidate, slot)) {
@@ -800,7 +801,7 @@ export const scheduleGenerator = (
             break;
           }
         }
-        
+
         // If no non-ES member could be assigned, try ES members
         if (!assigned) {
           const esCandidates = esMembers
@@ -811,7 +812,7 @@ export const scheduleGenerator = (
               return !existingInSlot.includes(p.id);
             })
             .sort((a, b) => shiftCountByPerson[a.id] - shiftCountByPerson[b.id]);
-          
+
           for (const candidate of esCandidates) {
             if (tryAssignToSlot(candidate, slot)) {
               madeProgress = true;
@@ -826,18 +827,18 @@ export const scheduleGenerator = (
 
   // Check for unfilled mandatory slots and calculate minimum people needed
   const unfilledMandatorySlots = slotsToFill.filter(slot => slot.stillNeeded > 0 && !slot.optional);
-    
+
   if (unfilledMandatorySlots.length > 0) {
     // Calculate total unfilled positions
     const totalUnfilledPositions = unfilledMandatorySlots.reduce((sum, slot) => sum + slot.stillNeeded, 0);
-    
+
     // Each person can work at most 2 shifts per day (due to 8-hour rest requirement)
     // So minimum additional people needed = ceil(totalUnfilledPositions / 2)
     const minPeopleNeeded = Math.ceil(totalUnfilledPositions / 2);
 
-    return { 
-      assignments: [], 
-      bwAssignments: [], 
+    return {
+      assignments: [],
+      bwAssignments: [],
       error: 'not enough manpower',
       missingCount: minPeopleNeeded
     };
@@ -882,9 +883,9 @@ export const scheduleGenerator = (
   }
 
   if (duelGuardViolations > 0 || genderPrefViolations > 0) {
-    return { 
-      assignments: [], 
-      bwAssignments: [], 
+    return {
+      assignments: [],
+      bwAssignments: [],
       error: 'not enough manpower',
       missingCount: duelGuardViolations + genderPrefViolations
     };
@@ -894,7 +895,7 @@ export const scheduleGenerator = (
   const bwDays = genGuards ? computeBWDays(startISO, endISO, existingBwAssignments) : [];
   const bwSlotKey = (day, slotId) => `${day}|${slotId}`;
   const bwSlotAssignments = new Map(); // key -> Set of personIds
-  
+
   const buildSlotTimes = (day, slot) => {
     let slotStart = dayjs(`${day}T${pad(slot.startHour)}:${pad(slot.startMinute)}:00`);
     let endDay = day;
@@ -905,7 +906,7 @@ export const scheduleGenerator = (
       endDay = dayjs(day).add(1, 'day').format('YYYY-MM-DD');
     }
     let slotEnd = dayjs(`${endDay}T${pad(endHour)}:${pad(endMinute)}:00`);
-    
+
     // Clip to schedule boundaries
     if (slotStart.isBefore(scheduleStart)) {
       slotStart = scheduleStart;
@@ -955,8 +956,8 @@ export const scheduleGenerator = (
       const shiftStart = dayjs(shift.start);
       const shiftEnd = dayjs(shift.end);
       // Exclude adjacent shifts (one ends when the other starts) - use minute precision
-      if ((shiftEnd.isSame(slotStart, 'minute') || shiftEnd.isBefore(slotStart, 'minute')) || 
-          (slotEnd.isSame(shiftStart, 'minute') || slotEnd.isBefore(shiftStart, 'minute'))) continue;
+      if ((shiftEnd.isSame(slotStart, 'minute') || shiftEnd.isBefore(slotStart, 'minute')) ||
+        (slotEnd.isSame(shiftStart, 'minute') || slotEnd.isBefore(shiftStart, 'minute'))) continue;
       if (shiftStart.isBefore(slotEnd) && slotStart.isBefore(shiftEnd)) {
         return true;
       }
@@ -989,8 +990,8 @@ export const scheduleGenerator = (
       const assignmentStart = dayjs(assignment.start);
       const assignmentEnd = dayjs(assignment.end);
       // Exclude adjacent shifts (one ends when the other starts) - use minute precision
-      if ((assignmentEnd.isSame(slotStart, 'minute') || assignmentEnd.isBefore(slotStart, 'minute')) || 
-          (slotEnd.isSame(assignmentStart, 'minute') || slotEnd.isBefore(assignmentStart, 'minute'))) continue;
+      if ((assignmentEnd.isSame(slotStart, 'minute') || assignmentEnd.isBefore(slotStart, 'minute')) ||
+        (slotEnd.isSame(assignmentStart, 'minute') || slotEnd.isBefore(assignmentStart, 'minute'))) continue;
       if (assignmentStart.isBefore(slotEnd) && slotStart.isBefore(assignmentEnd)) {
         return true;
       }
@@ -1258,6 +1259,10 @@ export const scheduleGenerator = (
 
         const candidates = [...people]
           .filter(p => !set.has(p.id))
+          .filter(p => {
+            if (type === 'kitchen' && p.kitchenExemption) return false;
+            return true;
+          })
           .filter(p => !violatesConstraint(p.id, times.start, times.end))
           .filter(p => !overlapsWithAnyDuty(p.id, times.start, times.end))
           .sort((a, b) => {

@@ -12,6 +12,8 @@ const mapPerson = row => ({
   standingExemption: Boolean(row.standingexemption),
   duelGuard: Boolean(row.duelguard),
   nightGuardExemption: Boolean(row.nightguardexemption),
+  asthmaExemption: Boolean(row.asthmaexemption),
+  kitchenExemption: Boolean(row.kitchenexemption),
 });
 
 router.get('/', async (req, res, next) => {
@@ -26,10 +28,10 @@ router.get('/', async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const db = getDb(req);
-    const { name, gender, sameGenderPref = false, limitedAbility = false, standingExemption = false, duelGuard = false, nightGuardExemption = false } = req.body;
+    const { name, gender, sameGenderPref = false, limitedAbility = false, standingExemption = false, duelGuard = false, nightGuardExemption = false, asthmaExemption = false, kitchenExemption = false } = req.body;
     const result = await db.run(
-      'INSERT INTO people (name, gender, sameGenderPref, limitedAbility, standingExemption, duelGuard, nightGuardExemption, userId) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
-      [name, gender, !!sameGenderPref, !!limitedAbility, !!standingExemption, !!duelGuard, !!nightGuardExemption, req.user.id]
+      'INSERT INTO people (name, gender, sameGenderPref, limitedAbility, standingExemption, duelGuard, nightGuardExemption, asthmaExemption, kitchenExemption, userId) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id',
+      [name, gender, !!sameGenderPref, !!limitedAbility, !!standingExemption, !!duelGuard, !!nightGuardExemption, !!asthmaExemption, !!kitchenExemption, req.user.id]
     );
     res.json({
       id: result.lastID,
@@ -40,6 +42,8 @@ router.post('/', async (req, res, next) => {
       standingExemption,
       duelGuard,
       nightGuardExemption,
+      asthmaExemption,
+      kitchenExemption,
     });
   } catch (err) {
     next(err);

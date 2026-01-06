@@ -277,7 +277,7 @@ const App: React.FC = () => {
     // Clear previous error state before generating
     setError('');
     setMissingCount(null);
-    
+
     // Send as local (no timezone shift) to keep boundaries exact
     const startISO = start;
     const endISO = end;
@@ -488,7 +488,7 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await logout().catch(() => {});
+    await logout().catch(() => { });
     setUser(null);
     setAssignments([]);
     setBWAssignments([]);
@@ -631,7 +631,7 @@ const App: React.FC = () => {
                   {assignmentsTab === 0 && (
                 <>
                   <Paper sx={{ p: 2, mb: 2 }}>
-                    <Typography variant="h5"  gutterBottom>{t('Scheduler')}</Typography>
+                    <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
                       <TextField
                         type="datetime-local"
@@ -651,16 +651,16 @@ const App: React.FC = () => {
                         inputProps={{ step: 14400 }}
                         size="small"
                       />
-                     
+
                       <Button
                         onClick={handleScheduleGuards}
                         variant="contained"
                         disabled={isGenerating}
-                        
+
                       >
                         {isGenerating ? t('Assigning') : t('Generate')}
                       </Button>
-                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating} sx={{mr: "8px"}}>
+                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating} sx={{ mr: "8px" }}>
                         {t('Clear')}
                       </Button>
                       <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
@@ -669,7 +669,7 @@ const App: React.FC = () => {
                     </Stack>
                     {error && (
                       <Typography color="error" sx={{ mt: 2 }}>
-                        {missingCount != null && missingCount > 0 
+                        {missingCount != null && missingCount > 0
                           ? t('Missing about X people to complete the task').replace('{count}', String(missingCount))
                           : t(error)
                         }
@@ -728,8 +728,8 @@ const App: React.FC = () => {
                     isGenerating={isGenerating}
                   />
                 </Paper>
-            )}
-                  {assignmentsTab === 2 && (
+              )}
+              {assignmentsTab === 2 && (
                 <Paper sx={{ p: 2, overflow: 'auto' }}>
                   <RasarDutyView
                     people={people}
