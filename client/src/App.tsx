@@ -62,6 +62,8 @@ const STORAGE_KEY_ESCORT_SETTINGS = 'duty_scheduler_escort_settings';
 const STORAGE_KEY_KITCHEN_DAY = 'duty_scheduler_kitchen_day';
 const STORAGE_KEY_RASAR_OVERRIDES = 'duty_scheduler_rasar_overrides';
 const STORAGE_KEY_ESCORT400_OVERRIDES = 'duty_scheduler_escort400_overrides';
+const STORAGE_KEY_MAIN_TAB = 'duty_scheduler_main_tab';
+const STORAGE_KEY_ASSIGNMENTS_TAB = 'duty_scheduler_assignments_tab';
 
 const formatLocalDateTime = (date: Date) => {
   const year = date.getFullYear();
@@ -165,9 +167,9 @@ const App: React.FC = () => {
   const [constraintEnd, setConstraintEnd] = useState('');
   const [constraintError, setConstraintError] = useState('');
   // Top tab bar: Assignments / History / Justice Table
-  const [mainTab, setMainTab] = useState(0);
+  const [mainTab, setMainTab] = useState(() => loadFromStorage<number>(STORAGE_KEY_MAIN_TAB, 0));
   // Sub tabs under Assignments: Guards / Kitchen / Rasar
-  const [assignmentsTab, setAssignmentsTab] = useState(0);
+  const [assignmentsTab, setAssignmentsTab] = useState(() => loadFromStorage<number>(STORAGE_KEY_ASSIGNMENTS_TAB, 0));
   const [user, setUser] = useState<{ id: number; email: string } | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authLoading, setAuthLoading] = useState(false);
@@ -201,6 +203,14 @@ const App: React.FC = () => {
     if (!user) return;
     fetchConstraints().then(setConstraints).catch(() => { });
   }, [user]);
+
+  // Persist selected tabs across refresh.
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY_MAIN_TAB, JSON.stringify(mainTab)); } catch {}
+  }, [mainTab]);
+  useEffect(() => {
+    try { localStorage.setItem(STORAGE_KEY_ASSIGNMENTS_TAB, JSON.stringify(assignmentsTab)); } catch {}
+  }, [assignmentsTab]);
 
   useEffect(() => {
     const loadLastSchedule = async () => {

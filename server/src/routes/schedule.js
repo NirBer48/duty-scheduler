@@ -97,6 +97,15 @@ const parseShiftLabelMinutes = (shiftLabel) => {
   return { start, end, minutes: end - start };
 };
 
+const existingTables = async (db, names = []) => {
+  if (!names.length) return new Set();
+  const rows = await db.all(
+    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ANY($1::text[])",
+    [names]
+  );
+  return new Set(rows.map(r => (r.table_name || r.tableName || '').toString()));
+};
+
 const overlapMinutes = (aStartISO, aEndISO, rangeStartISO, rangeEndISO) => {
   const aS = dayjs(aStartISO).second(0).millisecond(0);
   const aE = dayjs(aEndISO).second(0).millisecond(0);
@@ -121,6 +130,17 @@ const dutyHoursFromArchived = async (db, userId, rangeStartISO = null, rangeEndI
     : 'userId = $1';
   const params = isRange ? [userId, startDay, endDay] : [userId];
 
+  // Some deployments might not have all archive tables yet (e.g. rasar/escort400).
+  // Avoid querying missing tables (Postgres logs errors even if the client catches them).
+  const tableSet = await existingTables(db, [
+    'archived_rasar_assignments',
+    'archived_escort400_assignments',
+    'archived_kitchen_shifts',
+  ]);
+  const hasArchivedRasar = tableSet.has('archived_rasar_assignments');
+  const hasArchivedEscort400 = tableSet.has('archived_escort400_assignments');
+  const hasArchivedKitchenShifts = tableSet.has('archived_kitchen_shifts');
+
   const [
     peopleRows,
     guardRows,
@@ -136,9 +156,15 @@ const dutyHoursFromArchived = async (db, userId, rangeStartISO = null, rangeEndI
     db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, slotId, day FROM archived_bw_assignments WHERE ${where}`, params),
     db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, shiftId, day FROM archived_kitchen_assignments WHERE ${where}`, params),
     db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, shiftId, day FROM archived_escort_assignments WHERE ${where}`, params),
-    db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, shiftId, day FROM archived_rasar_assignments WHERE ${where}`, params).catch(() => []),
-    db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, shiftId, day FROM archived_escort400_assignments WHERE ${where}`, params).catch(() => []),
-    db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, shiftId, startHHmm, endHHmm FROM archived_kitchen_shifts WHERE ${where} ORDER BY idx ASC`, params).catch(() => []),
+    hasArchivedRasar
+      ? db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, shiftId, day FROM archived_rasar_assignments WHERE ${where}`, params)
+      : Promise.resolve([]),
+    hasArchivedEscort400
+      ? db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, personId, shiftId, day FROM archived_escort400_assignments WHERE ${where}`, params)
+      : Promise.resolve([]),
+    hasArchivedKitchenShifts
+      ? db.all(`SELECT schedule_start::TEXT, schedule_end::TEXT, shiftId, startHHmm, endHHmm FROM archived_kitchen_shifts WHERE ${where} ORDER BY idx ASC`, params)
+      : Promise.resolve([]),
   ]);
 
   const init = () => ({
@@ -541,6 +567,8 @@ const archiveAssignments = async (
   esAssignments = [],
   kitchenAssignments = [],
   escortAssignments = [],
+  rasarAssignments = [],
+  escort400Assignments = [],
   kitchenSettings,
   escortSettings,
   userId,
@@ -580,6 +608,9 @@ const archiveAssignments = async (
   await db.run('DELETE FROM archived_kitchen_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_escort_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
   await db.run('DELETE FROM archived_escort_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
+  // Optional tables (may not exist in older deployments)
+  try { await db.run('DELETE FROM archived_rasar_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]); } catch {}
+  try { await db.run('DELETE FROM archived_escort400_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]); } catch {}
 
   // Insert new archives (filtered)
   for (const a of filteredAssignments) {
@@ -651,6 +682,24 @@ const archiveAssignments = async (
       [scheduleStart, scheduleEnd, Number(e.personId), e.day, e.shiftId, userId]
     );
   }
+
+  // Archive rasar + escort400 too (if tables exist)
+  for (const r of rasarAssignments || []) {
+    try {
+      await db.run(
+        'INSERT INTO archived_rasar_assignments (schedule_start, schedule_end, personId, day, shiftId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+        [scheduleStart, scheduleEnd, Number(r.personId), r.day, r.shiftId, userId]
+      );
+    } catch {}
+  }
+  for (const a of escort400Assignments || []) {
+    try {
+      await db.run(
+        'INSERT INTO archived_escort400_assignments (schedule_start, schedule_end, personId, day, shiftId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+        [scheduleStart, scheduleEnd, Number(a.personId), a.day, a.shiftId, userId]
+      );
+    } catch {}
+  }
   console.log('Archived successfully');
 };
 
@@ -695,6 +744,8 @@ const persistAllAssignments = async (
     esAssignments,
     kitchenAssignments,
     escortAssignments,
+    rasarAssignments,
+    escort400Assignments,
     kitchenSettings,
     escortSettings,
     userId,
