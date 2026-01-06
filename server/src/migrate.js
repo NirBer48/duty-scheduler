@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
 import { createDb } from './db.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@example.com').toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
@@ -94,6 +95,21 @@ const createTables = async db => {
     );
   `);
 
+  // Dynamic kitchen shift definitions (replaces hardcoded 2-shift kitchen_settings columns).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS kitchen_shifts (
+      id SERIAL PRIMARY KEY,
+      shiftId TEXT NOT NULL,
+      idx INTEGER NOT NULL,
+      startHHmm TEXT NOT NULL,
+      endHHmm TEXT NOT NULL,
+      required INTEGER NOT NULL DEFAULT 36,
+      userId INTEGER REFERENCES users(id),
+      UNIQUE(userId, shiftId),
+      UNIQUE(userId, idx)
+    );
+  `);
+
   await db.run(`
     CREATE TABLE IF NOT EXISTS kitchen_assignments (
       id SERIAL PRIMARY KEY,
@@ -119,6 +135,28 @@ const createTables = async db => {
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS escort_assignments (
+      id SERIAL PRIMARY KEY,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      shiftId TEXT NOT NULL,
+      userId INTEGER REFERENCES users(id)
+    );
+  `);
+
+  // RASAR duty ("רס\"ר") assignments
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS rasar_assignments (
+      id SERIAL PRIMARY KEY,
+      personId INTEGER NOT NULL,
+      day TEXT NOT NULL,
+      shiftId TEXT NOT NULL,
+      userId INTEGER REFERENCES users(id)
+    );
+  `);
+
+  // Contractor escort duty - 400 ("ליווי קבלנים - 400") assignments
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS escort400_assignments (
       id SERIAL PRIMARY KEY,
       personId INTEGER NOT NULL,
       day TEXT NOT NULL,
@@ -183,6 +221,21 @@ const createTables = async db => {
     );
   `);
 
+  await db.run(`DROP TABLE IF EXISTS archived_kitchen_shifts`);
+  await db.run(`
+    CREATE TABLE archived_kitchen_shifts (
+      schedule_start DATE NOT NULL,
+      schedule_end DATE NOT NULL,
+      shiftId TEXT NOT NULL,
+      idx INTEGER NOT NULL,
+      startHHmm TEXT NOT NULL,
+      endHHmm TEXT NOT NULL,
+      required INTEGER NOT NULL,
+      userId INTEGER,
+      PRIMARY KEY (schedule_start, schedule_end, userId, shiftId)
+    );
+  `);
+
   await db.run(`DROP TABLE IF EXISTS archived_kitchen_assignments`);
   await db.run(`
     CREATE TABLE archived_kitchen_assignments (
@@ -243,6 +296,30 @@ const ensureKitchenEscortSettingsColumns = async db => {
   await db.run('ALTER TABLE escort_settings ADD COLUMN IF NOT EXISTS requiredShift4 INTEGER NOT NULL DEFAULT 4;');
 };
 
+const ensureKitchenShiftsColumns = async db => {
+  // In case the table exists from an older version with missing columns.
+  await db.run('ALTER TABLE kitchen_shifts ADD COLUMN IF NOT EXISTS shiftId TEXT;');
+  await db.run('ALTER TABLE kitchen_shifts ADD COLUMN IF NOT EXISTS idx INTEGER;');
+  await db.run('ALTER TABLE kitchen_shifts ADD COLUMN IF NOT EXISTS startHHmm TEXT;');
+  await db.run('ALTER TABLE kitchen_shifts ADD COLUMN IF NOT EXISTS endHHmm TEXT;');
+  await db.run('ALTER TABLE kitchen_shifts ADD COLUMN IF NOT EXISTS required INTEGER NOT NULL DEFAULT 36;');
+  // Heal older schemas that used shiftIndex/shiftindex (often NOT NULL) instead of idx.
+  // We keep the legacy column if present, but ensure it won't block inserts going forward.
+  try { await db.run('UPDATE kitchen_shifts SET idx = COALESCE(idx, shiftindex) WHERE idx IS NULL'); } catch {}
+  try { await db.run('UPDATE kitchen_shifts SET idx = COALESCE(idx, "shiftIndex") WHERE idx IS NULL'); } catch {}
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN shiftindex DROP NOT NULL;'); } catch {}
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN "shiftIndex" DROP NOT NULL;'); } catch {}
+  // Heal older schemas that stored hour/min columns and enforced NOT NULL.
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN starthour DROP NOT NULL;'); } catch {}
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startminute DROP NOT NULL;'); } catch {}
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endhour DROP NOT NULL;'); } catch {}
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endminute DROP NOT NULL;'); } catch {}
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startHour DROP NOT NULL;'); } catch {}
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN startMinute DROP NOT NULL;'); } catch {}
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endHour DROP NOT NULL;'); } catch {}
+  try { await db.run('ALTER TABLE kitchen_shifts ALTER COLUMN endMinute DROP NOT NULL;'); } catch {}
+};
+
 const ensureUserIdColumn = async (db, table) => {
   await db.run(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS userId INTEGER;`);
 };
@@ -268,12 +345,96 @@ const attachRowsToAdmin = async (db, adminId) => {
     'es_assignments',
     'constraints',
     'kitchen_settings',
+    'kitchen_shifts',
     'kitchen_assignments',
     'escort_settings',
     'escort_assignments',
   ];
   for (const table of tables) {
     await db.run(`UPDATE ${table} SET userId = $1 WHERE userId IS NULL`, [adminId]);
+  }
+};
+
+const clampHHmm = (value, fallback = '13:00') => {
+  const str = (value || fallback || '').toString();
+  const m = str.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return fallback;
+  let h = Number(m[1]);
+  let mm = Number(m[2]);
+  if (Number.isNaN(h) || Number.isNaN(mm)) return fallback;
+  h = Math.min(23, Math.max(0, h));
+  mm = Math.min(59, Math.max(0, mm));
+  return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+};
+
+const hhmmToMinutes = (hhmm) => {
+  const m = (hhmm || '').match(/^(\d{2}):(\d{2})$/);
+  if (!m) return 0;
+  return Number(m[1]) * 60 + Number(m[2]);
+};
+
+const minutesToHHmm = (mins) => {
+  const m = Math.min(24 * 60 - 1, Math.max(0, Number(mins) || 0));
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+};
+
+const migrateKitchenSettingsToKitchenShifts = async (db) => {
+  // For each user, if kitchen_shifts is empty, seed from legacy kitchen_settings
+  const users = await db.all('SELECT id FROM users');
+  for (const u of users) {
+    const userId = Number(u.id);
+    const existing = await db.all('SELECT shiftId FROM kitchen_shifts WHERE userId = $1 LIMIT 1', [userId]);
+    if (existing && existing.length) continue;
+
+    const ks = await db.get('SELECT * FROM kitchen_settings WHERE userId = $1 LIMIT 1', [userId]);
+    const requiredPerShift = Number(ks?.requiredpershift ?? ks?.requiredPerShift ?? 36);
+    const req1 = Number(ks?.requiredshift1 ?? ks?.requiredShift1 ?? requiredPerShift ?? 36);
+    const req2 = Number(ks?.requiredshift2 ?? ks?.requiredShift2 ?? requiredPerShift ?? 36);
+
+    const rawShift2 = clampHHmm(ks?.shift2start ?? ks?.shift2Start ?? '13:00', '13:00');
+    // clamp into 06:00..20:59 to avoid empty second shift
+    const min = 6 * 60;
+    const max = 20 * 60 + 59;
+    const s2 = Math.min(max, Math.max(min, hhmmToMinutes(rawShift2)));
+    const shift2Start = minutesToHHmm(s2);
+
+    // If split is invalid (shouldn't happen), fall back to single shift.
+    const makeTwo = (shift2Start !== '06:00' && shift2Start !== '21:00');
+
+    if (makeTwo) {
+      const id1 = uuidv4();
+      const id2 = uuidv4();
+      await db.run(
+        'INSERT INTO kitchen_shifts (shiftId, idx, startHHmm, endHHmm, required, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+        [id1, 0, '06:00', shift2Start, Math.max(0, req1), userId]
+      );
+      await db.run(
+        'INSERT INTO kitchen_shifts (shiftId, idx, startHHmm, endHHmm, required, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+        [id2, 1, shift2Start, '21:00', Math.max(0, req2), userId]
+      );
+      // Migrate current kitchen assignment shift IDs to the new opaque IDs.
+      await db.run(
+        "UPDATE kitchen_assignments SET shiftId = $1 WHERE userId = $2 AND shiftId = 'kitchen_1'",
+        [id1, userId]
+      );
+      await db.run(
+        "UPDATE kitchen_assignments SET shiftId = $1 WHERE userId = $2 AND shiftId = 'kitchen_2'",
+        [id2, userId]
+      );
+    } else {
+      const id = uuidv4();
+      await db.run(
+        'INSERT INTO kitchen_shifts (shiftId, idx, startHHmm, endHHmm, required, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+        [id, 0, '06:00', '21:00', Math.max(0, requiredPerShift ?? req1 ?? req2 ?? 36), userId]
+      );
+      // Any legacy kitchen_1/_2 assignments become invalid under single shift; drop them.
+      await db.run(
+        "DELETE FROM kitchen_assignments WHERE userId = $1 AND (shiftId = 'kitchen_1' OR shiftId = 'kitchen_2')",
+        [userId]
+      );
+    }
   }
 };
 
@@ -284,6 +445,7 @@ const runMigration = async () => {
     await createTables(db);
     await ensureBooleanColumns(db);
     await ensureKitchenEscortSettingsColumns(db);
+    await ensureKitchenShiftsColumns(db);
     await ensureUserIdColumn(db, 'people');
     await ensureUserIdColumn(db, 'posts');
     await ensureUserIdColumn(db, 'assignments');
@@ -291,11 +453,13 @@ const runMigration = async () => {
     await ensureUserIdColumn(db, 'es_assignments');
     await ensureUserIdColumn(db, 'constraints');
     await ensureUserIdColumn(db, 'kitchen_settings');
+    await ensureUserIdColumn(db, 'kitchen_shifts');
     await ensureUserIdColumn(db, 'kitchen_assignments');
     await ensureUserIdColumn(db, 'escort_settings');
     await ensureUserIdColumn(db, 'escort_assignments');
     const adminId = await seedAdmin(db);
     await attachRowsToAdmin(db, adminId);
+    await migrateKitchenSettingsToKitchenShifts(db);
     console.log('Migration applied.');
   } catch (err) {
     console.error('Migration failed', err);

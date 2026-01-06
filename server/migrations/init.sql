@@ -71,6 +71,20 @@ CREATE TABLE IF NOT EXISTS kitchen_settings (
   userId INTEGER REFERENCES users(id)
 );
 
+-- Dynamic kitchen shifts (replaces hardcoded 2-shift kitchen_settings columns).
+-- Shifts must form a contiguous 06:00–21:00 partition per user.
+CREATE TABLE IF NOT EXISTS kitchen_shifts (
+  id SERIAL PRIMARY KEY,
+  shiftId TEXT NOT NULL,
+  idx INTEGER NOT NULL,
+  startHHmm TEXT NOT NULL,
+  endHHmm TEXT NOT NULL,
+  required INTEGER NOT NULL DEFAULT 36,
+  userId INTEGER REFERENCES users(id),
+  UNIQUE(userId, shiftId),
+  UNIQUE(userId, idx)
+);
+
 CREATE TABLE IF NOT EXISTS kitchen_assignments (
   id SERIAL PRIMARY KEY,
   personId INTEGER NOT NULL,
@@ -90,6 +104,22 @@ CREATE TABLE IF NOT EXISTS escort_settings (
 );
 
 CREATE TABLE IF NOT EXISTS escort_assignments (
+  id SERIAL PRIMARY KEY,
+  personId INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  shiftId TEXT NOT NULL,
+  userId INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS rasar_assignments (
+  id SERIAL PRIMARY KEY,
+  personId INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  shiftId TEXT NOT NULL,
+  userId INTEGER REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS escort400_assignments (
   id SERIAL PRIMARY KEY,
   personId INTEGER NOT NULL,
   day TEXT NOT NULL,
