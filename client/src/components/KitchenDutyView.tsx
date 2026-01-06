@@ -323,11 +323,14 @@ const KitchenDutyView: React.FC<Props> = ({
 
   const daysWithAnyKitchen = useMemo(() => {
     const set = new Set<string>();
+    const daysSet = new Set(daysInRange);
     for (const day of daysInRange) {
       if (kitchenShifts.some(s => !!buildRange(day, s.start, s.end, scheduleStart, scheduleEnd))) set.add(day);
     }
-    // Include days from existing assignments (in case they exist and overlap)
-    for (const a of kitchenAssignments) set.add(a.day);
+    // Include days from existing assignments only if they're within the current day range
+    for (const a of kitchenAssignments) {
+      if (daysSet.has(a.day)) set.add(a.day);
+    }
     return Array.from(set).sort();
   }, [daysInRange, kitchenShifts, scheduleStart, scheduleEnd, kitchenAssignments]);
 
@@ -338,10 +341,14 @@ const KitchenDutyView: React.FC<Props> = ({
 
   const daysWithAnyEscort = useMemo(() => {
     const set = new Set<string>();
+    const daysSet = new Set(daysInRange);
     for (const day of daysInRange) {
       if (escortShifts.some(s => !!buildRange(day, s.start, s.end, scheduleStart, scheduleEnd))) set.add(day);
     }
-    for (const a of escortAssignments) set.add(a.day);
+    // Include days from existing assignments only if they're within the current day range
+    for (const a of escortAssignments) {
+      if (daysSet.has(a.day)) set.add(a.day);
+    }
     return Array.from(set).sort();
   }, [daysInRange, escortShifts, scheduleStart, scheduleEnd, escortAssignments]);
 

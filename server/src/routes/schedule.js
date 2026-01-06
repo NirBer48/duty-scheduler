@@ -601,18 +601,41 @@ const archiveAssignments = async (
   console.log('Assignments:', assignments.length, '-> filtered:', filteredAssignments.length);
   console.log('BW assignments:', bwAssignments.length, '-> filtered:', filteredBwAssignments.length);
 
-  // Clear existing archives for this schedule period
-  await db.run('DELETE FROM archived_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
-  await db.run('DELETE FROM archived_bw_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
-  await db.run('DELETE FROM archived_es_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
-  await db.run('DELETE FROM archived_kitchen_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
-  await db.run('DELETE FROM archived_kitchen_shifts WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
-  await db.run('DELETE FROM archived_kitchen_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
-  await db.run('DELETE FROM archived_escort_settings WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
-  await db.run('DELETE FROM archived_escort_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]);
-  // Optional tables (may not exist in older deployments)
-  try { await db.run('DELETE FROM archived_rasar_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]); } catch {}
-  try { await db.run('DELETE FROM archived_escort400_assignments WHERE schedule_start = $1 AND schedule_end = $2 AND userId = $3', [scheduleStart, scheduleEnd, userId]); } catch {}
+  // Collect all unique days from the filtered data we're about to insert
+  const assignmentDays = new Set(filteredAssignments.map(a => a.day));
+  const bwDays = new Set(filteredBwAssignments.map(b => b.day));
+  const kitchenDays = new Set((kitchenAssignments || []).map(k => k.day));
+  const escortDays = new Set((escortAssignments || []).map(e => e.day));
+  const rasarDays = new Set((rasarAssignments || []).map(r => r.day));
+  const escort400Days = new Set((escort400Assignments || []).map(a => a.day));
+  
+  // Clear existing archives for each day we're about to insert (prevents duplicates)
+  for (const day of assignmentDays) {
+    await db.run('DELETE FROM archived_assignments WHERE userId = $1 AND day = $2', [userId, day]);
+  }
+  for (const day of bwDays) {
+    await db.run('DELETE FROM archived_bw_assignments WHERE userId = $1 AND day = $2', [userId, day]);
+  }
+  // ES assignments don't have day column, clear by overlapping schedule range
+  await db.run('DELETE FROM archived_es_assignments WHERE userId = $1 AND schedule_start <= $2 AND schedule_end >= $3', [userId, scheduleEnd, scheduleStart]);
+  // Kitchen/escort settings - clear by schedule period overlap
+  await db.run('DELETE FROM archived_kitchen_settings WHERE userId = $1 AND schedule_start <= $2 AND schedule_end >= $3', [userId, scheduleEnd, scheduleStart]);
+  await db.run('DELETE FROM archived_kitchen_shifts WHERE userId = $1 AND schedule_start <= $2 AND schedule_end >= $3', [userId, scheduleEnd, scheduleStart]);
+  await db.run('DELETE FROM archived_escort_settings WHERE userId = $1 AND schedule_start <= $2 AND schedule_end >= $3', [userId, scheduleEnd, scheduleStart]);
+  // Kitchen/escort assignments - clear by day
+  for (const day of kitchenDays) {
+    await db.run('DELETE FROM archived_kitchen_assignments WHERE userId = $1 AND day = $2', [userId, day]);
+  }
+  for (const day of escortDays) {
+    await db.run('DELETE FROM archived_escort_assignments WHERE userId = $1 AND day = $2', [userId, day]);
+  }
+  // Optional tables (may not exist in older deployments) - clear by day
+  for (const day of rasarDays) {
+    try { await db.run('DELETE FROM archived_rasar_assignments WHERE userId = $1 AND day = $2', [userId, day]); } catch {}
+  }
+  for (const day of escort400Days) {
+    try { await db.run('DELETE FROM archived_escort400_assignments WHERE userId = $1 AND day = $2', [userId, day]); } catch {}
+  }
 
   // Insert new archives (filtered)
   for (const a of filteredAssignments) {
@@ -1200,6 +1223,57 @@ router.post('/generate-guards', async (req, res, next) => {
 
     await persistGuardsOnly(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id);
 
+    // Also archive guards so they appear in justice list
+    const scheduleStart = startISO.substring(0, 10);
+    const scheduleEnd = endISO.substring(0, 10);
+    
+    // Collect all unique days from the results to delete (ensures format matches exactly)
+    const assignmentDays = new Set((result.assignments || []).map(a => a.day));
+    const bwDays = new Set((result.bwAssignments || []).map(b => b.day));
+    const allDays = new Set([...assignmentDays, ...bwDays]);
+    
+    // Clear existing guard archives for each day we're about to insert (prevents duplicates)
+    for (const day of allDays) {
+      try {
+        await db.run('DELETE FROM archived_assignments WHERE userId = $1 AND day = $2', [req.user.id, day]);
+      } catch (e) { console.error('Error deleting archived_assignments for day', day, e); }
+      try {
+        await db.run('DELETE FROM archived_bw_assignments WHERE userId = $1 AND day = $2', [req.user.id, day]);
+      } catch (e) { console.error('Error deleting archived_bw_assignments for day', day, e); }
+    }
+    // For ES assignments (no day column), delete any that overlap with the schedule range
+    try {
+      await db.run('DELETE FROM archived_es_assignments WHERE userId = $1 AND schedule_start <= $2 AND schedule_end >= $3', [req.user.id, scheduleEnd, scheduleStart]);
+    } catch (e) { console.error('Error deleting archived_es_assignments', e); }
+    
+    // Insert new archives
+    for (const a of result.assignments || []) {
+      try {
+        await db.run(
+          'INSERT INTO archived_assignments (schedule_start, schedule_end, personId, postId, day, shiftLabel, startISO, endISO, userId) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+          [scheduleStart, scheduleEnd, a.personId, a.postId, a.day, a.shiftLabel, a.start || null, a.end || null, req.user.id]
+        );
+      } catch (e) { console.error('Error inserting archived_assignment', e); }
+    }
+    for (const b of result.bwAssignments || []) {
+      try {
+        await db.run(
+          'INSERT INTO archived_bw_assignments (schedule_start, schedule_end, personId, day, slotId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
+          [scheduleStart, scheduleEnd, b.personId, b.day, b.slotId, req.user.id]
+        );
+      } catch (e) { console.error('Error inserting archived_bw_assignment', e); }
+    }
+    for (const es of sanitizedEs || []) {
+      for (const personId of es.personIds || []) {
+        try {
+          await db.run(
+            'INSERT INTO archived_es_assignments (schedule_start, schedule_end, groupId, personId, userId) VALUES ($1, $2, $3, $4, $5)',
+            [scheduleStart, scheduleEnd, es.groupId, personId, req.user.id]
+          );
+        } catch (e) { console.error('Error inserting archived_es_assignment', e); }
+      }
+    }
+
     const [kitchenSnap, rasarSnap, escort400Snap] = await Promise.all([
       fetchKitchenEscortSnapshot(db, req.user.id),
       fetchRasarSnapshot(db, req.user.id),
@@ -1328,10 +1402,31 @@ router.post('/generate-kitchen', async (req, res, next) => {
 
     if (result.error) return respondError(res, result.error, result.missingCount ?? null);
 
+    // Merge new day's assignments with existing assignments from other days
+    const targetDay = kitchenDay || (effectiveKitchenStartISO ? effectiveKitchenStartISO.substring(0, 10) : null);
+    
+    // Keep kitchen assignments from other days, add new ones for target day
+    const otherDaysKitchen = targetDay
+      ? sanitizedKitchen.filter(a => a.day !== targetDay)
+      : [];
+    const mergedKitchenAssignments = [
+      ...otherDaysKitchen,
+      ...(result.kitchenAssignments || []),
+    ];
+
+    // Keep escort assignments from other days, add new ones for target day
+    const otherDaysEscort = targetDay
+      ? sanitizedEscort.filter(a => a.day !== targetDay)
+      : [];
+    const mergedEscortAssignments = [
+      ...otherDaysEscort,
+      ...(result.escortAssignments || []),
+    ];
+
     await persistKitchenOnly(
       db,
-      result.kitchenAssignments || [],
-      result.escortAssignments || [],
+      mergedKitchenAssignments,
+      mergedEscortAssignments,
       result.kitchenSettings || kitchenSettings,
       result.escortSettings || escortSettings,
       req.user.id
@@ -1345,8 +1440,8 @@ router.post('/generate-kitchen', async (req, res, next) => {
     res.json({
       ...guardsSnap,
       esAssignments: guardsSnap.esAssignments, // keep server truth
-      kitchenAssignments: result.kitchenAssignments || [],
-      escortAssignments: result.escortAssignments || [],
+      kitchenAssignments: mergedKitchenAssignments,
+      escortAssignments: mergedEscortAssignments,
       ...rasarSnap,
       ...escort400Snap,
       kitchenSettings: result.kitchenSettings || normalizedKitchenSettings || { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
@@ -2111,21 +2206,110 @@ router.delete('/clear', async (req, res, next) => {
   try {
     const db = getDb(req);
     const mode = (req.query?.mode || 'all').toString();
+    const userId = req.user.id;
+    // Extract date range (YYYY-MM-DD or full ISO)
+    const startRaw = (req.query?.start || '').toString();
+    const endRaw = (req.query?.end || '').toString();
+    const scheduleStart = startRaw ? startRaw.substring(0, 10) : null;
+    const scheduleEnd = endRaw ? endRaw.substring(0, 10) : null;
+    const hasRange = !!(scheduleStart && scheduleEnd);
+
+    // Helper to build delete query - if range provided, only delete within that range
+    const deleteArchived = (table) => {
+      if (hasRange) {
+        return db.run(
+          `DELETE FROM ${table} WHERE userId = $1 AND schedule_start >= $2 AND schedule_end <= $3`,
+          [userId, scheduleStart, scheduleEnd]
+        ).catch(() => {});
+      }
+      return db.run(`DELETE FROM ${table} WHERE userId = $1`, [userId]).catch(() => {});
+    };
+
     if (mode === 'guards') {
-      await Promise.all([clearAssignments(db, req.user.id), clearBwAssignments(db, req.user.id), clearEsAssignments(db, req.user.id)]);
+      // For guards, only clear assignments for the specific day(s) if range provided
+      if (hasRange) {
+        await Promise.all([
+          db.run('DELETE FROM assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]),
+          db.run('DELETE FROM bw_assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]),
+          clearEsAssignments(db, userId), // ES doesn't have day column
+          // Also clear archived data for this day range (use 'day' column)
+          db.run('DELETE FROM archived_assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]).catch(() => {}),
+          db.run('DELETE FROM archived_bw_assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]).catch(() => {}),
+          deleteArchived('archived_es_assignments'), // ES doesn't have day column
+        ]);
+      } else {
+        await Promise.all([
+          clearAssignments(db, userId),
+          clearBwAssignments(db, userId),
+          clearEsAssignments(db, userId),
+          // Also clear all archived data
+          deleteArchived('archived_assignments'),
+          deleteArchived('archived_bw_assignments'),
+          deleteArchived('archived_es_assignments'),
+        ]);
+      }
     } else if (mode === 'kitchen') {
-      await Promise.all([clearKitchenAssignments(db, req.user.id), clearEscortAssignments(db, req.user.id)]);
+      // For kitchen, only clear assignments for the specific day(s) if range provided
+      if (hasRange) {
+        await Promise.all([
+          db.run('DELETE FROM kitchen_assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]),
+          db.run('DELETE FROM escort_assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]),
+          // Also clear archived data for this day range (use 'day' column, not schedule_start/end)
+          db.run('DELETE FROM archived_kitchen_assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]).catch(() => {}),
+          db.run('DELETE FROM archived_escort_assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]).catch(() => {}),
+        ]);
+      } else {
+        await Promise.all([
+          clearKitchenAssignments(db, userId),
+          clearEscortAssignments(db, userId),
+          // Also clear all archived data
+          deleteArchived('archived_kitchen_assignments'),
+          deleteArchived('archived_escort_assignments'),
+          deleteArchived('archived_kitchen_settings'),
+          deleteArchived('archived_kitchen_shifts'),
+          deleteArchived('archived_escort_settings'),
+        ]);
+      }
     } else if (mode === 'rasar') {
-      await Promise.all([clearRasarAssignments(db, req.user.id), clearEscort400Assignments(db, req.user.id)]);
+      // For rasar, only clear assignments for the specific day(s) if range provided
+      if (hasRange) {
+        await Promise.all([
+          db.run('DELETE FROM rasar_assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]),
+          db.run('DELETE FROM escort400_assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]),
+          // Also clear archived data for this day range (use 'day' column, not schedule_start/end)
+          db.run('DELETE FROM archived_rasar_assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]).catch(() => {}),
+          db.run('DELETE FROM archived_escort400_assignments WHERE userId = $1 AND day >= $2 AND day <= $3', [userId, scheduleStart, scheduleEnd]).catch(() => {}),
+        ]);
+      } else {
+        await Promise.all([
+          clearRasarAssignments(db, userId),
+          clearEscort400Assignments(db, userId),
+          // Also clear all archived data
+          deleteArchived('archived_rasar_assignments'),
+          deleteArchived('archived_escort400_assignments'),
+        ]);
+      }
     } else {
+      // Clear all current + archived (within range if provided)
       await Promise.all([
-        clearAssignments(db, req.user.id),
-        clearBwAssignments(db, req.user.id),
-        clearEsAssignments(db, req.user.id),
-        clearKitchenAssignments(db, req.user.id),
-        clearEscortAssignments(db, req.user.id),
-        clearRasarAssignments(db, req.user.id),
-        clearEscort400Assignments(db, req.user.id),
+        clearAssignments(db, userId),
+        clearBwAssignments(db, userId),
+        clearEsAssignments(db, userId),
+        clearKitchenAssignments(db, userId),
+        clearEscortAssignments(db, userId),
+        clearRasarAssignments(db, userId),
+        clearEscort400Assignments(db, userId),
+        // Clear archives (within range if provided)
+        deleteArchived('archived_assignments'),
+        deleteArchived('archived_bw_assignments'),
+        deleteArchived('archived_es_assignments'),
+        deleteArchived('archived_kitchen_assignments'),
+        deleteArchived('archived_escort_assignments'),
+        deleteArchived('archived_kitchen_settings'),
+        deleteArchived('archived_kitchen_shifts'),
+        deleteArchived('archived_escort_settings'),
+        deleteArchived('archived_rasar_assignments'),
+        deleteArchived('archived_escort400_assignments'),
       ]);
     }
     res.json({ ok: true });
