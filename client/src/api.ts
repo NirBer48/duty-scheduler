@@ -89,6 +89,18 @@ type ScheduleSnapshot = {
   escortSettings?: EscortSettings;
 };
 
+export type JusticeRow = {
+  personId: number;
+  name: string;
+  guardsHours: number;
+  bwHours: number;
+  kitchenHours: number;
+  escortHours: number;
+  rasarHours: number;
+  escort400Hours: number;
+  totalHours: number;
+};
+
 export const register = (email: string, password: string) =>
   request<{ id: number; email: string }>('/auth/register', {
     method: 'POST',
@@ -329,3 +341,13 @@ export const saveAllSchedules = (
       end,
     }),
   });
+
+export const fetchJustice = (params: { mode: 'all' | 'range'; startISO?: string; endISO?: string }) => {
+  const qs = new URLSearchParams();
+  qs.set('mode', params.mode);
+  if (params.mode === 'range') {
+    if (params.startISO) qs.set('startISO', params.startISO);
+    if (params.endISO) qs.set('endISO', params.endISO);
+  }
+  return request<{ rows: JusticeRow[] }>(`/schedule/justice?${qs.toString()}`);
+};
