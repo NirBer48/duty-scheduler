@@ -699,12 +699,16 @@ export const scheduleGenerator = (
     return true;
   };
 
-  const canPair = (p1, p2, shiftLabel) => {
-    if (!NIGHT_SHIFT_LABELS.has(shiftLabel)) return true;
-    if (p1.sameGenderPref || p2.sameGenderPref) {
-      return p1.gender === p2.gender;
-    }
-    return true;
+  const violatesSameGenderPreference = (assignedPeople = [], candidate) => {
+    // "Same gender only" applies to ALL shifts (day + night + partial).
+    const all = [...(assignedPeople || []), candidate].filter(Boolean);
+    const pref = all.filter(p => p?.sameGenderPref);
+    if (pref.length === 0) return false;
+
+    // If anyone in the group has the preference, everyone must share the same gender.
+    const requiredGender = pref[0]?.gender;
+    if (!requiredGender) return false;
+    return all.some(p => p?.gender && p.gender !== requiredGender);
   };
 
   const tryAssignToSlot = (candidate, slot) => {
@@ -715,14 +719,16 @@ export const scheduleGenerator = (
     const existingInSlot = existingBySlot.get(slotKey) || [];
     if (existingInSlot.includes(candidate.id)) return false;
     
-    // Check same-gender pairing if needed
-    const assignedToThisPost = assignments.filter(a => 
+    // Check same-gender preference (applies to all shifts)
+    const assignedToThisPost = assignments.filter(a =>
       a.postId === slot.postId && a.day === slot.day && a.shiftLabel === slot.shiftLabel
     );
-    
+
     if (assignedToThisPost.length > 0) {
-      const firstPerson = people.find(p => p.id === assignedToThisPost[0].personId);
-      if (firstPerson && !canPair(firstPerson, candidate, slot.shiftLabel)) return false;
+      const assignedPeople = assignedToThisPost
+        .map(a => people.find(p => p.id === a.personId))
+        .filter(Boolean);
+      if (violatesSameGenderPreference(assignedPeople, candidate)) return false;
     }
 
     // Duel guard: cannot be alone in the post slot
@@ -860,22 +866,15 @@ export const scheduleGenerator = (
         }
       }
 
-      // Check same-gender preference for night shifts
+      // Check same-gender preference for ALL shifts
       if (personIds.length > 1) {
-        const shiftLabel = slotKey.split('|')[2];
-        if (NIGHT_SHIFT_LABELS.has(shiftLabel)) {
-          const assignedPeople = personIds.map(pid => people.find(p => p.id === pid)).filter(Boolean);
-          for (let i = 0; i < assignedPeople.length; i++) {
-            const person = assignedPeople[i];
-            if (person.sameGenderPref) {
-              for (let j = 0; j < assignedPeople.length; j++) {
-                if (i !== j && assignedPeople[j].gender !== person.gender) {
-                  // Same-gender preference violated - need 1 replacement
-                  genderPrefViolations += 1;
-                  break;
-                }
-              }
-            }
+        const assignedPeople = personIds.map(pid => people.find(p => p.id === pid)).filter(Boolean);
+        // If anyone has preference but the group is mixed-gender -> violation.
+        const prefPeople = assignedPeople.filter(p => p?.sameGenderPref);
+        if (prefPeople.length > 0) {
+          const requiredGender = prefPeople[0]?.gender;
+          if (requiredGender && assignedPeople.some(p => p?.gender && p.gender !== requiredGender)) {
+            genderPrefViolations += 1;
           }
         }
       }

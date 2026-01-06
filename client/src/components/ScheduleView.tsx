@@ -518,9 +518,8 @@ const ScheduleCalendar: React.FC<Props> = ({
             }
         }
 
-        // Check same gender pairing (night shifts only)
+        // Check same gender pairing (ALL shifts)
         for (const shift of shifts) {
-            if (!isNightShift(shift.label)) continue;
             for (const post of posts) {
                 const assignedIds = getPersonIds(localAssignments, shift.label, shift.day, post.id);
                 if (assignedIds.length > 1) {
