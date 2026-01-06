@@ -313,9 +313,29 @@ const App: React.FC = () => {
       setError(res.error || '');
       setMissingCount(res.missingCount ?? null);
       await Promise.all([refreshPeople(), refreshPosts()]);
-    } catch (e) {
-      setError(t('Save failed'));
-      setMissingCount(null);
+    } catch (e: any) {
+      // If server responded with structured error payload (even on non-2xx), preserve it.
+      const errMsg = (e?.message || '').toString();
+      const errData = e?.data;
+      const missing = Number(errData?.missingCount ?? 0) || 0;
+      const errKey = (errData?.error || errMsg || '').toString();
+
+      // Session expired / not logged in anymore -> bounce back to auth UI.
+      if (e?.status === 401 || errKey.toLowerCase().includes('unauthorized')) {
+        setUser(null);
+        setAuthMode('login');
+        setAuthError(t('Invalid credentials'));
+        return;
+      }
+
+      if (errKey === 'not enough manpower' && missing > 0) {
+        setManpowerShortage(missing);
+        setManpowerDialogOpen(true);
+        return;
+      }
+
+      setError(errKey ? t(errKey) : t('Save failed'));
+      setMissingCount(missing > 0 ? missing : null);
     } finally {
       setIsGenerating(false);
     }
