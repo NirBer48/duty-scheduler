@@ -12,6 +12,8 @@ import {
     Constraint,
     KitchenAssignment,
     EscortAssignment,
+    RasarAssignment,
+    Escort400Assignment,
     KitchenSettings,
     EscortSettings,
 } from "../types";
@@ -61,6 +63,8 @@ interface Props {
     onBWAssignmentsChange?: (assignments: BWAssignment[]) => void;
     kitchenAssignments?: KitchenAssignment[];
     escortAssignments?: EscortAssignment[];
+    rasarAssignments?: RasarAssignment[];
+    escort400Assignments?: Escort400Assignment[];
     kitchenSettings?: KitchenSettings;
     escortSettings?: EscortSettings;
     constraints?: Constraint[];
@@ -84,6 +88,8 @@ const ScheduleCalendar: React.FC<Props> = ({
     onBWAssignmentsChange,
     kitchenAssignments: externalKitchenAssignments = [],
     escortAssignments: externalEscortAssignments = [],
+    rasarAssignments: externalRasarAssignments = [],
+    escort400Assignments: externalEscort400Assignments = [],
     kitchenSettings = { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
     escortSettings = {
         requiredShift1: 4,
@@ -1037,8 +1043,8 @@ const ScheduleCalendar: React.FC<Props> = ({
                     rangeEndISO={end}
                     kitchenAssignments={externalKitchenAssignments}
                     escortAssignments={externalEscortAssignments}
-                    rasarAssignments={[]}
-                    escort400Assignments={[]}
+                    rasarAssignments={externalRasarAssignments}
+                    escort400Assignments={externalEscort400Assignments}
                 />
             )}
 
@@ -1070,8 +1076,8 @@ const ScheduleCalendar: React.FC<Props> = ({
                     bwAssignments={bwAssignments}
                     kitchenAssignments={externalKitchenAssignments}
                     escortAssignments={externalEscortAssignments}
-                    rasarAssignments={[]}
-                    escort400Assignments={[]}
+                    rasarAssignments={externalRasarAssignments}
+                    escort400Assignments={externalEscort400Assignments}
                 />
             )}
 

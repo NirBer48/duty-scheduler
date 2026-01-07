@@ -337,7 +337,7 @@ const dutyHoursFromArchived = async (db, userId, rangeStartISO = null, rangeEndI
   return rows;
 };
 
-const respondError = (res, message = 'not enough manpower', missingCount = null) =>
+const respondError = (res, message = 'not enough manpower', missingCount = null, violations = null) =>
   res.json({
     assignments: [],
     bwAssignments: [],
@@ -350,6 +350,7 @@ const respondError = (res, message = 'not enough manpower', missingCount = null)
     escortSettings: { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
     error: message,
     missingCount,
+    violations: violations || [],
   });
 
 const pad2 = n => String(n).padStart(2, '0');
@@ -1074,10 +1075,16 @@ router.post('/generate-guards', async (req, res, next) => {
     if ((sanitizedRasar?.length || 0) === 0) {
       const rows = await db.all('SELECT personId, day, shiftId FROM rasar_assignments WHERE userId = $1', [req.user.id]);
       sanitizedRasar = sanitizeRasar(rows.map(r => ({ personId: Number(r.personid), day: r.day, shiftId: r.shiftid })));
+      console.log('[generate-guards] Loaded rasar from DB:', sanitizedRasar.length, 'assignments');
+    } else {
+      console.log('[generate-guards] Using client rasar:', sanitizedRasar.length, 'assignments');
     }
     if ((sanitizedEscort400?.length || 0) === 0) {
       const rows = await db.all('SELECT personId, day, shiftId FROM escort400_assignments WHERE userId = $1', [req.user.id]);
       sanitizedEscort400 = sanitizeEscort400(rows.map(r => ({ personId: Number(r.personid), day: r.day, shiftId: r.shiftid })));
+      console.log('[generate-guards] Loaded escort400 from DB:', sanitizedEscort400.length, 'assignments');
+    } else {
+      console.log('[generate-guards] Using client escort400:', sanitizedEscort400.length, 'assignments');
     }
 
     const shuffledPeople = shuffle(peopleRows).map(mapPerson);
@@ -1124,11 +1131,11 @@ router.post('/generate-guards', async (req, res, next) => {
       return { start: start.toISOString(), end: end.toISOString() };
     };
 
-    const intervalsByPerson = new Map(); // pid -> [{start,end}]
-    const addInterval = (pid, range) => {
+    const intervalsByPerson = new Map(); // pid -> [{start,end,type}]
+    const addInterval = (pid, range, type) => {
       if (!range) return;
       const arr = intervalsByPerson.get(pid) || [];
-      arr.push(range);
+      arr.push({ ...range, type });
       intervalsByPerson.set(pid, arr);
     };
 
@@ -1146,7 +1153,7 @@ router.post('/generate-guards', async (req, res, next) => {
       if (!end.isAfter(start)) end = end.add(1, 'day');
       return { start: start.toISOString(), end: end.toISOString() };
     };
-    for (const bw of sanitizedBw || []) addInterval(Number(bw.personId), bw.start && bw.end ? { start: bw.start, end: bw.end } : buildBwRange(bw.day, bw.slotId));
+    for (const bw of sanitizedBw || []) addInterval(Number(bw.personId), bw.start && bw.end ? { start: bw.start, end: bw.end } : buildBwRange(bw.day, bw.slotId), 'BW');
 
     // Kitchen
     const kitchenShiftById = new Map((normalizedKitchenSettings.shifts || []).map(s => [s.id, s]));
@@ -1156,7 +1163,7 @@ router.post('/generate-guards', async (req, res, next) => {
       addInterval(Number(k.personId), {
         start: dayjs(`${k.day}T${def.start}:00`).toISOString(),
         end: dayjs(`${k.day}T${def.end}:00`).toISOString(),
-      });
+      }, 'Kitchen');
     }
 
     // Escort
@@ -1172,7 +1179,7 @@ router.post('/generate-guards', async (req, res, next) => {
       addInterval(Number(e.personId), {
         start: dayjs(`${e.day}T${def.start}:00`).toISOString(),
         end: dayjs(`${e.day}T${def.end}:00`).toISOString(),
-      });
+      }, 'Escort');
     }
 
     // Rasar
@@ -1187,7 +1194,7 @@ router.post('/generate-guards', async (req, res, next) => {
       addInterval(Number(r.personId), {
         start: dayjs(`${r.day}T${def.start}:00`).toISOString(),
         end: dayjs(`${r.day}T${def.end}:00`).toISOString(),
-      });
+      }, 'Rasar');
     }
 
     // Escort400
@@ -1201,7 +1208,7 @@ router.post('/generate-guards', async (req, res, next) => {
       addInterval(Number(e400.personId), {
         start: dayjs(`${e400.day}T${def.start}:00`).toISOString(),
         end: dayjs(`${e400.day}T${def.end}:00`).toISOString(),
-      });
+      }, 'Escort400');
     }
 
     const overlapViolations = [];
@@ -1212,13 +1219,17 @@ router.post('/generate-guards', async (req, res, next) => {
       const others = intervalsByPerson.get(pid) || [];
       for (const o of others) {
         if (overlapsIso(range.start, range.end, o.start, o.end)) {
-          overlapViolations.push(pid);
+          const personName = peopleRows.find(p => p.id === pid)?.name || String(pid);
+          console.log(`[generate-guards] Overlap detected: person ${personName} (${pid}) guard ${a.day} ${a.shiftLabel} overlaps with ${o.type || 'other duty'}`);
+          overlapViolations.push({ personId: pid, personName, day: a.day, shiftLabel: a.shiftLabel, conflictType: o.type });
           break;
         }
       }
     }
     if (overlapViolations.length) {
-      return respondError(res, 'not enough manpower', 1);
+      const names = [...new Set(overlapViolations.map(v => v.personName))].join(', ');
+      console.log('[generate-guards] Overlap violations:', overlapViolations);
+      return respondError(res, `Guard schedule conflicts with existing duties for: ${names}`, overlapViolations.length, overlapViolations);
     }
 
     await persistGuardsOnly(db, result.assignments, result.bwAssignments, sanitizedEs, req.user.id);

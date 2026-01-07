@@ -1016,7 +1016,7 @@ export const scheduleGenerator = (
         const candidates = [...people]
           .filter(person => !assignedSet.has(person.id))
           .filter(person => !violatesConstraint(person.id, start, end))
-          .filter(person => !overlapsWithShift(person.id, start, end))
+          .filter(person => !overlapsWithAnyDuty(person.id, start, end))  // includes rasar/escort400
           .sort((a, b) => {
             const workA =
               shiftCountByPerson[a.id] +
