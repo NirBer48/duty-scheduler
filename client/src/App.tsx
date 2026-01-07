@@ -717,6 +717,8 @@ const App: React.FC = () => {
                       onBWAssignmentsChange={setBWAssignments}
                       kitchenAssignments={kitchenAssignments}
                       escortAssignments={escortAssignments}
+                      rasarAssignments={rasarAssignments}
+                      escort400Assignments={escort400Assignments}
                       kitchenSettings={kitchenSettings}
                       escortSettings={escortSettings}
                       constraints={constraints}

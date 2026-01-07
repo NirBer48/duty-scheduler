@@ -112,6 +112,28 @@ export const ESEditDialog: React.FC<Props> = ({
         return map;
     }, [constraints]);
 
+    // Check which people have rasar assignments (ES members shouldn't have rasar)
+    const rasarByPerson = useMemo(() => {
+        const map = new Map<number, RasarAssignment[]>();
+        rasarAssignments.forEach(r => {
+            const arr = map.get(r.personId) || [];
+            arr.push(r);
+            map.set(r.personId, arr);
+        });
+        return map;
+    }, [rasarAssignments]);
+
+    // Check which people have escort400 assignments (ES members shouldn't have escort400)
+    const escort400ByPerson = useMemo(() => {
+        const map = new Map<number, Escort400Assignment[]>();
+        escort400Assignments.forEach(e => {
+            const arr = map.get(e.personId) || [];
+            arr.push(e);
+            map.set(e.personId, arr);
+        });
+        return map;
+    }, [escort400Assignments]);
+
     const dutyCountsByPerson = useMemo(
         () =>
             buildDutyCountsByPerson({
@@ -211,6 +233,10 @@ export const ESEditDialog: React.FC<Props> = ({
                         const isSelected = selected.includes(person.id);
                         const isDisabled = !isSelected && selected.length >= totalPeople;
                         const personConstraints = constraintsByPerson.get(person.id) || [];
+                        const personRasar = rasarByPerson.get(person.id) || [];
+                        const personEscort400 = escort400ByPerson.get(person.id) || [];
+                        const hasRasarConflict = personRasar.length > 0;
+                        const hasEscort400Conflict = personEscort400.length > 0;
 
                         return (
                             <Box key={person.id}>
@@ -224,7 +250,10 @@ export const ESEditDialog: React.FC<Props> = ({
                                     }
                                     label={
                                         <Tooltip title={tooltipForPerson(person)} placement="top" arrow>
-                                            <span>{person.name} ({person.gender})</span>
+                                            <span style={{ color: (hasRasarConflict || hasEscort400Conflict) ? '#ed6c02' : undefined }}>
+                                                {person.name} ({person.gender})
+                                                {(hasRasarConflict || hasEscort400Conflict) && ' ⚠️'}
+                                            </span>
                                         </Tooltip>
                                     }
                                     sx={{ opacity: isDisabled ? 0.5 : 1 }}
@@ -234,6 +263,16 @@ export const ESEditDialog: React.FC<Props> = ({
                                         ⚠️ {t('Constraint conflict')}: {c.title}
                                     </Typography>
                                 ))}
+                                {hasRasarConflict && (
+                                    <Typography variant="caption" color="warning.main" sx={{ display: 'block', ml: 4 }}>
+                                        ⚠️ {t('Has rasar duty')} ({personRasar.length})
+                                    </Typography>
+                                )}
+                                {hasEscort400Conflict && (
+                                    <Typography variant="caption" color="warning.main" sx={{ display: 'block', ml: 4 }}>
+                                        ⚠️ {t('Has escort 400 duty')} ({personEscort400.length})
+                                    </Typography>
+                                )}
                             </Box>
                         );
                     })}
