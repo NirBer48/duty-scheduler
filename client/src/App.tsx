@@ -14,6 +14,7 @@ import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
 import TextField from '@mui/material/TextField';
 import Stack from '@mui/material/Stack';
+import Avatar from '@mui/material/Avatar';
 import { useI18n } from './util/i18n';
 import type {
   Post,
@@ -183,7 +184,7 @@ const App: React.FC = () => {
     setPosts(data);
     return data;
   });
-  const refreshConstraints = () => fetchConstraints().then(setConstraints).catch(() => {});
+  const refreshConstraints = () => fetchConstraints().then(setConstraints).catch(() => { });
 
   useEffect(() => {
     fetchMe()
@@ -208,10 +209,10 @@ const App: React.FC = () => {
 
   // Persist selected tabs across refresh.
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY_MAIN_TAB, JSON.stringify(mainTab)); } catch {}
+    try { localStorage.setItem(STORAGE_KEY_MAIN_TAB, JSON.stringify(mainTab)); } catch { }
   }, [mainTab]);
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY_ASSIGNMENTS_TAB, JSON.stringify(assignmentsTab)); } catch {}
+    try { localStorage.setItem(STORAGE_KEY_ASSIGNMENTS_TAB, JSON.stringify(assignmentsTab)); } catch { }
   }, [assignmentsTab]);
 
   useEffect(() => {
@@ -336,7 +337,7 @@ const App: React.FC = () => {
       // Get date range from start/end
       const startDay = start.substring(0, 10);
       const endDay = end.substring(0, 10);
-      
+
       // Only clear local assignments within the date range
       setAssignments(prev => prev.filter(a => {
         const day = a.day || (a.start ? a.start.substring(0, 10) : '');
@@ -539,13 +540,24 @@ const App: React.FC = () => {
     <Box sx={{ minHeight: '100vh', bgcolor: '#f3f4f6' }}>
       <AppBar position="static">
         <Toolbar sx={{ gap: 2 }}>
-          <Typography
+          <Avatar
+            src="/logo.png"
+            alt="MyTurn Logo"
+            sx={{
+              width: 75,
+              height: 75,
+              m: 1,
+              border: '2px solid white',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            }}
+          />
+          {/* <Typography
             variant="h6"
             noWrap
             sx={{ display: 'flex', alignItems: 'center' }}
           >
             {t('MyTurn')}
-          </Typography>
+          </Typography> */}
 
           {user && (
             <Tabs
@@ -564,6 +576,7 @@ const App: React.FC = () => {
                   color: 'rgba(255,255,255,0.9)',
                   textTransform: 'none',
                   fontWeight: 600,
+                  fontSize: '1.5rem',
                 },
                 '& .Mui-selected': { color: '#fff' },
               }}
@@ -636,7 +649,13 @@ const App: React.FC = () => {
         <Container maxWidth={false} sx={{ mt: 2, px: 3 }}>
           {mainTab === 0 && (
             <>
-              <Tabs value={assignmentsTab} onChange={(_, v) => setAssignmentsTab(v)} sx={{ mb: 2 }}>
+              <Tabs value={assignmentsTab} onChange={(_, v) => setAssignmentsTab(v)} sx={{
+                '& .MuiTab-root': {
+                  fontWeight: 'bold',
+                  fontSize: '1.2rem',
+                },
+                mb: 2
+              }}>
                 <Tab label={t('Guards')} />
                 <Tab label={t('Kitchen')} />
                 <Tab label={t('Rasar')} />
@@ -651,140 +670,140 @@ const App: React.FC = () => {
 
                 <Box sx={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                   {assignmentsTab === 0 && (
-                <>
-                  <Paper sx={{ p: 2, mb: 2 }}>
-                    <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
-                      <TextField
-                        type="datetime-local"
-                        label={t('Start')}
-                        value={start}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStart(e.target.value)}
-                        InputLabelProps={{ shrink: true }}
-                        inputProps={{ step: 14400 }}
-                        size="small"
-                      />
-                      <TextField
-                        type="datetime-local"
-                        label={t('End')}
-                        value={end}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnd(e.target.value)}
-                        InputLabelProps={{ shrink: true }}
-                        inputProps={{ step: 14400 }}
-                        size="small"
-                      />
+                    <>
+                      <Paper sx={{ p: 2, mb: 2 }}>
+                        <Typography variant="h6" gutterBottom>{t('Scheduler')}</Typography>
+                        <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
+                          <TextField
+                            type="datetime-local"
+                            label={t('Start')}
+                            value={start}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStart(e.target.value)}
+                            InputLabelProps={{ shrink: true }}
+                            inputProps={{ step: 14400 }}
+                            size="small"
+                          />
+                          <TextField
+                            type="datetime-local"
+                            label={t('End')}
+                            value={end}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEnd(e.target.value)}
+                            InputLabelProps={{ shrink: true }}
+                            inputProps={{ step: 14400 }}
+                            size="small"
+                          />
 
-                      <Button
-                        onClick={handleScheduleGuards}
-                        variant="contained"
-                        disabled={isGenerating}
+                          <Button
+                            onClick={handleScheduleGuards}
+                            variant="contained"
+                            disabled={isGenerating}
 
-                      >
-                        {isGenerating ? t('Assigning') : t('Generate')}
-                      </Button>
-                      <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating} sx={{ mr: "8px" }}>
-                        {t('Clear')}
-                      </Button>
-                      <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
-                        {t('Add Constraint')}
-                      </Button>
-                    </Stack>
-                    {error && (
-                      <Typography color="error" sx={{ mt: 2 }}>
-                        {missingCount != null && missingCount > 0
-                          ? t('Missing about X people to complete the task').replace('{count}', String(missingCount))
-                          : t(error)
-                        }
-                      </Typography>
-                    )}
-                  </Paper>
-                  <Paper sx={{ p: 2, overflow: 'auto' }}>
-                    <ScheduleCalendar
-                      assignments={assignments}
-                      posts={posts}
-                      people={people}
-                      start={start}
-                      end={end}
-                      isGenerating={isGenerating}
-                      onAssignmentsChange={setAssignments}
-                      shiftOverrides={shiftOverrides}
-                      onShiftOverridesChange={setShiftOverrides}
-                      esAssignments={esAssignments}
-                      onESAssignmentsChange={setESAssignments}
-                      esGroups={esGroups}
-                      onESGroupsChange={setESGroups}
-                      bwAssignments={bwAssignments}
-                      onBWAssignmentsChange={setBWAssignments}
-                      kitchenAssignments={kitchenAssignments}
-                      escortAssignments={escortAssignments}
-                      rasarAssignments={rasarAssignments}
-                      escort400Assignments={escort400Assignments}
-                      kitchenSettings={kitchenSettings}
-                      escortSettings={escortSettings}
-                      constraints={constraints}
-                    />
-                  </Paper>
-                </>
-              )}
+                          >
+                            {isGenerating ? t('Assigning') : t('Generate')}
+                          </Button>
+                          <Button onClick={handleClearGuards} variant="outlined" color="error" disabled={isGenerating} sx={{ mr: "8px" }}>
+                            {t('Clear')}
+                          </Button>
+                          <Button onClick={() => setConstraintDialogOpen(true)} variant="outlined">
+                            {t('Add Constraint')}
+                          </Button>
+                        </Stack>
+                        {error && (
+                          <Typography color="error" sx={{ mt: 2 }}>
+                            {missingCount != null && missingCount > 0
+                              ? t('Missing about X people to complete the task').replace('{count}', String(missingCount))
+                              : t(error)
+                            }
+                          </Typography>
+                        )}
+                      </Paper>
+                      <Paper sx={{ p: 2, overflow: 'auto' }}>
+                        <ScheduleCalendar
+                          assignments={assignments}
+                          posts={posts}
+                          people={people}
+                          start={start}
+                          end={end}
+                          isGenerating={isGenerating}
+                          onAssignmentsChange={setAssignments}
+                          shiftOverrides={shiftOverrides}
+                          onShiftOverridesChange={setShiftOverrides}
+                          esAssignments={esAssignments}
+                          onESAssignmentsChange={setESAssignments}
+                          esGroups={esGroups}
+                          onESGroupsChange={setESGroups}
+                          bwAssignments={bwAssignments}
+                          onBWAssignmentsChange={setBWAssignments}
+                          kitchenAssignments={kitchenAssignments}
+                          escortAssignments={escortAssignments}
+                          rasarAssignments={rasarAssignments}
+                          escort400Assignments={escort400Assignments}
+                          kitchenSettings={kitchenSettings}
+                          escortSettings={escortSettings}
+                          constraints={constraints}
+                        />
+                      </Paper>
+                    </>
+                  )}
                   {assignmentsTab === 1 && (
-                <Paper sx={{ p: 2, overflow: 'auto' }}>
-                  <KitchenDutyView
-                    people={people}
-                    kitchenDay={kitchenDay}
-                    onKitchenDayChange={setKitchenDay}
-                    archiveStart={start}
-                    archiveEnd={end}
-                    assignments={assignments}
-                    bwAssignments={bwAssignments}
-                    esAssignments={esAssignments}
-                    kitchenAssignments={kitchenAssignments}
-                    onKitchenAssignmentsChange={setKitchenAssignments}
-                    escortAssignments={escortAssignments}
-                    onEscortAssignmentsChange={setEscortAssignments}
-                    kitchenSettings={kitchenSettings}
-                    onKitchenSettingsChange={setKitchenSettings}
-                    escortSettings={escortSettings}
-                    onEscortSettingsChange={setEscortSettings}
-                    constraints={constraints}
-                    onGenerate={handleGenerateKitchen}
-                    onClear={handleClearKitchen}
-                    onAddConstraint={() => setConstraintDialogOpen(true)}
-                    isGenerating={isGenerating}
-                  />
-                </Paper>
-              )}
-              {assignmentsTab === 2 && (
-                <Paper sx={{ p: 2, overflow: 'auto' }}>
-                  <RasarDutyView
-                    people={people}
-                    guardAssignments={assignments}
-                    bwAssignments={bwAssignments}
-                    kitchenAssignments={kitchenAssignments}
-                    escortAssignments={escortAssignments}
-                    esAssignments={esAssignments}
-                    kitchenSettings={kitchenSettings}
-                    rasarAssignments={rasarAssignments}
-                    onRasarAssignmentsChange={(a) => { setRasarAssignments(a); setRasarHasChanges(true); }}
-                    rasarOverrides={rasarOverrides}
-                    onRasarOverridesChange={(o) => { setRasarOverrides(o); setRasarHasChanges(true); }}
-                    escort400Assignments={escort400Assignments}
-                    onEscort400AssignmentsChange={(a) => { setEscort400Assignments(a); setRasarHasChanges(true); }}
-                    escort400Overrides={escort400Overrides}
-                    onEscort400OverridesChange={(o) => { setEscort400Overrides(o); setRasarHasChanges(true); }}
-                    constraints={constraints}
-                    onGenerate={handleGenerateRasar}
-                    onGenerateEscort400={handleGenerateRasar}
-                    onSave={handleSaveRasar}
-                    onClear={handleClearRasar}
-                    onAddConstraint={() => setConstraintDialogOpen(true)}
-                    isGenerating={isGenerating}
-                    isSaving={rasarIsSaving}
-                    hasChanges={rasarHasChanges}
-                    error={error}
-                    saveViolations={rasarSaveViolations}
-                  />
-                </Paper>
-              )}
+                    <Paper sx={{ p: 2, overflow: 'auto' }}>
+                      <KitchenDutyView
+                        people={people}
+                        kitchenDay={kitchenDay}
+                        onKitchenDayChange={setKitchenDay}
+                        archiveStart={start}
+                        archiveEnd={end}
+                        assignments={assignments}
+                        bwAssignments={bwAssignments}
+                        esAssignments={esAssignments}
+                        kitchenAssignments={kitchenAssignments}
+                        onKitchenAssignmentsChange={setKitchenAssignments}
+                        escortAssignments={escortAssignments}
+                        onEscortAssignmentsChange={setEscortAssignments}
+                        kitchenSettings={kitchenSettings}
+                        onKitchenSettingsChange={setKitchenSettings}
+                        escortSettings={escortSettings}
+                        onEscortSettingsChange={setEscortSettings}
+                        constraints={constraints}
+                        onGenerate={handleGenerateKitchen}
+                        onClear={handleClearKitchen}
+                        onAddConstraint={() => setConstraintDialogOpen(true)}
+                        isGenerating={isGenerating}
+                      />
+                    </Paper>
+                  )}
+                  {assignmentsTab === 2 && (
+                    <Paper sx={{ p: 2, overflow: 'auto' }}>
+                      <RasarDutyView
+                        people={people}
+                        guardAssignments={assignments}
+                        bwAssignments={bwAssignments}
+                        kitchenAssignments={kitchenAssignments}
+                        escortAssignments={escortAssignments}
+                        esAssignments={esAssignments}
+                        kitchenSettings={kitchenSettings}
+                        rasarAssignments={rasarAssignments}
+                        onRasarAssignmentsChange={(a) => { setRasarAssignments(a); setRasarHasChanges(true); }}
+                        rasarOverrides={rasarOverrides}
+                        onRasarOverridesChange={(o) => { setRasarOverrides(o); setRasarHasChanges(true); }}
+                        escort400Assignments={escort400Assignments}
+                        onEscort400AssignmentsChange={(a) => { setEscort400Assignments(a); setRasarHasChanges(true); }}
+                        escort400Overrides={escort400Overrides}
+                        onEscort400OverridesChange={(o) => { setEscort400Overrides(o); setRasarHasChanges(true); }}
+                        constraints={constraints}
+                        onGenerate={handleGenerateRasar}
+                        onGenerateEscort400={handleGenerateRasar}
+                        onSave={handleSaveRasar}
+                        onClear={handleClearRasar}
+                        onAddConstraint={() => setConstraintDialogOpen(true)}
+                        isGenerating={isGenerating}
+                        isSaving={rasarIsSaving}
+                        hasChanges={rasarHasChanges}
+                        error={error}
+                        saveViolations={rasarSaveViolations}
+                      />
+                    </Paper>
+                  )}
                 </Box>
               </Box>
             </>
