@@ -300,8 +300,16 @@ export const generateKitchenSchedule = (
     }),
   }).then(normalizeScheduleResponse);
 
-export const clearSchedule = (mode: 'all' | 'guards' | 'kitchen' | 'rasar' = 'all') =>
-  request<{ ok: boolean }>(`/schedule/clear?mode=${encodeURIComponent(mode)}`, { method: 'DELETE' });
+export const clearSchedule = (
+  mode: 'all' | 'guards' | 'kitchen' | 'rasar' = 'all',
+  start?: string,
+  end?: string
+) => {
+  const params = new URLSearchParams({ mode });
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  return request<{ ok: boolean }>(`/schedule/clear?${params.toString()}`, { method: 'DELETE' });
+};
 
 export const fetchLastSchedule = () => request<ScheduleSnapshot>('/schedule/last');
 
