@@ -638,14 +638,26 @@ const archiveAssignments = async (
     try { await db.run('DELETE FROM archived_escort400_assignments WHERE userId = $1 AND day = $2', [userId, day]); } catch {}
   }
 
-  // Insert new archives (filtered)
+  // Insert new archives (filtered) - delete exact match first to prevent duplicates
   for (const a of filteredAssignments) {
+    // Delete any existing archive with same personId, postId, day, shiftLabel (regardless of schedule period)
+    await db.run(
+      'DELETE FROM archived_assignments WHERE userId = $1 AND personId = $2 AND postId = $3 AND day = $4 AND shiftLabel = $5',
+      [userId, a.personId, a.postId, a.day, a.shiftLabel]
+    );
+    // Insert new archive
     await db.run(
       'INSERT INTO archived_assignments (schedule_start, schedule_end, personId, postId, day, shiftLabel, startISO, endISO, userId) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
       [scheduleStart, scheduleEnd, a.personId, a.postId, a.day, a.shiftLabel, a.start ? a.start : null, a.end ? a.end : null, userId]
     );
   }
   for (const b of filteredBwAssignments) {
+    // Delete any existing archive with same personId, day, slotId (regardless of schedule period)
+    await db.run(
+      'DELETE FROM archived_bw_assignments WHERE userId = $1 AND personId = $2 AND day = $3 AND slotId = $4',
+      [userId, b.personId, b.day, b.slotId]
+    );
+    // Insert new archive
     await db.run(
       'INSERT INTO archived_bw_assignments (schedule_start, schedule_end, personId, day, slotId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
       [scheduleStart, scheduleEnd, b.personId, b.day, b.slotId, userId]
@@ -1257,9 +1269,15 @@ router.post('/generate-guards', async (req, res, next) => {
       await db.run('DELETE FROM archived_es_assignments WHERE userId = $1 AND schedule_start <= $2 AND schedule_end >= $3', [req.user.id, scheduleEnd, scheduleStart]);
     } catch (e) { console.error('Error deleting archived_es_assignments', e); }
     
-    // Insert new archives
+    // Insert new archives - delete exact match first to prevent duplicates
     for (const a of result.assignments || []) {
       try {
+        // Delete any existing archive with same personId, postId, day, shiftLabel (regardless of schedule period)
+        await db.run(
+          'DELETE FROM archived_assignments WHERE userId = $1 AND personId = $2 AND postId = $3 AND day = $4 AND shiftLabel = $5',
+          [req.user.id, a.personId, a.postId, a.day, a.shiftLabel]
+        );
+        // Insert new archive
         await db.run(
           'INSERT INTO archived_assignments (schedule_start, schedule_end, personId, postId, day, shiftLabel, startISO, endISO, userId) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
           [scheduleStart, scheduleEnd, a.personId, a.postId, a.day, a.shiftLabel, a.start || null, a.end || null, req.user.id]
@@ -1268,6 +1286,12 @@ router.post('/generate-guards', async (req, res, next) => {
     }
     for (const b of result.bwAssignments || []) {
       try {
+        // Delete any existing archive with same personId, day, slotId (regardless of schedule period)
+        await db.run(
+          'DELETE FROM archived_bw_assignments WHERE userId = $1 AND personId = $2 AND day = $3 AND slotId = $4',
+          [req.user.id, b.personId, b.day, b.slotId]
+        );
+        // Insert new archive
         await db.run(
           'INSERT INTO archived_bw_assignments (schedule_start, schedule_end, personId, day, slotId, userId) VALUES ($1, $2, $3, $4, $5, $6)',
           [scheduleStart, scheduleEnd, b.personId, b.day, b.slotId, req.user.id]
