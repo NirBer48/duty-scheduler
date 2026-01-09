@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ScheduleCalendar from './components/ScheduleView';
 import KitchenDutyView from './components/KitchenDutyView';
 import RasarDutyView from './components/RasarDutyView';
@@ -48,6 +48,7 @@ import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import ConstraintsEditor from './components/ConstraintsEditor';
 import HistoryView from './components/HistoryView';
+import ManpowerShortageDialog from './components/ManpowerShortageDialog';
 import JusticeTableView from './components/JusticeTableView';
 
 const STORAGE_KEY_START = 'duty_scheduler_start';
@@ -178,6 +179,15 @@ const App: React.FC = () => {
   const [authError, setAuthError] = useState('');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  const [manpowerDialogOpen, setManpowerDialogOpen] = useState(false);
+  const [manpowerShortage, setManpowerShortage] = useState(0);
+  const manpowerConfirmActionRef = useRef<null | (() => Promise<void>)>(null);
+
+  const openManpowerDialog = (missing: number, onConfirm: () => Promise<void>) => {
+    manpowerConfirmActionRef.current = onConfirm;
+    setManpowerShortage(missing);
+    setManpowerDialogOpen(true);
+  };
 
   const refreshPeople = () => fetchPeople().then(setPeople);
   const refreshPosts = () => fetchPosts().then(data => {
@@ -277,6 +287,7 @@ const App: React.FC = () => {
       setError(t('Invalid credentials'));
       return;
     }
+    
     // Clear previous error state before generating
     setError('');
     setMissingCount(null);
@@ -301,15 +312,46 @@ const App: React.FC = () => {
         escortSettings,
         constraints
       );
-
       // If generation failed, do NOT overwrite existing state (especially kitchen/rasar),
       // otherwise subsequent retries will ignore other duties and can create overlaps.
+      // Special-case manpower shortage: show popup to offer partial schedule.
       if (res.error) {
+        if (res.error === 'not enough manpower' && (res.missingCount ?? 0) > 0) {
+          openManpowerDialog(res.missingCount ?? 0, async () => {
+            const partial = await generateGuardsSchedule(
+              start,
+              end,
+              shiftOverrides,
+              esAssignments,
+              assignments,
+              bwAssignments,
+              kitchenAssignments,
+              escortAssignments,
+              rasarAssignments,
+              escort400Assignments,
+              kitchenSettings,
+              escortSettings,
+              constraints,
+              true // allowPartial
+            );
+
+            setAssignments(partial.assignments || []);
+            setBWAssignments(partial.bwAssignments || []);
+            setKitchenAssignments(partial.kitchenAssignments || []);
+            setEscortAssignments(partial.escortAssignments || []);
+            if (partial.kitchenSettings) setKitchenSettings(partial.kitchenSettings);
+            if (partial.escortSettings) setEscortSettings(partial.escortSettings);
+            if (partial.esAssignments) setESAssignments(partial.esAssignments);
+            setError('');
+            setMissingCount(null);
+            await Promise.all([refreshPeople(), refreshPosts()]);
+          });
+          return;
+        }
         setError(res.error || '');
         setMissingCount(res.missingCount ?? null);
         return;
       }
-
       setAssignments(res.assignments || []);
       setBWAssignments(res.bwAssignments || []);
       setKitchenAssignments(res.kitchenAssignments || []);
@@ -320,10 +362,27 @@ const App: React.FC = () => {
         setESAssignments(res.esAssignments);
       }
       setError(res.error || '');
-      console.log("missing:", res.missingCount);
       setMissingCount(res.missingCount ?? null);
       await Promise.all([refreshPeople(), refreshPosts()]);
+    } catch (e: any) {
+      // request() throws a plain Error today; treat as a generic failure.
+      setError(t('Save failed'));
+      setMissingCount(null);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+  
+  const handleManpowerConfirm = async () => {
+    setManpowerDialogOpen(false);
+    setIsGenerating(true);
+    
+    try {
+      const action = manpowerConfirmActionRef.current;
+      manpowerConfirmActionRef.current = null;
+      if (action) await action();
     } catch (e) {
+      console.error('handleManpowerConfirm error:', e);
       setError(t('Save failed'));
       setMissingCount(null);
     } finally {
@@ -360,6 +419,8 @@ const App: React.FC = () => {
       setError(t('Invalid credentials'));
       return;
     }
+    setError('');
+    setMissingCount(null);
     setIsGenerating(true);
     try {
       const res = await generateKitchenSchedule(
@@ -375,8 +436,44 @@ const App: React.FC = () => {
         escort400Assignments,
         kitchenSettings,
         escortSettings,
-        constraints
+        constraints,
+        false // allowPartial
       );
+      if (res.error) {
+        if (res.error === 'not enough manpower' && (res.missingCount ?? 0) > 0) {
+          openManpowerDialog(res.missingCount ?? 0, async () => {
+            const partial = await generateKitchenSchedule(
+              start,
+              end,
+              kitchenDay,
+              esAssignments,
+              assignments,
+              bwAssignments,
+              kitchenAssignments,
+              escortAssignments,
+              rasarAssignments,
+              escort400Assignments,
+              kitchenSettings,
+              escortSettings,
+              constraints,
+              true // allowPartial
+            );
+            // Only kitchen-related state should change, but we keep everything in sync with server response.
+            setAssignments(partial.assignments || assignments);
+            setBWAssignments(partial.bwAssignments || bwAssignments);
+            setKitchenAssignments(partial.kitchenAssignments || []);
+            setEscortAssignments(partial.escortAssignments || []);
+            if (partial.kitchenSettings) setKitchenSettings(partial.kitchenSettings);
+            if (partial.escortSettings) setEscortSettings(partial.escortSettings);
+            setError('');
+            setMissingCount(null);
+          });
+          return;
+        }
+        setError(res.error || '');
+        setMissingCount(res.missingCount ?? null);
+        return;
+      }
       // Only kitchen-related state should change, but we keep everything in sync with server response.
       setAssignments(res.assignments || assignments);
       setBWAssignments(res.bwAssignments || bwAssignments);
@@ -425,8 +522,42 @@ const App: React.FC = () => {
         constraints,
         overrides,
         escort400Assignments,
-        escort400Overrides
+        escort400Overrides,
+        false // allowPartial
       );
+      if (res.error) {
+        if (res.error === 'not enough manpower' && (res.missingCount ?? 0) > 0) {
+          openManpowerDialog(res.missingCount ?? 0, async () => {
+            const partial = await generateRasarSchedule(
+              rasarStartISO,
+              rasarEndISO,
+              esAssignments,
+              assignments,
+              bwAssignments,
+              kitchenAssignments,
+              escortAssignments,
+              kitchenSettings,
+              existing,
+              constraints,
+              overrides,
+              escort400Assignments,
+              escort400Overrides,
+              true // allowPartial
+            );
+            setRasarAssignments(partial.rasarAssignments || []);
+            setEscort400Assignments(partial.escort400Assignments || []);
+            setRasarHasChanges(true);
+            setError('');
+            setMissingCount(null);
+            setRasarSaveViolations(partial.violations || []);
+          });
+          return;
+        }
+        setError(res.error || '');
+        setMissingCount(res.missingCount ?? null);
+        setRasarSaveViolations(res.violations || []);
+        return;
+      }
       setRasarAssignments(res.rasarAssignments || []);
       setEscort400Assignments(res.escort400Assignments || []);
       setRasarHasChanges(true);
@@ -938,6 +1069,13 @@ const App: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <ManpowerShortageDialog
+        open={manpowerDialogOpen}
+        missingCount={manpowerShortage}
+        onClose={() => setManpowerDialogOpen(false)}
+        onConfirm={handleManpowerConfirm}
+      />
     </Box>
   );
 }

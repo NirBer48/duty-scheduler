@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import dayjs from "dayjs";
 import {
     Assignment,
@@ -18,7 +18,7 @@ import {
     EscortSettings,
 } from "../types";
 import { useI18n } from "../util/i18n";
-import { Box, Typography, Alert, Button, IconButton, Chip, CircularProgress } from "@mui/material";
+import { Box, Typography, Alert, Button, IconButton, Chip, CircularProgress, Collapse, Stack } from "@mui/material";
 import SettingsIcon from '@mui/icons-material/Settings';
 import EditIcon from '@mui/icons-material/Edit';
 import { saveAllSchedules } from "../api";
@@ -103,6 +103,8 @@ const ScheduleCalendar: React.FC<Props> = ({
 }) => {
     const shifts = getShiftsForPeriod(start, end);
     const { t, lang } = useI18n();
+    const [showValidationDetails, setShowValidationDetails] = useState(false);
+    const generationInFlightRef = useRef(false);
 
     // ES Groups state - use external if provided
     const [localESGroups, setLocalESGroups] = useState<ESGroup[]>([
@@ -183,12 +185,19 @@ const ScheduleCalendar: React.FC<Props> = ({
     // Sync effects - only reset on initial assignments change (not BW changes)
     useEffect(() => {
         setLocalAssignments(initialAssignments);
-        setHasChanges(false);
-        setValidationErrors([]);
-        setInvalidCells(new Set());
-        setInvalidESGroups(new Set());
-        setInvalidBWSlots(new Set());
+        // If these assignments arrived as a result of "Generate", treat them as unsaved changes
+        // so the user can immediately hit Save (even if partial/invalid).
+        setHasChanges(generationInFlightRef.current);
+        generationInFlightRef.current = false;
+        const validation = validateAndMarkCells(undefined, initialAssignments);
+        setValidationErrors(validation.errors);
+        setShowValidationDetails(false);
     }, [initialAssignments]);
+
+    // Track whether we're in the middle of a generation cycle (parent-driven).
+    useEffect(() => {
+        if (isGenerating) generationInFlightRef.current = true;
+    }, [isGenerating]);
 
     // Sync BW assignments from external source (without resetting hasChanges)
     useEffect(() => {
@@ -254,6 +263,20 @@ const ScheduleCalendar: React.FC<Props> = ({
     const getPeopleNames = (postId: number, shiftLabel: string, day: string): string => {
         const ids = getPersonIds(localAssignments, shiftLabel, day, postId);
         return people.filter(p => ids.includes(p.id)).map(p => p.name).join(", ");
+    };
+
+    const getPeopleDisplayLines = (postId: number, shiftLabel: string, day: string): { name: string; isEmpty: boolean }[] => {
+        const ids = getPersonIds(localAssignments, shiftLabel, day, postId);
+        const required = getRequiredCount(postId, day, shiftLabel);
+        const names = people
+            .filter(p => ids.includes(p.id))
+            .map(p => p.name);
+        const missing = Math.max(0, required - names.length);
+        return [
+            ...names.map(name => ({ name, isEmpty: false })),
+            // Use a visible placeholder so partial schedules are obvious
+            ...Array.from({ length: missing }, () => ({ name: '—', isEmpty: true })),
+        ];
     };
 
     const getBWPersonIds = (day: string, slotId: string): number[] =>
@@ -402,8 +425,12 @@ const ScheduleCalendar: React.FC<Props> = ({
     };
 
     // Validation
-    const validateAndMarkCells = (overrideBwAssignments?: BWAssignment[]): { valid: boolean; errors: string[] } => {
+    const validateAndMarkCells = (
+        overrideBwAssignments?: BWAssignment[],
+        overrideAssignments?: Assignment[]
+    ): { valid: boolean; errors: string[] } => {
         const bwToValidate = overrideBwAssignments ?? bwAssignments;
+        const assignmentsToValidate = overrideAssignments ?? localAssignments;
         const getBWPersonIdsForValidation = (day: string, slotId: string): number[] =>
             bwToValidate
                 .filter(a => a.day === day && a.slotId === slotId)
@@ -419,7 +446,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         for (const shift of shifts) {
             for (const post of posts) {
                 const required = getRequiredCount(post.id, shift.day, shift.label);
-                const assignedCount = getPersonIds(localAssignments, shift.label, shift.day, post.id).length;
+                const assignedCount = getPersonIds(assignmentsToValidate, shift.label, shift.day, post.id).length;
                 if (assignedCount < required) {
                     errors.push(`${shift.day} ${shift.label} - ${post.name}: ${t('needs')} ${required}, ${t('has')} ${assignedCount}`);
                     newInvalidCells.add(getCellKey(post.id, shift.day, shift.label));
@@ -442,7 +469,7 @@ const ScheduleCalendar: React.FC<Props> = ({
             for (const group of esGroups) {
                 const esAssignment = esAssignments.find(es => es.groupId === group.id);
                 const esMembers = esAssignment?.personIds || [];
-                const peopleAtShiftTime = getPersonIds(localAssignments, shift.label, shift.day);
+                const peopleAtShiftTime = getPersonIds(assignmentsToValidate, shift.label, shift.day);
                 const esMembersWorking = peopleAtShiftTime.filter(pid => esMembers.includes(pid));
 
                 if (esMembersWorking.length > group.activePerShift) {
@@ -451,7 +478,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                     newInvalidESGroups.add(group.id);
 
                     for (const post of posts) {
-                        const cellPeople = getPersonIds(localAssignments, shift.label, shift.day, post.id);
+                        const cellPeople = getPersonIds(assignmentsToValidate, shift.label, shift.day, post.id);
                         if (cellPeople.some(pid => esMembers.includes(pid))) {
                             newInvalidCells.add(getCellKey(post.id, shift.day, shift.label));
                         }
@@ -462,7 +489,7 @@ const ScheduleCalendar: React.FC<Props> = ({
 
         // Check 8-hour rest
         const personShifts = new Map<number, { idx: number; day: string; label: string; postId: number }[]>();
-        for (const assignment of localAssignments) {
+        for (const assignment of assignmentsToValidate) {
             const shiftIdx = getShiftIndex(assignment.day, assignment.shiftLabel, shifts);
             if (shiftIdx >= 0) {
                 const existing = personShifts.get(assignment.personId) || [];
@@ -484,7 +511,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         }
 
         // Constraint overlaps
-        for (const assignment of localAssignments) {
+        for (const assignment of assignmentsToValidate) {
             const personConstraints = constraints.filter(c => c.personId === assignment.personId);
             if (personConstraints.length === 0) continue;
             const window = getShiftTimeWindow(assignment.shiftLabel);
@@ -504,7 +531,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         }
 
         // Standing exemption
-        for (const assignment of localAssignments) {
+        for (const assignment of assignmentsToValidate) {
             const post = posts.find(p => p.id === assignment.postId);
             if (!post || !isStandingExemptPost(post.name)) continue;
             const person = people.find(p => p.id === assignment.personId);
@@ -515,7 +542,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         }
 
         // Night guard exemption
-        for (const assignment of localAssignments) {
+        for (const assignment of assignmentsToValidate) {
             if (!isNightShift(assignment.shiftLabel)) continue;
             const person = people.find(p => p.id === assignment.personId);
             if (person?.nightGuardExemption) {
@@ -526,7 +553,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         }
 
         // Asthma exemption - can only work lookout post (תצפיתן)
-        for (const assignment of localAssignments) {
+        for (const assignment of assignmentsToValidate) {
             const person = people.find(p => p.id === assignment.personId);
             if (!person?.asthmaExemption) continue;
             const post = posts.find(p => p.id === assignment.postId);
@@ -539,7 +566,7 @@ const ScheduleCalendar: React.FC<Props> = ({
         // Check same gender pairing (night shifts only)
         for (const shift of shifts) {
             for (const post of posts) {
-                const assignedIds = getPersonIds(localAssignments, shift.label, shift.day, post.id);
+                const assignedIds = getPersonIds(assignmentsToValidate, shift.label, shift.day, post.id);
                 if (assignedIds.length > 1) {
                     const assignedPeople = people.filter(p => assignedIds.includes(p.id));
                     for (const person of assignedPeople) {
@@ -578,7 +605,7 @@ const ScheduleCalendar: React.FC<Props> = ({
 
                 const slotRange = getBwSlotRangeMinutes(slot);
                 for (const personId of assignedIds) {
-                    const assignmentsForPerson = localAssignments.filter(a => a.personId === personId && a.day === day);
+                    const assignmentsForPerson = assignmentsToValidate.filter(a => a.personId === personId && a.day === day);
                     for (const assignment of assignmentsForPerson) {
                         const window = getShiftTimeWindow(assignment.shiftLabel);
                         if (!window) continue;
@@ -607,7 +634,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                 for (const personId of assignedIds) {
                     const groupId = esGroupLookup.get(personId);
                     if (!groupId) continue;
-                    const hasGroupShiftConflict = localAssignments.some(a => {
+                    const hasGroupShiftConflict = assignmentsToValidate.some(a => {
                         if (a.personId === personId) return false;
                         if (a.day !== day) return false;
                         if (esGroupLookup.get(a.personId) !== groupId) return false;
@@ -633,13 +660,9 @@ const ScheduleCalendar: React.FC<Props> = ({
 
     const handleSaveAll = async () => {
         const validation = validateAndMarkCells();
-        if (!validation.valid) {
-            setValidationErrors(validation.errors);
-            return;
-        }
-
-        setInvalidCells(new Set());
-        setInvalidESGroups(new Set());
+        // Allow saving even if the schedule is partial/invalid.
+        // We still run validation so the UI can show issues and mark cells.
+        setValidationErrors(validation.errors);
         setIsSaving(true);
 
         try {
@@ -661,10 +684,8 @@ const ScheduleCalendar: React.FC<Props> = ({
 
             if (result.ok) {
                 setHasChanges(false);
-                setValidationErrors([]);
                 onAssignmentsChange?.(localAssignments);
                 onBWAssignmentsChange?.(bwAssignments);
-                setInvalidBWSlots(new Set());
             } else {
                 setValidationErrors([result.error || t('Save failed')]);
             }
@@ -701,14 +722,29 @@ const ScheduleCalendar: React.FC<Props> = ({
         <>
             {/* Validation errors */}
             {validationErrors.length > 0 && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2">{t('Schedule is invalid')}:</Typography>
-                    <ul style={{ margin: 0, paddingLeft: 20 }}>
-                        {validationErrors.slice(0, 10).map((err, i) => <li key={i}>{err}</li>)}
-                        {validationErrors.length > 10 && (
-                            <li>...{t('and')} {validationErrors.length - 10} {t('more errors')}</li>
-                        )}
-                    </ul>
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+                        <Typography variant="body2">
+                            {t('Schedule is invalid')} — {validationErrors.length} {t('errors')}    
+                        </Typography>
+                        <Button size="small" onClick={() => setShowValidationDetails(v => !v)}>
+                            {showValidationDetails ? t('Hide') : t('Show')}
+                        </Button>
+                    </Stack>
+                    <Collapse in={showValidationDetails}>
+                        <Box sx={{ mt: 1 }}>
+                            {validationErrors.slice(0, 50).map((msg, idx) => (
+                                <Typography key={idx} variant="caption" sx={{ display: 'block' }}>
+                                    - {msg}
+                                </Typography>
+                            ))}
+                            {validationErrors.length > 50 && (
+                                <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>
+                                    … {validationErrors.length - 50} {t('more errors')}
+                                </Typography>
+                            )}
+                        </Box>
+                    </Collapse>
                 </Alert>
             )}
 
@@ -814,7 +850,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                         <span style={{ fontWeight: "bold" }}>     {displayShiftLabel(shiftIdx, filteredShifts.length, shift.label)}</span>
                                     </td>
                                     {posts.map(post => {
-                                        const names = getPeopleNames(post.id, shift.label, shift.day);
+                                        const displayLines = getPeopleDisplayLines(post.id, shift.label, shift.day);
                                         const required = getRequiredCount(post.id, shift.day, shift.label);
                                         const assignedCount = getPersonIds(localAssignments, shift.label, shift.day, post.id).length;
                                         const isInvalid = isInvalidCell(post.id, shift.label, shift.day);
@@ -824,6 +860,7 @@ const ScheduleCalendar: React.FC<Props> = ({
                                         if (isInvalid && validationErrors.length > 0) bgColor = '#ffcdd2';
                                         else if (required === 0) bgColor = '#e0e0e0';
                                         else if (assignedCount === 0) bgColor = '#ffebee';
+                                        else if (assignedCount < required) bgColor = '#fff8e1';
                                         else if (assignedCount >= required) bgColor = '#e8f5e9';
 
                                         return (
@@ -844,7 +881,41 @@ const ScheduleCalendar: React.FC<Props> = ({
                                                 onMouseLeave={(e) => e.currentTarget.style.backgroundColor = bgColor}
                                             >
                                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                    <span>{names || <span style={{ color: '#999' }}>—</span>}</span>
+                                                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, minWidth: 0 }}>
+                                                        {required === 0 ? (
+                                                            <Typography variant="body2" sx={{ color: '#777' }}>
+                                                                —
+                                                            </Typography>
+                                                        ) : (
+                                                            <>
+                                                                {displayLines.length > 0 ? (
+                                                                    displayLines.map((line, idx) => (
+                                                                        <Typography
+                                                                            key={idx}
+                                                                            variant="body2"
+                                                                            sx={{
+                                                                                lineHeight: 1.2,
+                                                                                color: line.isEmpty ? '#999' : 'text.primary',
+                                                                                fontStyle: line.isEmpty ? 'italic' : 'normal',
+                                                                                whiteSpace: 'nowrap',
+                                                                                overflow: 'hidden',
+                                                                                textOverflow: 'ellipsis',
+                                                                            }}
+                                                                        >
+                                                                            {line.name}
+                                                                        </Typography>
+                                                                    ))
+                                                                ) : (
+                                                                    <Typography variant="body2" sx={{ color: '#999' }}>
+                                                                        —
+                                                                    </Typography>
+                                                                )}
+                                                                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
+                                                                    {assignedCount} / {required}
+                                                                </Typography>
+                                                            </>
+                                                        )}
+                                                    </Box>
                                                     <IconButton size="small" onClick={(e) => handleSettingsClick(e, post, shift.day, shift.label)} sx={{ p: 0, ml: 0.5 }}>
                                                         <SettingsIcon fontSize="small" color={hasOverride ? "primary" : "disabled"} />
                                                     </IconButton>

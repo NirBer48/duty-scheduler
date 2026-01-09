@@ -9,6 +9,7 @@ import {
   Stack,
   IconButton,
   CircularProgress,
+  Collapse,
 } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AddIcon from '@mui/icons-material/Add';
@@ -131,13 +132,6 @@ const KitchenDutyView: React.FC<Props> = ({
     { id: newShiftId(), start: '06:00', end: '21:00', required: 36 },
   ]);
 
-  // Ensure we always have at least one valid shift array in settings.
-  React.useEffect(() => {
-    if (!kitchenSettings?.shifts || kitchenSettings.shifts.length < 1) {
-      onKitchenSettingsChange({ shifts: defaultKitchenShifts() });
-    }
-  }, [kitchenSettings, onKitchenSettingsChange]);
-
   const kitchenShiftList: KitchenShift[] = useMemo(() => {
     if (kitchenSettings?.shifts && kitchenSettings.shifts.length > 0) return kitchenSettings.shifts;
     return defaultKitchenShifts();
@@ -163,6 +157,7 @@ const KitchenDutyView: React.FC<Props> = ({
   const minutesBetween = (startHHmm: string, endHHmm: string) => hhmmToMinutes(endHHmm) - hhmmToMinutes(startHHmm);
 
   const setKitchenShifts = (next: KitchenShift[], baseAssignments: KitchenAssignment[] = kitchenAssignments) => {
+    setHasChanges(true);
     onKitchenSettingsChange({ shifts: next });
     onKitchenAssignmentsChange(recomputeKitchenAssignmentTimes(baseAssignments, next));
   };
@@ -577,8 +572,19 @@ const KitchenDutyView: React.FC<Props> = ({
   const [saveError, setSaveError] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [showValidationDetails, setShowValidationDetails] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
   const [invalidKitchenCells, setInvalidKitchenCells] = useState<Set<string>>(new Set());
   const [invalidEscortCells, setInvalidEscortCells] = useState<Set<string>>(new Set());
+
+  // Ensure we always have at least one valid shift array in settings.
+  React.useEffect(() => {
+    if (!kitchenSettings?.shifts || kitchenSettings.shifts.length < 1) {
+      // Auto-fix old/empty settings; this is a real change that should be savable.
+      setHasChanges(true);
+      onKitchenSettingsChange({ shifts: defaultKitchenShifts() });
+    }
+  }, [kitchenSettings, onKitchenSettingsChange]);
 
   const [shiftSettingsDialog, setShiftSettingsDialog] = useState<{
     open: boolean;
@@ -604,6 +610,7 @@ const KitchenDutyView: React.FC<Props> = ({
   };
 
   const updateKitchenCell = (day: string, shiftId: string, personIds: number[], range: { start: string; end: string }) => {
+    setHasChanges(true);
     const filtered = kitchenAssignments.filter(a => !(a.day === day && a.shiftId === shiftId));
     const updated: KitchenAssignment[] = [
       ...filtered,
@@ -613,6 +620,7 @@ const KitchenDutyView: React.FC<Props> = ({
   };
 
   const updateEscortCell = (day: string, shiftId: string, personIds: number[], range: { start: string; end: string }) => {
+    setHasChanges(true);
     const filtered = escortAssignments.filter(a => !(a.day === day && a.shiftId === shiftId));
     const updated: EscortAssignment[] = [
       ...filtered,
@@ -622,13 +630,9 @@ const KitchenDutyView: React.FC<Props> = ({
   };
 
   const handleSave = async () => {
-    // Check for validation errors before saving
-    const isValid = validateKitchenAssignments();
-    if (!isValid) {
-      setSaveError(t('Cannot save: Please fix validation errors first'));
-      return; // Don't save if there are validation errors
-    }
-
+    // Allow saving even if the schedule is partial/invalid.
+    // Validation is still shown in the UI and used for cell highlighting.
+    validateKitchenAssignments();
     setIsSaving(true);
     setSaveError('');
     try {
@@ -648,9 +652,7 @@ const KitchenDutyView: React.FC<Props> = ({
       if (!res.ok) {
         setSaveError(res.error || t('Save failed'));
       } else {
-        setValidationErrors([]);
-        setInvalidKitchenCells(new Set());
-        setInvalidEscortCells(new Set());
+        setHasChanges(false);
       }
     } catch (e: any) {
       setSaveError(e?.message || t('Save failed'));
@@ -680,10 +682,25 @@ const KitchenDutyView: React.FC<Props> = ({
             InputLabelProps={{ shrink: true }}
             size="small"
           />
-          <Button variant="contained" onClick={onGenerate} disabled={isGenerating || isSaving}>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setHasChanges(true);
+              onGenerate();
+            }}
+            disabled={isGenerating || isSaving}
+          >
             {isGenerating ? t('Assigning') : t('Generate')}
           </Button>
-          <Button variant="outlined" color="error" onClick={onClear} disabled={isGenerating || isSaving}>
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={() => {
+              setHasChanges(true);
+              onClear();
+            }}
+            disabled={isGenerating || isSaving}
+          >
             {t('Clear')}
           </Button>
           <Button variant="outlined" onClick={onAddConstraint} disabled={isGenerating || isSaving}>
@@ -705,7 +722,7 @@ const KitchenDutyView: React.FC<Props> = ({
           >
             {t('Export to Excel')}
           </Button>
-          <Button variant="contained" color="success" onClick={handleSave} disabled={isGenerating || isSaving}>
+          <Button variant="contained" color="success" onClick={handleSave} disabled={!hasChanges || isGenerating || isSaving}>
             {t('Save Schedule')}
           </Button>
         </Stack>
@@ -713,14 +730,29 @@ const KitchenDutyView: React.FC<Props> = ({
 
       {/* Validation errors */}
       {validationErrors.length > 0 && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          <Typography variant="subtitle2">{t('Schedule is invalid')}:</Typography>
-          <ul style={{ margin: 0, paddingLeft: 20 }}>
-            {validationErrors.slice(0, 10).map((err, i) => <li key={i}>{err}</li>)}
-            {validationErrors.length > 10 && (
-              <li>...{t('and')} {validationErrors.length - 10} {t('more errors')}</li>
-            )}
-          </ul>
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
+            <Typography variant="body2">
+              {t('Schedule is invalid')} — {validationErrors.length} {t('errors')}
+            </Typography>
+            <Button size="small" onClick={() => setShowValidationDetails(v => !v)}>
+              {showValidationDetails ? t('Hide') : t('Show')}
+            </Button>
+          </Stack>
+          <Collapse in={showValidationDetails}>
+            <Box sx={{ mt: 1 }}>
+              {validationErrors.slice(0, 50).map((msg, idx) => (
+                <Typography key={idx} variant="caption" sx={{ display: 'block' }}>
+                  - {msg}
+                </Typography>
+              ))}
+              {validationErrors.length > 50 && (
+                <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>
+                  … {validationErrors.length - 50} {t('more errors')}
+                </Typography>
+              )}
+            </Box>
+          </Collapse>
         </Alert>
       )}
 

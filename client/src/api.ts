@@ -43,6 +43,47 @@ const request = async <T>(path: string, init?: RequestInit) => {
   return response.json() as Promise<T>;
 };
 
+// ---- Small, centralized normalization helpers ----
+// We avoid changing server "model building", but Postgres can return numeric IDs as strings.
+// Normalize here at the API boundary so the rest of the app can keep using number IDs.
+const toNumber = (v: any): number => (typeof v === 'number' ? v : Number(v));
+
+const normalizePerson = (p: any): Person => ({
+  ...p,
+  id: toNumber(p.id),
+});
+
+const normalizePost = (p: any): Post => ({
+  ...p,
+  id: toNumber(p.id),
+  requiredPerShift: toNumber(p.requiredPerShift ?? p.requiredpershift ?? 1),
+});
+
+const normalizeScheduleResponse = (res: any): ScheduleResponse => ({
+  ...res,
+  assignments: (res?.assignments || []).map((a: any) => ({
+    ...a,
+    personId: toNumber(a.personId),
+    postId: toNumber(a.postId),
+  })),
+  bwAssignments: (res?.bwAssignments || []).map((a: any) => ({
+    ...a,
+    personId: toNumber(a.personId),
+  })),
+  kitchenAssignments: (res?.kitchenAssignments || []).map((a: any) => ({
+    ...a,
+    personId: toNumber(a.personId),
+  })),
+  escortAssignments: (res?.escortAssignments || []).map((a: any) => ({
+    ...a,
+    personId: toNumber(a.personId),
+  })),
+  esAssignments: (res?.esAssignments || []).map((es: any) => ({
+    ...es,
+    personIds: (es?.personIds || []).map((pid: any) => toNumber(pid)),
+  })),
+});
+
 type AddPersonPayload = {
   name: string;
   gender: Person['gender'];
@@ -128,25 +169,25 @@ export const addConstraint = (body: Omit<Constraint, 'id'>) =>
 export const deleteConstraint = (id: number) =>
   request<{ ok: boolean }>(`/constraints/${id}`, { method: 'DELETE' });
 
-export const fetchPeople = () => request<Person[]>('/people');
+export const fetchPeople = async () => (await request<Person[]>('/people')).map(normalizePerson);
 
 export const addPerson = (body: AddPersonPayload) =>
   request<Person>('/people', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }).then(normalizePerson);
 
 export const deletePerson = (id: number) => request<{ ok: boolean }>(`/people/${id}`, { method: 'DELETE' });
 
-export const fetchPosts = () => request<Post[]>('/posts');
+export const fetchPosts = async () => (await request<Post[]>('/posts')).map(normalizePost);
 
 export const addPost = (body: AddPostPayload) =>
   request<Post>('/posts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }).then(normalizePost);
 
 export const deletePost = (id: number) => request<{ ok: boolean }>(`/posts/${id}`, { method: 'DELETE' });
 
@@ -183,7 +224,7 @@ export const generateSchedule = (
       escortSettings,
       constraints,
     }),
-  });
+  }).then(normalizeScheduleResponse);
 
 export const generateGuardsSchedule = (
   startISO: string,
@@ -198,7 +239,8 @@ export const generateGuardsSchedule = (
   existingEscort400Assignments: Escort400Assignment[] = [],
   kitchenSettings: KitchenSettings = { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
   escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
-  constraints: Constraint[] = []
+  constraints: Constraint[] = [],
+  allowPartial: boolean = false
 ) =>
   request<ScheduleResponse>('/schedule/generate-guards', {
     method: 'POST',
@@ -217,8 +259,9 @@ export const generateGuardsSchedule = (
       kitchenSettings,
       escortSettings,
       constraints,
+      allowPartial,
     }),
-  });
+  }).then(normalizeScheduleResponse);
 
 export const generateKitchenSchedule = (
   guardsStartISO: string,
@@ -233,7 +276,8 @@ export const generateKitchenSchedule = (
   existingEscort400Assignments: Escort400Assignment[] = [],
   kitchenSettings: KitchenSettings = { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
   escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
-  constraints: Constraint[] = []
+  constraints: Constraint[] = [],
+  allowPartial: boolean = false
 ) =>
   request<ScheduleResponse>('/schedule/generate-kitchen', {
     method: 'POST',
@@ -252,8 +296,9 @@ export const generateKitchenSchedule = (
       kitchenSettings,
       escortSettings,
       constraints,
+      allowPartial,
     }),
-  });
+  }).then(normalizeScheduleResponse);
 
 export const clearSchedule = (
   mode: 'all' | 'guards' | 'kitchen' | 'rasar' = 'all',
@@ -290,7 +335,8 @@ export const generateRasarSchedule = (
   constraints: Constraint[] = [],
   rasarOverrides: RasarOverride[] = [],
   existingEscort400Assignments: Escort400Assignment[] = [],
-  escort400Overrides: Escort400Override[] = []
+  escort400Overrides: Escort400Override[] = [],
+  allowPartial: boolean = false
 ) =>
   request<ScheduleResponse>('/schedule/generate-rasar', {
     method: 'POST',
@@ -312,6 +358,7 @@ export const generateRasarSchedule = (
       rasarOverrides,
       existingEscort400Assignments,
       escort400Overrides,
+      allowPartial,
     }),
   });
 

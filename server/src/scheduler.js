@@ -106,6 +106,12 @@ export const scheduleGenerator = (
   options = {}
 ) => {
   const mode = options?.mode || 'all'; // 'all' | 'guards' | 'kitchen' | 'rasar'
+  const allowPartial = options?.allowPartial || false; // allow partial schedule with empty cells
+  // In partial mode we still respect "hard" constraints (time constraints, rest, exemptions),
+  // but we relax "soft" rules that can otherwise prevent *any* assignments from being made.
+  // The client already highlights violations, so users can see problematic cells.
+  const relaxSoftRules = allowPartial;
+
   const existingRasarAssignments = options?.existingRasarAssignments || [];
   const rasarStartISO = options?.rasarStartISO || startISO;
   const rasarEndISO = options?.rasarEndISO || endISO;
@@ -121,6 +127,8 @@ export const scheduleGenerator = (
   const genGuards = mode === 'all' || mode === 'guards';
   const genKitchenEscort = mode === 'all' || mode === 'kitchen';
   const genRasar = mode === 'all' || mode === 'rasar';
+
+  console.log('scheduleGenerator options:', { mode, allowPartial, optionsReceived: options });
   // Build all 4-hour shift time slots between start and end
   const shiftDefinitions = [
     { label: '00:00-04:00', startOffset: 0, endOffset: 4 },
@@ -455,6 +463,7 @@ export const scheduleGenerator = (
   const getShiftKey = (day, shiftLabel) => `${day}|${shiftLabel}`;
 
   const canESMemberWorkAtShift = (personId, day, shiftLabel) => {
+    if (relaxSoftRules) return true;
     const groupId = personToESGroup.get(personId);
     if (!groupId) return true;
 
@@ -702,6 +711,7 @@ export const scheduleGenerator = (
   };
 
   const violatesSameGenderPreference = (assignedPeople = [], candidate) => {
+    if (relaxSoftRules) return false;
     // "Same gender only" applies to ALL shifts (day + night + partial).
     const all = [...(assignedPeople || []), candidate].filter(Boolean);
     const pref = all.filter(p => p?.sameGenderPref);
@@ -733,7 +743,7 @@ export const scheduleGenerator = (
     }
 
     // Duel guard: cannot be alone in the post slot
-    if (candidate.duelGuard && assignedToThisPost.length === 0 && slot.stillNeeded <= 1) {
+    if (!relaxSoftRules && candidate.duelGuard && assignedToThisPost.length === 0 && slot.stillNeeded <= 1) {
       return false;
     }
 
@@ -827,8 +837,9 @@ export const scheduleGenerator = (
 
   // Check for unfilled mandatory slots and calculate minimum people needed
   const unfilledMandatorySlots = slotsToFill.filter(slot => slot.stillNeeded > 0 && !slot.optional);
-
-  if (unfilledMandatorySlots.length > 0) {
+  
+  // If allowPartial is true, we intentionally continue and return a partial schedule.
+  if (unfilledMandatorySlots.length > 0 && !allowPartial) {
     // Calculate total unfilled positions
     const totalUnfilledPositions = unfilledMandatorySlots.reduce((sum, slot) => sum + slot.stillNeeded, 0);
 
@@ -882,10 +893,10 @@ export const scheduleGenerator = (
     }
   }
 
-  if (duelGuardViolations > 0 || genderPrefViolations > 0) {
-    return {
-      assignments: [],
-      bwAssignments: [],
+  if ((duelGuardViolations > 0 || genderPrefViolations > 0) && !allowPartial) {
+    return { 
+      assignments: [], 
+      bwAssignments: [], 
       error: 'not enough manpower',
       missingCount: duelGuardViolations + genderPrefViolations
     };

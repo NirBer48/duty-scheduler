@@ -24,6 +24,23 @@ const mapPost = row => ({
   optional: Boolean(row.optional),
 });
 
+// Internal helper: normalize IDs coming from Postgres (may be strings) for the scheduler algorithm.
+// This does NOT change what we persist or return to clients; it only prevents string/number mismatches
+// inside the scheduling logic.
+const toSchedulerPerson = row => ({
+  ...mapPerson(row),
+  id: Number(row.id),
+});
+
+const toSchedulerPost = row => ({
+  ...mapPost(row),
+  id: Number(row.id),
+  requiredPerShift: Number(row.requiredpershift ?? row.requiredPerShift ?? 1),
+});
+
+// Internal helper: type-agnostic ID comparison (string vs number) when sanitizing incoming payloads.
+const idKey = v => String(v);
+
 const mapAssignment = row => ({
   postId: Number(row.postid),
   personId: Number(row.personid),
@@ -927,26 +944,26 @@ router.post('/generate', async (req, res, next) => {
       db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
     ]);
 
-    const personIds = new Set(peopleRows.map(p => p.id));
-    const postIds = new Set(postRows.map(p => p.id));
+    const personIds = new Set(peopleRows.map(p => idKey(p.id)));
+    const postIds = new Set(postRows.map(p => idKey(p.id)));
     // For rasar generation we only need guard assignment PERSON+TIME for overlap prevention.
     // Do NOT drop guard assignments just because their postId doesn't exist (or posts aren't loaded).
     const sanitizeAssignments = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeBw = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeKitchen = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEscort = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeRasar = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEscort400 = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
-        personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
+        personIds: (es.personIds || []).filter(pid => personIds.has(idKey(pid))),
       }));
 
     const sanitizedEs = sanitizeEs(esAssignments);
@@ -966,11 +983,11 @@ router.post('/generate', async (req, res, next) => {
       sanitizedEscort400 = sanitizeEscort400(rows.map(r => ({ personId: Number(r.personid), day: r.day, shiftId: r.shiftid })));
     }
 
-    const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+    const shuffledPeople = shuffle(peopleRows).map(toSchedulerPerson);
 
     const result = scheduleGenerator(
       shuffledPeople,
-      postRows.map(mapPost),
+      postRows.map(toSchedulerPost),
       startISO,
       endISO,
       shiftOverrides,
@@ -1041,6 +1058,7 @@ router.post('/generate-guards', async (req, res, next) => {
       kitchenSettings,
       escortSettings,
       constraints = [],
+      allowPartial = false,
     } = req.body;
 
     let normalizedKitchenSettings = null;
@@ -1056,24 +1074,24 @@ router.post('/generate-guards', async (req, res, next) => {
       db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
     ]);
 
-    const personIds = new Set(peopleRows.map(p => p.id));
-    const postIds = new Set(postRows.map(p => p.id));
+    const personIds = new Set(peopleRows.map(p => idKey(p.id)));
+    const postIds = new Set(postRows.map(p => idKey(p.id)));
     const sanitizeAssignments = arr =>
-      (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)) && postIds.has(idKey(a.postId)));
     const sanitizeBw = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeKitchen = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEscort = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeRasar = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEscort400 = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
-        personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
+        personIds: (es.personIds || []).filter(pid => personIds.has(idKey(pid))),
       }));
 
     const sanitizedEs = sanitizeEs(esAssignments);
@@ -1099,11 +1117,13 @@ router.post('/generate-guards', async (req, res, next) => {
       console.log('[generate-guards] Using client escort400:', sanitizedEscort400.length, 'assignments');
     }
 
-    const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+    const shuffledPeople = shuffle(peopleRows).map(toSchedulerPerson);
 
+    console.log('generate-guards called with allowPartial:', allowPartial);
+    
     const result = scheduleGenerator(
       shuffledPeople,
-      postRows.map(mapPost),
+      postRows.map(toSchedulerPost),
       startISO,
       endISO,
       shiftOverrides,
@@ -1115,8 +1135,22 @@ router.post('/generate-guards', async (req, res, next) => {
       normalizedKitchenSettings,
       escortSettings,
       constraints,
-      { mode: 'guards', existingRasarAssignments: sanitizedRasar, existingEscort400Assignments: sanitizedEscort400, rasarStartISO: startISO, rasarEndISO: endISO }
+      {
+        mode: 'guards',
+        allowPartial,
+        existingRasarAssignments: sanitizedRasar,
+        existingEscort400Assignments: sanitizedEscort400,
+        rasarStartISO: startISO,
+        rasarEndISO: endISO,
+      }
     );
+
+    console.log('scheduleGenerator result:', { 
+      error: result.error, 
+      missingCount: result.missingCount,
+      assignmentsCount: result.assignments?.length,
+      bwAssignmentsCount: result.bwAssignments?.length
+    });
 
     if (result.error) return respondError(res, result.error, result.missingCount ?? null);
 
@@ -1346,6 +1380,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
       kitchenSettings,
       escortSettings,
       constraints = [],
+      allowPartial = false,
     } = req.body;
 
     let normalizedKitchenSettings = null;
@@ -1370,24 +1405,24 @@ router.post('/generate-kitchen', async (req, res, next) => {
       db.all('SELECT * FROM posts WHERE userId = $1', [req.user.id]),
     ]);
 
-    const personIds = new Set(peopleRows.map(p => p.id));
-    const postIds = new Set(postRows.map(p => p.id));
+    const personIds = new Set(peopleRows.map(p => idKey(p.id)));
+    const postIds = new Set(postRows.map(p => idKey(p.id)));
     const sanitizeAssignments = arr =>
-      (arr || []).filter(a => personIds.has(a.personId) && postIds.has(a.postId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)) && postIds.has(idKey(a.postId)));
     const sanitizeBw = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeKitchen = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEscort = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeRasar = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEscort400 = arr =>
-      (arr || []).filter(a => personIds.has(a.personId));
+      (arr || []).filter(a => personIds.has(idKey(a.personId)));
     const sanitizeEs = arr =>
       (arr || []).map(es => ({
         groupId: es.groupId,
-        personIds: (es.personIds || []).filter(pid => personIds.has(pid)),
+        personIds: (es.personIds || []).filter(pid => personIds.has(idKey(pid))),
       }));
 
     const sanitizedEs = sanitizeEs(esAssignments);
@@ -1408,11 +1443,11 @@ router.post('/generate-kitchen', async (req, res, next) => {
       sanitizedEscort400 = sanitizeEscort400(rows.map(r => ({ personId: Number(r.personid), day: r.day, shiftId: r.shiftid })));
     }
 
-    const shuffledPeople = shuffle(peopleRows).map(mapPerson);
+    const shuffledPeople = shuffle(peopleRows).map(toSchedulerPerson);
 
     const result = scheduleGenerator(
       shuffledPeople,
-      postRows.map(mapPost),
+      postRows.map(toSchedulerPost),
       startISO,
       endISO,
       [], // no guard overrides needed for kitchen generation
@@ -1426,6 +1461,7 @@ router.post('/generate-kitchen', async (req, res, next) => {
       constraints,
       {
         mode: 'kitchen',
+        allowPartial,
         kitchenStartISO: effectiveKitchenStartISO,
         kitchenEndISO: effectiveKitchenEndISO,
         existingRasarAssignments: sanitizedRasar,
@@ -1457,6 +1493,53 @@ router.post('/generate-kitchen', async (req, res, next) => {
       ...otherDaysEscort,
       ...(result.escortAssignments || []),
     ];
+
+    // If we couldn't fully staff kitchen/escort, treat it as "not enough manpower" unless allowPartial is enabled.
+    // In partial mode we return the best-effort schedule with empty cells.
+    const computeKitchenShortage = () => {
+      let deficit = 0;
+
+      const startDay = dayjs(effectiveKitchenStartISO).startOf('day');
+      const endDay = dayjs(effectiveKitchenEndISO).startOf('day');
+      const days = [];
+      let cursor = startDay.clone();
+      while (cursor.isBefore(endDay) || cursor.isSame(endDay, 'day')) {
+        days.push(cursor.format('YYYY-MM-DD'));
+        cursor = cursor.add(1, 'day');
+      }
+
+      // Use merged assignments for shortage calculation
+      const kitchenAssigned = mergedKitchenAssignments;
+      const escortAssigned = mergedEscortAssignments;
+
+      for (const day of days) {
+        for (const s of (normalizedKitchenSettings?.shifts || [])) {
+          const required = Math.max(0, Number(s?.required ?? 0) || 0);
+          if (required <= 0) continue;
+          const has = kitchenAssigned.filter(a => a.day === day && a.shiftId === s.id).length;
+          if (has < required) deficit += (required - has);
+        }
+
+        const escortDefs = [
+          { id: 'escort_1', required: Math.max(0, Number(escortSettings?.requiredShift1 ?? 0) || 0) },
+          { id: 'escort_2', required: Math.max(0, Number(escortSettings?.requiredShift2 ?? 0) || 0) },
+          { id: 'escort_3', required: Math.max(0, Number(escortSettings?.requiredShift3 ?? 0) || 0) },
+          { id: 'escort_4', required: Math.max(0, Number(escortSettings?.requiredShift4 ?? 0) || 0) },
+        ];
+        for (const e of escortDefs) {
+          if (e.required <= 0) continue;
+          const has = escortAssigned.filter(a => a.day === day && a.shiftId === e.id).length;
+          if (has < e.required) deficit += (e.required - has);
+        }
+      }
+
+      return deficit;
+    };
+
+    const shortage = computeKitchenShortage();
+    if (!allowPartial && shortage > 0) {
+      return respondError(res, 'not enough manpower', shortage);
+    }
 
     await persistKitchenOnly(
       db,
@@ -1507,6 +1590,7 @@ router.post('/generate-rasar', async (req, res, next) => {
       kitchenSettings,
       escortSettings,
       constraints = [],
+      allowPartial = false,
     } = req.body;
 
     const effectiveStartISO = startISO ?? rasarStartISO;
@@ -1691,26 +1775,29 @@ router.post('/generate-rasar', async (req, res, next) => {
         incomingRanges.push({ personId: Number(a.personId), range, day: a.day, shiftId: a.shiftId });
       }
 
-      // Required-per-shift validation (otherwise client can show "schedule invalid" even if overlaps are fine)
+      // Required-per-shift validation.
+      // In allowPartial mode we intentionally allow missing positions and show empty cells in the UI.
       const violations = [];
-      for (const day of rasarWeekDays()) {
-        for (const shiftId of rasarShiftIds) {
-          const required = requiredForRasar(day, shiftId);
-          const count = (rasarAssignments || []).filter(a => a.day === day && a.shiftId === shiftId).length;
-          if (count !== required) {
-            violations.push({ personId: 0, message: `Missing/extra in rasar: ${day} ${shiftId} required ${required} has ${count}` });
+      if (!allowPartial) {
+        for (const day of rasarWeekDays()) {
+          for (const shiftId of rasarShiftIds) {
+            const required = requiredForRasar(day, shiftId);
+            const count = (rasarAssignments || []).filter(a => a.day === day && a.shiftId === shiftId).length;
+            if (count !== required) {
+              violations.push({ personId: 0, message: `Missing/extra in rasar: ${day} ${shiftId} required ${required} has ${count}` });
+            }
+          }
+          for (const shiftId of escort400ShiftIds) {
+            const required = requiredForEscort400(day, shiftId);
+            const count = (escort400Assignments || []).filter(a => a.day === day && a.shiftId === shiftId).length;
+            if (count !== required) {
+              violations.push({ personId: 0, message: `Missing/extra in escort400: ${day} ${shiftId} required ${required} has ${count}` });
+            }
           }
         }
-        for (const shiftId of escort400ShiftIds) {
-          const required = requiredForEscort400(day, shiftId);
-          const count = (escort400Assignments || []).filter(a => a.day === day && a.shiftId === shiftId).length;
-          if (count !== required) {
-            violations.push({ personId: 0, message: `Missing/extra in escort400: ${day} ${shiftId} required ${required} has ${count}` });
-          }
+        if (violations.length) {
+          return { ok: false, error: 'Required counts mismatch', violations };
         }
-      }
-      if (violations.length) {
-        return { ok: false, error: 'Required counts mismatch', violations };
       }
 
       // Female-only rule for escort400
@@ -1808,6 +1895,7 @@ router.post('/generate-rasar', async (req, res, next) => {
         constraints,
         {
           mode: 'rasar',
+          allowPartial,
           existingRasarAssignments: sanitizedRasar,
           rasarStartISO: effectiveStartISO,
           rasarEndISO: effectiveEndISO,
@@ -1832,6 +1920,25 @@ router.post('/generate-rasar', async (req, res, next) => {
     }
 
     if (lastValidation) {
+      // If the only reason we failed was required-count mismatch, treat it as manpower shortage
+      // so the client can offer "generate with empty cells" via allowPartial.
+      const computeMissingFromViolations = (violations = []) => {
+        let missing = 0;
+        for (const v of violations) {
+          const msg = (v?.message || '').toString();
+          const m = msg.match(/required\s+(\d+)\s+has\s+(\d+)/);
+          if (!m) continue;
+          const req = Number(m[1]);
+          const has = Number(m[2]);
+          if (Number.isFinite(req) && Number.isFinite(has) && has < req) missing += (req - has);
+        }
+        return missing;
+      };
+
+      const missing = computeMissingFromViolations(lastValidation.violations || []);
+      if (!allowPartial && missing > 0) {
+        return respondError(res, 'not enough manpower', missing);
+      }
       const [guardsSnap, kitchenSnap] = await Promise.all([
         fetchGuardsSnapshot(db, req.user.id),
         fetchKitchenEscortSnapshot(db, req.user.id),

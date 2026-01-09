@@ -564,7 +564,7 @@ const RasarDutyView: React.FC<Props> = ({
               variant="contained"
               color="success"
               onClick={onSave}
-              disabled={isGenerating || isSaving || validation.issues.length > 0 || !hasChanges}
+              disabled={isGenerating || isSaving || !hasChanges}
             >
               {isSaving ? <CircularProgress size={20} /> : t('Save')}
             </Button>
@@ -601,7 +601,7 @@ const RasarDutyView: React.FC<Props> = ({
         <Alert severity="warning" sx={{ mb: 2 }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
             <Typography variant="body2">
-              {t('Schedule is invalid')} — {validation.issues.length}
+              {t('Schedule is invalid')} — {validation.issues.length} {t('errors')}
             </Typography>
             <Button size="small" onClick={() => setShowValidationDetails(v => !v)}>
               {showValidationDetails ? t('Hide') : t('Show')}
@@ -616,7 +616,7 @@ const RasarDutyView: React.FC<Props> = ({
               ))}
               {validation.issues.length > 50 && (
                 <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>
-                  … {validation.issues.length - 50} more
+                  … {validation.issues.length - 50} {t('more errors')}
                 </Typography>
               )}
             </Box>
