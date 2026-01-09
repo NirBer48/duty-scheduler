@@ -126,3 +126,11 @@ export interface Escort400Override {
   shiftId: string; // escort400_1 | escort400_2
   required: number;
 }
+
+export interface CustomHours {
+  id: number;
+  personId: number;
+  date: string; // YYYY-MM-DD
+  reason: string;
+  hours: number; // can be positive or negative
+}

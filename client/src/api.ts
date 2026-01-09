@@ -13,6 +13,7 @@ import type {
   RasarOverride,
   Escort400Assignment,
   Escort400Override,
+  CustomHours,
 } from './types';
 
 const BASE = '/api';
@@ -139,6 +140,7 @@ export type JusticeRow = {
   escortHours: number;
   rasarHours: number;
   escort400Hours: number;
+  customHours?: number;
   totalHours: number;
 };
 
@@ -406,3 +408,17 @@ export const fetchJustice = (params: { mode: 'all' | 'range'; startISO?: string;
   }
   return request<{ rows: JusticeRow[] }>(`/schedule/justice?${qs.toString()}`);
 };
+
+export const getCustomHours = () => request<CustomHours[]>('/custom-hours');
+export const getCustomHoursByPerson = (personId: number) => request<CustomHours[]>(`/custom-hours/person/${personId}`);
+export const createCustomHours = (personId: number, date: string, reason: string, hours: number) =>
+  request<CustomHours>('/custom-hours', {
+    method: 'POST',
+    body: JSON.stringify({ personId, date, reason, hours }),
+  });
+export const updateCustomHours = (id: number, date: string, reason: string, hours: number) =>
+  request<{ ok: boolean }>(`/custom-hours/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ date, reason, hours }),
+  });
+export const deleteCustomHours = (id: number) => request<{ ok: boolean }>(`/custom-hours/${id}`, { method: 'DELETE' });

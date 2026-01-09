@@ -15,10 +15,21 @@ import {
     TableContainer,
     TableHead,
     TableRow,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    Button,
+    IconButton,
+    List,
+    ListItem,
+    ListItemText,
+    ListItemSecondaryAction,
 } from '@mui/material';
+import { Delete as DeleteIcon, Add as AddIcon } from '@mui/icons-material';
 import { useI18n } from '../util/i18n';
-import type { Assignment, BWAssignment, EscortAssignment, Escort400Assignment, KitchenAssignment, Person, RasarAssignment } from '../types';
-import { fetchJustice, type JusticeRow } from '../api';
+import type { Assignment, BWAssignment, EscortAssignment, Escort400Assignment, KitchenAssignment, Person, RasarAssignment, CustomHours } from '../types';
+import { fetchJustice, type JusticeRow, getCustomHoursByPerson, createCustomHours, deleteCustomHours } from '../api';
 
 type Props = {
     people: Person[];
@@ -49,6 +60,12 @@ const JusticeTableView: React.FC<Props> = ({
 
     const [orderBy, setOrderBy] = useState<keyof JusticeRow>('totalHours');
     const [order, setOrder] = useState<'asc' | 'desc'>('desc');
+    
+    // Custom hours dialog state
+    const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
+    const [customHoursDialogOpen, setCustomHoursDialogOpen] = useState(false);
+    const [customHoursList, setCustomHoursList] = useState<CustomHours[]>([]);
+    const [newCustomHours, setNewCustomHours] = useState({ date: '', reason: '', hours: 0 });
 
     useEffect(() => {
         let cancelled = false;
@@ -112,6 +129,63 @@ const JusticeTableView: React.FC<Props> = ({
         }
     };
 
+    const handlePersonClick = async (personId: number) => {
+        setSelectedPersonId(personId);
+        setCustomHoursDialogOpen(true);
+        try {
+            const hours = await getCustomHoursByPerson(personId);
+            setCustomHoursList(hours);
+        } catch (e: any) {
+            console.error('Failed to load custom hours:', e);
+            setCustomHoursList([]);
+        }
+    };
+
+    const handleAddCustomHours = async () => {
+        if (!selectedPersonId || !newCustomHours.date || newCustomHours.hours === 0) return;
+        try {
+            await createCustomHours(selectedPersonId, newCustomHours.date, newCustomHours.reason, newCustomHours.hours);
+            const hours = await getCustomHoursByPerson(selectedPersonId);
+            setCustomHoursList(hours);
+            setNewCustomHours({ date: '', reason: '', hours: 0 });
+            // Reload justice table
+            const params =
+                mode === 'all'
+                    ? { mode: 'all' as const }
+                    : {
+                        mode: 'range' as const,
+                        startISO: `${fromDate}T00:00`,
+                        endISO: `${toDate}T23:59`,
+                    };
+            const res = await fetchJustice(params);
+            setRows(res.rows || []);
+        } catch (e: any) {
+            console.error('Failed to add custom hours:', e);
+        }
+    };
+
+    const handleDeleteCustomHours = async (id: number) => {
+        if (!selectedPersonId) return;
+        try {
+            await deleteCustomHours(id);
+            const hours = await getCustomHoursByPerson(selectedPersonId);
+            setCustomHoursList(hours);
+            // Reload justice table
+            const params =
+                mode === 'all'
+                    ? { mode: 'all' as const }
+                    : {
+                        mode: 'range' as const,
+                        startISO: `${fromDate}T00:00`,
+                        endISO: `${toDate}T23:59`,
+                    };
+            const res = await fetchJustice(params);
+            setRows(res.rows || []);
+        } catch (e: any) {
+            console.error('Failed to delete custom hours:', e);
+        }
+    };
+
     const columns: Array<{ key: keyof JusticeRow; label: string; isNumeric?: boolean }> = [
         { key: 'name', label: t('Person') },
         { key: 'guardsHours', label: t('Guards'), isNumeric: true },
@@ -120,6 +194,7 @@ const JusticeTableView: React.FC<Props> = ({
         { key: 'escortHours', label: t('Escort'), isNumeric: true },
         { key: 'rasarHours', label: t('Rasar'), isNumeric: true },
         { key: 'escort400Hours', label: t('Contractor escort - 400'), isNumeric: true },
+        { key: 'customHours', label: t('Custom Hours'), isNumeric: true },
         { key: 'totalHours', label: `${t('Total')} (${t('Hours')})`, isNumeric: true },
     ];
 
@@ -262,7 +337,10 @@ const JusticeTableView: React.FC<Props> = ({
                                             fontWeight: 700,
                                             whiteSpace: 'nowrap',
                                             fontSize: '1.25rem',
+                                            cursor: 'pointer',
+                                            '&:hover': { textDecoration: 'underline' },
                                         }}
+                                        onClick={() => handlePersonClick(r.personId)}
                                     >
                                         {name}
                                     </TableCell>
@@ -272,6 +350,16 @@ const JusticeTableView: React.FC<Props> = ({
                                     <TableCell sx={{ fontSize: '1.5rem' }} align="center">{fmt(r.escortHours)}</TableCell>
                                     <TableCell sx={{ fontSize: '1.5rem' }} align="center">{fmt(r.rasarHours)}</TableCell>
                                     <TableCell sx={{ fontSize: '1.5rem' }} align="center">{fmt(r.escort400Hours)}</TableCell>
+                                    <TableCell
+                                        sx={{
+                                            fontSize: '1.5rem',
+                                            color: (r.customHours || 0) > 0 ? '#2e7d32' : (r.customHours || 0) < 0 ? '#d32f2f' : 'inherit',
+                                            fontWeight: (r.customHours || 0) !== 0 ? 700 : 400,
+                                        }}
+                                        align="center"
+                                    >
+                                        {fmt(r.customHours || 0)}
+                                    </TableCell>
                                     <TableCell sx={{ fontSize: '1.5rem', fontWeight: 800 }} align="center"> {fmt(r.totalHours)}</TableCell>
                                 </TableRow>
                             );
@@ -284,6 +372,122 @@ const JusticeTableView: React.FC<Props> = ({
                     </TableBody>
                 </Table>
             </TableContainer>
+
+            {/* Custom Hours Dialog */}
+            <Dialog
+                open={customHoursDialogOpen}
+                onClose={() => {
+                    setCustomHoursDialogOpen(false);
+                    setSelectedPersonId(null);
+                    setNewCustomHours({ date: '', reason: '', hours: 0 });
+                }}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>
+                    {t('Custom Hours')}: {people.find(p => p.id === selectedPersonId)?.name || selectedPersonId}
+                </DialogTitle>
+                <DialogContent>
+                    <Box sx={{ mb: 3 }}>
+                        <Typography variant="h6" sx={{ mb: 2 }}>{t('Add Custom Hours')}</Typography>
+                        <Stack spacing={2}>
+                            <TextField
+                                type="date"
+                                label={t('Date')}
+                                value={newCustomHours.date}
+                                onChange={(e) => setNewCustomHours({ ...newCustomHours, date: e.target.value })}
+                                InputLabelProps={{ shrink: true }}
+                                fullWidth
+                            />
+                            <TextField
+                                label={t('Reason')}
+                                value={newCustomHours.reason}
+                                onChange={(e) => setNewCustomHours({ ...newCustomHours, reason: e.target.value })}
+                                fullWidth
+                                multiline
+                                rows={2}
+                            />
+                            <TextField
+                                type="number"
+                                label={t('Hours')}
+                                value={newCustomHours.hours}
+                                onChange={(e) => setNewCustomHours({ ...newCustomHours, hours: Number(e.target.value) })}
+                                fullWidth
+                                inputProps={{ step: 0.5 }}
+                                helperText={t('Positive for bonus hours, negative for deduction')}
+                            />
+                            <Button
+                                variant="contained"
+                                startIcon={<AddIcon />}
+                                onClick={handleAddCustomHours}
+                                disabled={!newCustomHours.date || newCustomHours.hours === 0}
+                            >
+                                {t('Add')}
+                            </Button>
+                        </Stack>
+                    </Box>
+
+                    <Box>
+                        <Typography variant="h6" sx={{ mb: 2 }}>{t('Existing Custom Hours')}</Typography>
+                        {customHoursList.length === 0 ? (
+                            <Typography variant="body2" color="text.secondary">{t('No custom hours')}</Typography>
+                        ) : (
+                            <List>
+                                {customHoursList.map((ch) => (
+                                    <ListItem
+                                        key={ch.id}
+                                        sx={{
+                                            border: '1px solid #e0e0e0',
+                                            borderRadius: 1,
+                                            mb: 1,
+                                            bgcolor: ch.hours > 0 ? '#e8f5e9' : ch.hours < 0 ? '#ffebee' : 'inherit',
+                                        }}
+                                    >
+                                        <ListItemText
+                                            primary={
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    <Typography
+                                                        variant="body1"
+                                                        sx={{
+                                                            fontWeight: 600,
+                                                            color: ch.hours > 0 ? '#2e7d32' : ch.hours < 0 ? '#d32f2f' : 'inherit',
+                                                        }}
+                                                    >
+                                                        {ch.hours > 0 ? '+' : ''}{ch.hours} {t('Hours')}
+                                                    </Typography>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        ({ch.date})
+                                                    </Typography>
+                                                </Box>
+                                            }
+                                            secondary={ch.reason || t('No reason provided')}
+                                        />
+                                        <ListItemSecondaryAction>
+                                            <IconButton
+                                                edge="end"
+                                                aria-label="delete"
+                                                onClick={() => handleDeleteCustomHours(ch.id)}
+                                                color="error"
+                                            >
+                                                <DeleteIcon />
+                                            </IconButton>
+                                        </ListItemSecondaryAction>
+                                    </ListItem>
+                                ))}
+                            </List>
+                        )}
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => {
+                        setCustomHoursDialogOpen(false);
+                        setSelectedPersonId(null);
+                        setNewCustomHours({ date: '', reason: '', hours: 0 });
+                    }}>
+                        {t('Close')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 };
