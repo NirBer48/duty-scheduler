@@ -64,6 +64,15 @@ CREATE TABLE IF NOT EXISTS constraints (
   userId INTEGER REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS custom_hours (
+  id SERIAL PRIMARY KEY,
+  personId INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  hours NUMERIC NOT NULL,
+  userId INTEGER REFERENCES users(id)
+);
+
 CREATE TABLE IF NOT EXISTS kitchen_settings (
   id SERIAL PRIMARY KEY,
   requiredPerShift INTEGER NOT NULL DEFAULT 36,

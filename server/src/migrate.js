@@ -85,6 +85,17 @@ const createTables = async db => {
     );
   `);
 
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS custom_hours (
+      id SERIAL PRIMARY KEY,
+      personId INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      hours NUMERIC NOT NULL,
+      userId INTEGER REFERENCES users(id)
+    );
+  `);
+
   // Kitchen duty settings + assignments
   await db.run(`
     CREATE TABLE IF NOT EXISTS kitchen_settings (
@@ -495,6 +506,7 @@ const runMigration = async () => {
     await ensureUserIdColumn(db, 'kitchen_assignments');
     await ensureUserIdColumn(db, 'escort_settings');
     await ensureUserIdColumn(db, 'escort_assignments');
+    await ensureUserIdColumn(db, 'custom_hours');
     const adminId = await seedAdmin(db);
     await attachRowsToAdmin(db, adminId);
     await migrateKitchenSettingsToKitchenShifts(db);

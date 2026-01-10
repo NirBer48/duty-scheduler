@@ -5,6 +5,7 @@ import peopleRoute from './routes/people.js';
 import postsRoute from './routes/posts.js';
 import scheduleRoute from './routes/schedule.js';
 import constraintsRoute from './routes/constraints.js';
+import customHoursRoute from './routes/customHours.js';
 import authRoute from './routes/auth.js';
 import cookieParser from 'cookie-parser';
 import { requireAuth, attachUserIfPresent } from './middleware/auth.js';
@@ -34,6 +35,7 @@ const startServer = async () => {
     app.use('/api/people', requireAuth, peopleRoute);
     app.use('/api/posts', requireAuth, postsRoute);
     app.use('/api/constraints', requireAuth, constraintsRoute);
+    app.use('/api/custom-hours', requireAuth, customHoursRoute);
     app.use('/api/schedule', requireAuth, scheduleRoute);
     app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

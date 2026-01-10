@@ -137,7 +137,7 @@ const overlapMinutes = (aStartISO, aEndISO, rangeStartISO, rangeEndISO) => {
 };
 
 const dutyHoursFromArchived = async (db, userId, rangeStartISO = null, rangeEndISO = null) => {
-  // Returns rows: [{ personId, name, guardsHours, bwHours, kitchenHours, escortHours, rasarHours, escort400Hours, totalHours }]
+  // Returns rows: [{ personId, name, guardsHours, bwHours, kitchenHours, escortHours, rasarHours, escort400Hours, customHours, totalHours }]
   // If rangeStartISO/rangeEndISO provided: counts ONLY overlap with that time window.
 
   const isRange = !!(rangeStartISO && rangeEndISO);
@@ -193,6 +193,7 @@ const dutyHoursFromArchived = async (db, userId, rangeStartISO = null, rangeEndI
     escortHours: 0,
     rasarHours: 0,
     escort400Hours: 0,
+    customHours: 0,
     totalHours: 0,
   });
 
@@ -336,10 +337,35 @@ const dutyHoursFromArchived = async (db, userId, rangeStartISO = null, rangeEndI
     if (h > 0) add(pid, 'escort400Hours', h);
   }
 
+  // Custom hours: sum all custom hours for each person (filter by date range if provided)
+  // Check if table exists first (for backward compatibility with older deployments)
+  const hasCustomHoursTable = (await existingTables(db, ['custom_hours'])).has('custom_hours');
+  if (hasCustomHoursTable) {
+    const customHoursWhere = isRange
+      ? 'userId = $1 AND date >= $2 AND date <= $3'
+      : 'userId = $1';
+    const customHoursParams = isRange ? [userId, startDay, endDay] : [userId];
+    try {
+      const customHoursRows = await db.all(
+        `SELECT personId, SUM(hours)::NUMERIC as totalCustomHours FROM custom_hours WHERE ${customHoursWhere} GROUP BY personId`,
+        customHoursParams
+      );
+      for (const r of customHoursRows || []) {
+        const pid = Number(r.personid || r.personId);
+        const hours = Number(r.totalcustomhours || r.totalCustomHours || 0);
+        if (!out.has(pid)) out.set(pid, init());
+        out.get(pid).customHours = hours;
+      }
+    } catch (err) {
+      // If table doesn't exist or query fails, just skip custom hours
+      console.warn('Failed to load custom hours:', err.message);
+    }
+  }
+
   // Totals
   for (const [pid, v] of out.entries()) {
     v.totalHours =
-      v.guardsHours + v.bwHours + v.kitchenHours + v.escortHours + v.rasarHours + v.escort400Hours;
+      v.guardsHours + v.bwHours + v.kitchenHours + v.escortHours + v.rasarHours + v.escort400Hours + (v.customHours || 0);
     out.set(pid, v);
   }
 
