@@ -10,10 +10,12 @@ import {
     Box,
     Typography,
     TextField,
-    Alert
+    Alert,
+    Tooltip
 } from "@mui/material";
 import { useI18n } from "../../util/i18n";
-import { Person, ESGroup, Constraint } from "../../types";
+import { Assignment, BWAssignment, Escort400Assignment, EscortAssignment, KitchenAssignment, Person, ESGroup, Constraint, RasarAssignment } from "../../types";
+import { buildDutyCountsByPerson } from "./dutyCounts";
 
 interface Props {
     open: boolean;
@@ -24,6 +26,14 @@ interface Props {
     onSave: (personIds: number[], totalPeople: number) => void;
     otherESPersonIds: number[];
     constraints?: Constraint[];
+    rangeStartISO: string;
+    rangeEndISO: string;
+    guardAssignments: Assignment[];
+    bwAssignments: BWAssignment[];
+    kitchenAssignments: KitchenAssignment[];
+    escortAssignments: EscortAssignment[];
+    rasarAssignments: RasarAssignment[];
+    escort400Assignments: Escort400Assignment[];
 }
 
 export const ESEditDialog: React.FC<Props> = ({ 
@@ -35,6 +45,14 @@ export const ESEditDialog: React.FC<Props> = ({
     onSave, 
     otherESPersonIds,
     constraints = [],
+    rangeStartISO,
+    rangeEndISO,
+    guardAssignments,
+    bwAssignments,
+    kitchenAssignments,
+    escortAssignments,
+    rasarAssignments,
+    escort400Assignments,
 }) => {
     const [selected, setSelected] = useState<number[]>(currentPersonIds);
     const [totalPeople, setTotalPeople] = useState(group.totalPeople);
@@ -94,6 +112,71 @@ export const ESEditDialog: React.FC<Props> = ({
         return map;
     }, [constraints]);
 
+    // Check which people have rasar assignments (ES members shouldn't have rasar)
+    const rasarByPerson = useMemo(() => {
+        const map = new Map<number, RasarAssignment[]>();
+        rasarAssignments.forEach(r => {
+            const arr = map.get(r.personId) || [];
+            arr.push(r);
+            map.set(r.personId, arr);
+        });
+        return map;
+    }, [rasarAssignments]);
+
+    // Check which people have escort400 assignments (ES members shouldn't have escort400)
+    const escort400ByPerson = useMemo(() => {
+        const map = new Map<number, Escort400Assignment[]>();
+        escort400Assignments.forEach(e => {
+            const arr = map.get(e.personId) || [];
+            arr.push(e);
+            map.set(e.personId, arr);
+        });
+        return map;
+    }, [escort400Assignments]);
+
+    const dutyCountsByPerson = useMemo(
+        () =>
+            buildDutyCountsByPerson({
+                people,
+                rangeStartISO,
+                rangeEndISO,
+                guardAssignments,
+                bwAssignments,
+                kitchenAssignments,
+                escortAssignments,
+                rasarAssignments,
+                escort400Assignments,
+            }),
+        [people, rangeStartISO, rangeEndISO, guardAssignments, bwAssignments, kitchenAssignments, escortAssignments, rasarAssignments, escort400Assignments]
+    );
+
+    const tooltipForPerson = (person: Person) => {
+        const c = dutyCountsByPerson.get(person.id);
+        const lines: Array<{ label: string; count: number }> = [];
+        if (c?.guards) lines.push({ label: t('Guards'), count: c.guards });
+        if (c?.bw) lines.push({ label: t('BW Assignments'), count: c.bw });
+        if (c?.kitchen) lines.push({ label: t('Kitchen'), count: c.kitchen });
+        if (c?.escort) lines.push({ label: t('Escort'), count: c.escort });
+        if (c?.rasar) lines.push({ label: t('Rasar'), count: c.rasar });
+        if (c?.escort400) lines.push({ label: t('Contractor escort - 400'), count: c.escort400 });
+
+        return (
+            <Box sx={{ whiteSpace: 'pre-line' }}>
+                <Typography variant="subtitle2">{person.name}</Typography>
+                <Box sx={{ height: 8 }} />
+                {lines.length === 0 ? (
+                    <Typography variant="body2">{t('No duties in range')}</Typography>
+                ) : (
+                    lines.map(l => (
+                        <Typography key={l.label} variant="body2">
+                            {l.label}: {l.count}
+                        </Typography>
+                    ))
+                )}
+            </Box>
+        );
+    };
+
     const filteredPeople = availablePeople.filter(person => {
         if (!search.trim()) return true;
         const query = search.toLowerCase();
@@ -150,6 +233,10 @@ export const ESEditDialog: React.FC<Props> = ({
                         const isSelected = selected.includes(person.id);
                         const isDisabled = !isSelected && selected.length >= totalPeople;
                         const personConstraints = constraintsByPerson.get(person.id) || [];
+                        const personRasar = rasarByPerson.get(person.id) || [];
+                        const personEscort400 = escort400ByPerson.get(person.id) || [];
+                        const hasRasarConflict = personRasar.length > 0;
+                        const hasEscort400Conflict = personEscort400.length > 0;
 
                         return (
                             <Box key={person.id}>
@@ -161,7 +248,14 @@ export const ESEditDialog: React.FC<Props> = ({
                                             disabled={isDisabled}
                                         />
                                     }
-                                    label={`${person.name} (${person.gender})`}
+                                    label={
+                                        <Tooltip title={tooltipForPerson(person)} placement="top" arrow>
+                                            <span style={{ color: (hasRasarConflict || hasEscort400Conflict) ? '#ed6c02' : undefined }}>
+                                                {person.name} ({person.gender})
+                                                {(hasRasarConflict || hasEscort400Conflict) && ' ⚠️'}
+                                            </span>
+                                        </Tooltip>
+                                    }
                                     sx={{ opacity: isDisabled ? 0.5 : 1 }}
                                 />
                                 {personConstraints.map(c => (
@@ -169,6 +263,16 @@ export const ESEditDialog: React.FC<Props> = ({
                                         ⚠️ {t('Constraint conflict')}: {c.title}
                                     </Typography>
                                 ))}
+                                {hasRasarConflict && (
+                                    <Typography variant="caption" color="warning.main" sx={{ display: 'block', ml: 4 }}>
+                                        ⚠️ {t('Has rasar duty')} ({personRasar.length})
+                                    </Typography>
+                                )}
+                                {hasEscort400Conflict && (
+                                    <Typography variant="caption" color="warning.main" sx={{ display: 'block', ml: 4 }}>
+                                        ⚠️ {t('Has escort 400 duty')} ({personEscort400.length})
+                                    </Typography>
+                                )}
                             </Box>
                         );
                     })}

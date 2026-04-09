@@ -1,6 +1,20 @@
 import XLSX from 'xlsx-js-style';
 import dayjs from "dayjs";
-import { Person, Post, Assignment, ESGroup, ESGroupAssignment, ShiftOverride, BWAssignment } from "../../types";
+import {
+    Person,
+    Post,
+    Assignment,
+    ESGroup,
+    ESGroupAssignment,
+    ShiftOverride,
+    BWAssignment,
+    KitchenAssignment,
+    EscortAssignment,
+    KitchenSettings,
+    EscortSettings,
+    RasarAssignment,
+    RasarOverride,
+} from "../../types";
 import { ShiftSlot, getPersonIds, BW_SLOT_DEFINITIONS, BW_REQUIRED_PER_SLOT, getBwDaysForRange, getBwSlotsForRange, getShiftTimeWindow } from "./utils";
 
 interface ExportParams {
@@ -16,6 +30,348 @@ interface ExportParams {
     end: string;
     t: (key: string) => string;
 }
+
+type KitchenExportParams = {
+    people: Person[];
+    kitchenAssignments: KitchenAssignment[];
+    escortAssignments: EscortAssignment[];
+    kitchenSettings: KitchenSettings;
+    escortSettings: EscortSettings;
+    kitchenStart: string;
+    kitchenEnd: string;
+    t: (key: string) => string;
+};
+
+type RasarExportParams = {
+    people: Person[];
+    rasarAssignments: RasarAssignment[];
+    rasarOverrides: RasarOverride[];
+    escort400Assignments: { day: string; shiftId: string; personId: number }[];
+    escort400Overrides: { day: string; shiftId: string; required: number }[];
+    weekStart: string; // YYYY-MM-DD (Sunday)
+    t: (key: string) => string;
+};
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const hhmmToMinutes = (hhmm: string) => {
+    const m = (hhmm || '').match(/^(\d{2}):(\d{2})$/);
+    if (!m) return 0;
+    return Number(m[1]) * 60 + Number(m[2]);
+};
+const clampKitchenShift2Start = (hhmm: string) => {
+    // Keep it within 06:00..20:59 so we still have a non-empty 2nd shift (ends 21:00)
+    const min = 6 * 60;
+    const max = 20 * 60 + 59;
+    const mins = hhmmToMinutes(hhmm);
+    const clamped = Math.min(max, Math.max(min, mins));
+    const hh = Math.floor(clamped / 60);
+    const mm = clamped % 60;
+    return `${pad2(hh)}:${pad2(mm)}`;
+};
+
+const listDays = (startISO: string, endISO: string) => {
+    const start = dayjs(startISO);
+    const end = dayjs(endISO);
+    const out: string[] = [];
+    let cursor = start.startOf('day');
+    const last = end.startOf('day');
+    while (cursor.isBefore(last) || cursor.isSame(last, 'day')) {
+        out.push(cursor.format('YYYY-MM-DD'));
+        cursor = cursor.add(1, 'day');
+    }
+    return out;
+};
+
+const getNamesMultiline = (people: Person[], personIds: number[]) =>
+    personIds.map(pid => people.find(p => p.id === pid)?.name || String(pid)).join("\n");
+
+export const exportKitchenToExcel = ({
+    people,
+    kitchenAssignments,
+    escortAssignments,
+    kitchenSettings,
+    escortSettings,
+    kitchenStart,
+    kitchenEnd,
+    t
+}: KitchenExportParams) => {
+    const wb = XLSX.utils.book_new();
+    const startDt = dayjs(kitchenStart);
+    const endDt = dayjs(kitchenEnd);
+    const days = listDays(kitchenStart, kitchenEnd);
+
+    const kitchenShifts = (kitchenSettings?.shifts && kitchenSettings.shifts.length > 0
+      ? kitchenSettings.shifts
+      : [{ id: 'default', start: '06:00', end: '21:00', required: 36 }]
+    ).map(s => ({
+      id: s.id,
+      label: `${String(s.start || '06:00')}-${String(s.end || '21:00')}`,
+      required: Number(s.required ?? 36),
+    }));
+    const escortShifts = [
+        { id: 'escort_1', label: '07:00-10:30', required: Number(escortSettings.requiredShift1 ?? 4) },
+        { id: 'escort_2', label: '10:30-14:00', required: Number(escortSettings.requiredShift2 ?? 4) },
+        { id: 'escort_3', label: '14:00-17:00', required: Number(escortSettings.requiredShift3 ?? 4) },
+        { id: 'escort_4', label: '17:00-19:00', required: Number(escortSettings.requiredShift4 ?? 4) },
+    ];
+
+    const buildSheet = (
+        sheetName: string,
+        shifts: { id: string; label: string; required: number }[],
+        assignments: { day: string; shiftId: string; personId: number }[],
+    ) => {
+        const wsData: XLSX.CellObject[][] = [];
+        const merges: XLSX.Range[] = [];
+        // Each day spans a fixed 10 columns, but the shift/day data is a single merged cell.
+        // Names are shown in ONE long row (comma-separated), like the BW export.
+        const colsPerDay = 10;
+        const rowHeights: { hpt?: number }[] = [];
+
+        // Columns: days..., Hours (right-most)
+        const headerRow: XLSX.CellObject[] = [
+            ...days.flatMap((day, dayIdx) => {
+                const startCol = dayIdx * colsPerDay;
+                const endCol = startCol + colsPerDay - 1;
+                merges.push({ s: { r: 0, c: startCol }, e: { r: 0, c: endCol } });
+                const first: XLSX.CellObject = {
+                    v: day,
+                    t: 's',
+                    s: {
+                        font: { bold: true, color: { rgb: 'FFFFFF' } },
+                        fill: { fgColor: { rgb: '4472C4' } },
+                        alignment: { horizontal: 'center', vertical: 'center' },
+                        border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                    }
+                };
+                const rest: XLSX.CellObject[] = [];
+                for (let i = 1; i < colsPerDay; i++) {
+                    rest.push({
+                        v: '',
+                        t: 's',
+                        s: {
+                            fill: { fgColor: { rgb: '4472C4' } },
+                            border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                        }
+                    });
+                }
+                return [first, ...rest];
+            }),
+            {
+                v: t('Hours'),
+                t: 's',
+                s: {
+                    font: { bold: true, color: { rgb: 'FFFFFF' } },
+                    fill: { fgColor: { rgb: '5B9BD5' } },
+                    alignment: { horizontal: 'center', vertical: 'center' },
+                    border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                }
+            }
+        ];
+        wsData.push(headerRow);
+        rowHeights.push({ hpt: 24 });
+
+        shifts.forEach((shift, shiftIdx) => {
+            const row: XLSX.CellObject[] = [];
+            let maxLinesForRow = 1;
+            days.forEach((day, dayIdx) => {
+                const personIds = assignments.filter(a => a.day === day && a.shiftId === shift.id).map(a => a.personId);
+                const count = personIds.length;
+                const names = personIds
+                    .map(pid => people.find(p => p.id === pid)?.name || String(pid))
+                    .sort((a, b) => a.localeCompare(b))
+                    .join(', ');
+
+                let bgColor = 'FFF2CC';
+                if (count === 0) bgColor = 'FFCCCC';
+                else if (count >= shift.required) bgColor = 'C6EFCE';
+
+                const r = 1 + shiftIdx;
+                const startCol = dayIdx * colsPerDay;
+                const endCol = startCol + colsPerDay - 1;
+                merges.push({ s: { r, c: startCol }, e: { r, c: endCol } });
+
+                // Estimate how many wrapped lines are needed to show the full string.
+                // This is approximate but works well with fixed-width day blocks.
+                const charsPerLine = colsPerDay * 8; // matches `wch: 8` below
+                const neededLines = Math.max(1, Math.ceil((names || '-').length / charsPerLine));
+                if (neededLines > maxLinesForRow) maxLinesForRow = neededLines;
+
+                // First col of the merged region holds the content.
+                row.push({
+                    v: names || '-',
+                    t: 's',
+                    s: {
+                        font: { sz: 10 },
+                        fill: { fgColor: { rgb: bgColor } },
+                        alignment: { horizontal: 'center', vertical: 'top', wrapText: true },
+                        border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                    }
+                });
+                // The rest of the merged region cells are empty but styled.
+                for (let i = 1; i < colsPerDay; i++) {
+                    row.push({
+                        v: '',
+                        t: 's',
+                        s: {
+                            fill: { fgColor: { rgb: bgColor } },
+                            border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                        }
+                    });
+                }
+            });
+            row.push({
+                v: shift.label,
+                t: 's',
+                s: {
+                    font: { bold: true },
+                    fill: { fgColor: { rgb: 'D9E2F3' } },
+                    alignment: { horizontal: 'center', vertical: 'center' },
+                    border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } }, left: { style: 'thin', color: { rgb: '000000' } }, right: { style: 'thin', color: { rgb: '000000' } } }
+                }
+            });
+            wsData.push(row);
+            // Roughly 14pt per line + a bit of padding
+            rowHeights.push({ hpt: Math.min(300, 16 + maxLinesForRow * 14) });
+        });
+
+        const ws = XLSX.utils.aoa_to_sheet(wsData.map(r => r.map(c => c.v)));
+        wsData.forEach((row, r) => row.forEach((cell, c) => {
+            const ref = XLSX.utils.encode_cell({ r, c });
+            if (ws[ref]) ws[ref].s = cell.s;
+        }));
+
+        ws['!merges'] = merges;
+        ws['!cols'] = [
+            ...days.flatMap(() => Array.from({ length: colsPerDay }, () => ({ wch: 8 }))),
+            { wch: 18 }, // Hours column
+        ];
+        ws['!rows'] = rowHeights;
+
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    };
+
+    // Hebrew sheet names as requested
+    buildSheet('מטבח', kitchenShifts, kitchenAssignments);
+    buildSheet('ליווי', escortShifts, escortAssignments);
+
+    XLSX.writeFile(wb, `kitchen_${startDt.format('YYYY-MM-DD')}_to_${endDt.format('YYYY-MM-DD')}.xlsx`);
+};
+
+export const exportRasarToExcel = ({
+    people,
+    rasarAssignments,
+    rasarOverrides,
+    escort400Assignments,
+    escort400Overrides,
+    weekStart,
+    t,
+}: RasarExportParams) => {
+    const wb = XLSX.utils.book_new();
+    const base = dayjs(weekStart).startOf('day');
+    const days = Array.from({ length: 5 }, (_, i) => base.add(i, 'day').format('YYYY-MM-DD'));
+
+    const styleHeader = (bg: string) => ({
+        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 },
+        fill: { fgColor: { rgb: bg } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+            top: { style: 'thin', color: { rgb: '000000' } },
+            bottom: { style: 'thin', color: { rgb: '000000' } },
+            left: { style: 'thin', color: { rgb: '000000' } },
+            right: { style: 'thin', color: { rgb: '000000' } },
+        }
+    });
+    const styleCell = (bg: string) => ({
+        font: { sz: 10 },
+        fill: { fgColor: { rgb: bg } },
+        alignment: { horizontal: 'center', vertical: 'top', wrapText: true },
+        border: {
+            top: { style: 'thin', color: { rgb: '000000' } },
+            bottom: { style: 'thin', color: { rgb: '000000' } },
+            left: { style: 'thin', color: { rgb: '000000' } },
+            right: { style: 'thin', color: { rgb: '000000' } },
+        }
+    });
+
+    const buildSheet = (
+        sheetName: string,
+        title: string,
+        shifts: { id: string; label: string }[],
+        assignments: { day: string; shiftId: string; personId: number }[],
+        overrides: { day: string; shiftId: string; required: number }[]
+    ) => {
+        const requiredFor = (day: string, shiftId: string) => {
+            const o = overrides.find(x => x.day === day && x.shiftId === shiftId);
+            const v = Number(o?.required ?? 1);
+            return Number.isFinite(v) ? Math.max(0, v) : 1;
+        };
+
+        const wsData: XLSX.CellObject[][] = [];
+        const header: XLSX.CellObject[] = [
+            { v: title, t: 's', s: styleHeader('4472C4') },
+            ...days.map(d => ({ v: d, t: 's', s: styleHeader('4472C4') })),
+            { v: t('Hours'), t: 's', s: styleHeader('5B9BD5') },
+        ];
+        wsData.push(header);
+
+        for (const shift of shifts) {
+            const row: XLSX.CellObject[] = [];
+            row.push({ v: shift.label, t: 's', s: styleCell('D9E2F3') });
+            for (const day of days) {
+                const personIds = assignments.filter(a => a.day === day && a.shiftId === shift.id).map(a => a.personId);
+                const names = personIds
+                    .map(pid => people.find(p => p.id === pid)?.name || String(pid))
+                    .join('\n') || '-';
+                const required = requiredFor(day, shift.id);
+                const count = personIds.length;
+                let bg = 'FFF2CC'; // partial
+                if (required === 0) bg = 'D9D9D9';
+                else if (count === 0) bg = 'FFCCCC';
+                else if (count >= required) bg = 'C6EFCE';
+                row.push({ v: names, t: 's', s: styleCell(bg) });
+            }
+            row.push({ v: shift.label, t: 's', s: styleCell('D9E2F3') });
+            wsData.push(row);
+        }
+
+        const ws = XLSX.utils.aoa_to_sheet(wsData.map(r => r.map(c => c.v)));
+        wsData.forEach((row, r) => row.forEach((cell, c) => {
+            const ref = XLSX.utils.encode_cell({ r, c });
+            if (ws[ref]) ws[ref].s = cell.s;
+        }));
+        ws['!cols'] = [
+            { wch: 18 },
+            ...Array.from({ length: 5 }, () => ({ wch: 24 })),
+            { wch: 14 },
+        ];
+        ws['!rows'] = [{ hpt: 22 }, ...Array.from({ length: shifts.length }, () => ({ hpt: 64 }))];
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    };
+
+    buildSheet(
+        'רס\"ר',
+        t('Rasar'),
+        [
+            { id: 'rasar_1', label: '08:30-11:30' },
+            { id: 'rasar_2', label: '13:30-17:30' },
+            { id: 'rasar_3', label: '19:30-20:30' },
+        ],
+        rasarAssignments,
+        rasarOverrides
+    );
+    buildSheet(
+        'ליווי 400',
+        t('Contractor escort - 400'),
+        [
+            { id: 'escort400_1', label: '08:00-12:30' },
+            { id: 'escort400_2', label: '12:30-17:00' },
+        ],
+        escort400Assignments,
+        escort400Overrides
+    );
+
+    XLSX.writeFile(wb, `rasar_${base.format('YYYY-MM-DD')}.xlsx`);
+};
 
 export const exportToExcel = ({
     shifts,

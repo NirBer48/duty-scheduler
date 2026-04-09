@@ -1,4 +1,20 @@
-import type { Assignment, BWAssignment, ESGroupAssignment, Person, Post, Constraint } from './types';
+import type {
+  Assignment,
+  BWAssignment,
+  ESGroupAssignment,
+  Person,
+  Post,
+  Constraint,
+  KitchenAssignment,
+  EscortAssignment,
+  KitchenSettings,
+  EscortSettings,
+  RasarAssignment,
+  RasarOverride,
+  Escort400Assignment,
+  Escort400Override,
+  CustomHours,
+} from './types';
 
 const BASE = '/api';
 
@@ -28,6 +44,47 @@ const request = async <T>(path: string, init?: RequestInit) => {
   return response.json() as Promise<T>;
 };
 
+// ---- Small, centralized normalization helpers ----
+// We avoid changing server "model building", but Postgres can return numeric IDs as strings.
+// Normalize here at the API boundary so the rest of the app can keep using number IDs.
+const toNumber = (v: any): number => (typeof v === 'number' ? v : Number(v));
+
+const normalizePerson = (p: any): Person => ({
+  ...p,
+  id: toNumber(p.id),
+});
+
+const normalizePost = (p: any): Post => ({
+  ...p,
+  id: toNumber(p.id),
+  requiredPerShift: toNumber(p.requiredPerShift ?? p.requiredpershift ?? 1),
+});
+
+const normalizeScheduleResponse = (res: any): ScheduleResponse => ({
+  ...res,
+  assignments: (res?.assignments || []).map((a: any) => ({
+    ...a,
+    personId: toNumber(a.personId),
+    postId: toNumber(a.postId),
+  })),
+  bwAssignments: (res?.bwAssignments || []).map((a: any) => ({
+    ...a,
+    personId: toNumber(a.personId),
+  })),
+  kitchenAssignments: (res?.kitchenAssignments || []).map((a: any) => ({
+    ...a,
+    personId: toNumber(a.personId),
+  })),
+  escortAssignments: (res?.escortAssignments || []).map((a: any) => ({
+    ...a,
+    personId: toNumber(a.personId),
+  })),
+  esAssignments: (res?.esAssignments || []).map((es: any) => ({
+    ...es,
+    personIds: (es?.personIds || []).map((pid: any) => toNumber(pid)),
+  })),
+});
+
 type AddPersonPayload = {
   name: string;
   gender: Person['gender'];
@@ -35,6 +92,9 @@ type AddPersonPayload = {
   limitedAbility: boolean;
   standingExemption: boolean;
   duelGuard: boolean;
+  nightGuardExemption: boolean;
+  asthmaExemption: boolean;
+  kitchenExemption: boolean;
 };
 
 type AddPostPayload = {
@@ -48,13 +108,40 @@ type ScheduleResponse = {
   assignments?: Assignment[];
   bwAssignments?: BWAssignment[];
   esAssignments?: ESGroupAssignment[];
+  kitchenAssignments?: KitchenAssignment[];
+  escortAssignments?: EscortAssignment[];
+  rasarAssignments?: RasarAssignment[];
+  escort400Assignments?: Escort400Assignment[];
+  kitchenSettings?: KitchenSettings;
+  escortSettings?: EscortSettings;
   error?: string;
+  missingCount?: number;
+  violations?: Array<{ personId: number; message: string }>;
 };
 
 type ScheduleSnapshot = {
   assignments: Assignment[];
   bwAssignments: BWAssignment[];
   esAssignments: ESGroupAssignment[];
+  kitchenAssignments?: KitchenAssignment[];
+  escortAssignments?: EscortAssignment[];
+  rasarAssignments?: RasarAssignment[];
+  escort400Assignments?: Escort400Assignment[];
+  kitchenSettings?: KitchenSettings;
+  escortSettings?: EscortSettings;
+};
+
+export type JusticeRow = {
+  personId: number;
+  name: string;
+  guardsHours: number;
+  bwHours: number;
+  kitchenHours: number;
+  escortHours: number;
+  rasarHours: number;
+  escort400Hours: number;
+  customHours?: number;
+  totalHours: number;
 };
 
 export const register = (email: string, password: string) =>
@@ -84,25 +171,25 @@ export const addConstraint = (body: Omit<Constraint, 'id'>) =>
 export const deleteConstraint = (id: number) =>
   request<{ ok: boolean }>(`/constraints/${id}`, { method: 'DELETE' });
 
-export const fetchPeople = () => request<Person[]>('/people');
+export const fetchPeople = async () => (await request<Person[]>('/people')).map(normalizePerson);
 
 export const addPerson = (body: AddPersonPayload) =>
   request<Person>('/people', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }).then(normalizePerson);
 
 export const deletePerson = (id: number) => request<{ ok: boolean }>(`/people/${id}`, { method: 'DELETE' });
 
-export const fetchPosts = () => request<Post[]>('/posts');
+export const fetchPosts = async () => (await request<Post[]>('/posts')).map(normalizePost);
 
 export const addPost = (body: AddPostPayload) =>
   request<Post>('/posts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }).then(normalizePost);
 
 export const deletePost = (id: number) => request<{ ok: boolean }>(`/posts/${id}`, { method: 'DELETE' });
 
@@ -113,6 +200,12 @@ export const generateSchedule = (
   esAssignments: ESGroupAssignment[] = [],
   existingAssignments: ExistingAssignment[] = [],
   existingBwAssignments: BWAssignment[] = [],
+  existingKitchenAssignments: KitchenAssignment[] = [],
+  existingEscortAssignments: EscortAssignment[] = [],
+  existingRasarAssignments: RasarAssignment[] = [],
+  existingEscort400Assignments: Escort400Assignment[] = [],
+  kitchenSettings: KitchenSettings = { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
+  escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
   constraints: Constraint[] = []
 ) =>
   request<ScheduleResponse>('/schedule/generate', {
@@ -125,11 +218,100 @@ export const generateSchedule = (
       esAssignments,
       existingAssignments,
       existingBwAssignments,
+      existingKitchenAssignments,
+      existingEscortAssignments,
+      existingRasarAssignments,
+      existingEscort400Assignments,
+      kitchenSettings,
+      escortSettings,
       constraints,
     }),
-  });
+  }).then(normalizeScheduleResponse);
 
-export const clearSchedule = () => request<{ ok: boolean }>('/schedule/clear', { method: 'DELETE' });
+export const generateGuardsSchedule = (
+  startISO: string,
+  endISO: string,
+  shiftOverrides: { postId: number; day: string; shiftLabel: string; requiredPerShift: number }[] = [],
+  esAssignments: ESGroupAssignment[] = [],
+  existingAssignments: ExistingAssignment[] = [],
+  existingBwAssignments: BWAssignment[] = [],
+  existingKitchenAssignments: KitchenAssignment[] = [],
+  existingEscortAssignments: EscortAssignment[] = [],
+  existingRasarAssignments: RasarAssignment[] = [],
+  existingEscort400Assignments: Escort400Assignment[] = [],
+  kitchenSettings: KitchenSettings = { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
+  escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
+  constraints: Constraint[] = [],
+  allowPartial: boolean = false
+) =>
+  request<ScheduleResponse>('/schedule/generate-guards', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      startISO,
+      endISO,
+      shiftOverrides,
+      esAssignments,
+      existingAssignments,
+      existingBwAssignments,
+      existingKitchenAssignments,
+      existingEscortAssignments,
+      existingRasarAssignments,
+      existingEscort400Assignments,
+      kitchenSettings,
+      escortSettings,
+      constraints,
+      allowPartial,
+    }),
+  }).then(normalizeScheduleResponse);
+
+export const generateKitchenSchedule = (
+  guardsStartISO: string,
+  guardsEndISO: string,
+  kitchenDay: string,
+  esAssignments: ESGroupAssignment[] = [],
+  existingAssignments: ExistingAssignment[] = [],
+  existingBwAssignments: BWAssignment[] = [],
+  existingKitchenAssignments: KitchenAssignment[] = [],
+  existingEscortAssignments: EscortAssignment[] = [],
+  existingRasarAssignments: RasarAssignment[] = [],
+  existingEscort400Assignments: Escort400Assignment[] = [],
+  kitchenSettings: KitchenSettings = { shifts: [{ id: 'default', start: '06:00', end: '21:00', required: 36 }] },
+  escortSettings: EscortSettings = { requiredShift1: 4, requiredShift2: 4, requiredShift3: 4, requiredShift4: 4 },
+  constraints: Constraint[] = [],
+  allowPartial: boolean = false
+) =>
+  request<ScheduleResponse>('/schedule/generate-kitchen', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      startISO: guardsStartISO,
+      endISO: guardsEndISO,
+      kitchenDay,
+      esAssignments,
+      existingAssignments,
+      existingBwAssignments,
+      existingKitchenAssignments,
+      existingEscortAssignments,
+      existingRasarAssignments,
+      existingEscort400Assignments,
+      kitchenSettings,
+      escortSettings,
+      constraints,
+      allowPartial,
+    }),
+  }).then(normalizeScheduleResponse);
+
+export const clearSchedule = (
+  mode: 'all' | 'guards' | 'kitchen' | 'rasar' = 'all',
+  start?: string,
+  end?: string
+) => {
+  const params = new URLSearchParams({ mode });
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  return request<{ ok: boolean }>(`/schedule/clear?${params.toString()}`, { method: 'DELETE' });
+};
 
 export const fetchLastSchedule = () => request<ScheduleSnapshot>('/schedule/last');
 
@@ -142,14 +324,101 @@ export const fetchHistoryPeriods = () =>
 export const fetchScheduleByPeriod = (start: string, end: string) =>
   request<ScheduleSnapshot>(`/schedule/history?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
 
+export const generateRasarSchedule = (
+  rasarStartISO: string,
+  rasarEndISO: string,
+  esAssignments: ESGroupAssignment[] = [],
+  existingAssignments: Assignment[] = [],
+  existingBwAssignments: BWAssignment[] = [],
+  existingKitchenAssignments: KitchenAssignment[] = [],
+  existingEscortAssignments: EscortAssignment[] = [],
+  kitchenSettings: KitchenSettings,
+  existingRasarAssignments: RasarAssignment[] = [],
+  constraints: Constraint[] = [],
+  rasarOverrides: RasarOverride[] = [],
+  existingEscort400Assignments: Escort400Assignment[] = [],
+  escort400Overrides: Escort400Override[] = [],
+  allowPartial: boolean = false
+) =>
+  request<ScheduleResponse>('/schedule/generate-rasar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      // Server expects startISO/endISO; we also send rasarStartISO/rasarEndISO for backward compatibility.
+      startISO: rasarStartISO,
+      endISO: rasarEndISO,
+      rasarStartISO,
+      rasarEndISO,
+      esAssignments,
+      existingAssignments,
+      existingBwAssignments,
+      existingKitchenAssignments,
+      existingEscortAssignments,
+      kitchenSettings,
+      existingRasarAssignments,
+      constraints,
+      rasarOverrides,
+      existingEscort400Assignments,
+      escort400Overrides,
+      allowPartial,
+    }),
+  });
+
+export const saveRasarSchedule = (rasarAssignments: RasarAssignment[], escort400Assignments: Escort400Assignment[]) =>
+  request<{ ok: boolean; error?: string; violations?: Array<{ personId: number; message: string }> }>(
+    '/schedule/save-rasar',
+    {
+      method: 'POST',
+      body: JSON.stringify({ rasarAssignments, escort400Assignments }),
+    }
+  );
+
 export const saveAllSchedules = (
   assignments: Assignment[],
   bwAssignments: BWAssignment[],
   esAssignments: ESGroupAssignment[],
+  kitchenAssignments: KitchenAssignment[],
+  escortAssignments: EscortAssignment[],
+  kitchenSettings: KitchenSettings,
+  escortSettings: EscortSettings,
   start: string,
   end: string
 ) =>
   request<{ ok: boolean; error?: string }>('/schedule/save-all', {
     method: 'POST',
-    body: JSON.stringify({ assignments, bwAssignments, esAssignments, start, end }),
+    body: JSON.stringify({
+      assignments,
+      bwAssignments,
+      esAssignments,
+      kitchenAssignments,
+      escortAssignments,
+      kitchenSettings,
+      escortSettings,
+      start,
+      end,
+    }),
   });
+
+export const fetchJustice = (params: { mode: 'all' | 'range'; startISO?: string; endISO?: string }) => {
+  const qs = new URLSearchParams();
+  qs.set('mode', params.mode);
+  if (params.mode === 'range') {
+    if (params.startISO) qs.set('startISO', params.startISO);
+    if (params.endISO) qs.set('endISO', params.endISO);
+  }
+  return request<{ rows: JusticeRow[] }>(`/schedule/justice?${qs.toString()}`);
+};
+
+export const getCustomHours = () => request<CustomHours[]>('/custom-hours');
+export const getCustomHoursByPerson = (personId: number) => request<CustomHours[]>(`/custom-hours/person/${personId}`);
+export const createCustomHours = (personId: number, date: string, reason: string, hours: number) =>
+  request<CustomHours>('/custom-hours', {
+    method: 'POST',
+    body: JSON.stringify({ personId, date, reason, hours }),
+  });
+export const updateCustomHours = (id: number, date: string, reason: string, hours: number) =>
+  request<{ ok: boolean }>(`/custom-hours/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ date, reason, hours }),
+  });
+export const deleteCustomHours = (id: number) => request<{ ok: boolean }>(`/custom-hours/${id}`, { method: 'DELETE' });
